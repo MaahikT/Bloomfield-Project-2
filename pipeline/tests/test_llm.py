@@ -78,18 +78,30 @@ def test_env_can_override_models_and_provider(bcon, monkeypatch):
     assert api.calls[0][2]["model"] == "my-strong-model"
 
 
+def _retry_cfg(n):
+    cfg = client.load_reader_config()
+    cfg.setdefault("llm", {})["max_retries"] = n       # exercise the mechanism, not the shipped default
+    return cfg
+
+
 def test_retries_rate_limits_then_succeeds(bcon, monkeypatch):
     api = use_api(monkeypatch, [(429, {"error": {"message": "slow down"}}, {"retry-after": "1"}),
                                 (503, {}, {}), requests.Timeout("t"), ok_anthropic()])
-    text, *_ = client.call_llm("extract", "s", "t", 100, con=bcon)
+    text, *_ = client.call_llm("extract", "s", "t", 100, con=bcon, cfg=_retry_cfg(5))
     assert text == '{"a": 1}' and len(api.calls) == 4
 
 
 def test_gives_up_after_five_retries(bcon, monkeypatch):
     api = use_api(monkeypatch, [(500, {}, {})])
     with pytest.raises(client.LLMError, match="5 retries"):
-        client.call_llm("extract", "s", "t", 100, con=bcon)
+        client.call_llm("extract", "s", "t", 100, con=bcon, cfg=_retry_cfg(5))
     assert len(api.calls) == 6          # first try + 5 retries
+
+
+def test_shipped_retry_default_is_one_for_money_safety():
+    cfg = client.load_reader_config()
+    assert int((cfg.get("llm") or {}).get("max_retries", 5)) == 1   # every billable attempt stays reserved
+    assert float(cfg.get("weekly_cost_cap_usd", 10)) == 9.0         # user's "under $10" ceiling minus margin
 
 
 def test_bad_key_is_not_retried_and_key_never_shown(bcon, monkeypatch):
