@@ -74,7 +74,9 @@ def test_task_picks_cheap_or_strong_model(bcon, monkeypatch):
 def test_env_can_override_models_and_provider(bcon, monkeypatch):
     monkeypatch.setenv("LLM_MODEL_STRONG", "my-strong-model")
     api = use_api(monkeypatch, [ok_anthropic()])
-    client.call_llm("extract", "s", "t", 100, con=bcon)
+    cfg = client.load_reader_config()   # an overridden model needs an exact (test) price, like any model
+    cfg["prices_per_million_tokens"]["my-strong-model"] = {"input": 1.0, "output": 5.0}
+    client.call_llm("extract", "s", "t", 100, con=bcon, cfg=cfg)
     assert api.calls[0][2]["model"] == "my-strong-model"
 
 
@@ -129,13 +131,11 @@ def test_an_answered_call_without_usage_numbers_is_charged_at_worst_case(bcon, m
     assert (i, o) == (rows[0][0], 1000)
 
 
-def test_unknown_model_is_priced_at_the_highest_listed_rate():
-    # fail-closed pricing: an unlisted model costs the table's MAX, never a cheap guess
+def test_unknown_model_is_refused_until_it_has_an_exact_price():
+    # fail-closed: with dollars at stake an unpriced model is rejected, never guessed
     cfg = client.load_reader_config()
-    table = cfg["prices_per_million_tokens"]
-    pin, pout = cost.get_prices("some-model-not-in-the-table", cfg)
-    assert pin == max(float(e["input"]) for e in table.values()) / 1_000_000
-    assert pout == max(float(e["output"]) for e in table.values()) / 1_000_000
+    with pytest.raises(ValueError, match="no exact price"):
+        cost.get_prices("some-model-not-in-the-table", cfg)
     # a listed model still gets its own price (the verified U-M rate here)
     gpin, gpout = cost.get_prices("gpt-4o-mini", cfg)
     assert (gpin, gpout) == (0.15 / 1_000_000, 0.60 / 1_000_000)
@@ -189,7 +189,8 @@ def test_bloomfield_material_is_never_sent_by_default(bcon, monkeypatch):
 # ---- cost ----
 def test_cost_math_and_usage_log(bcon, monkeypatch):
     use_api(monkeypatch, [ok_anthropic(i=1_000_000, o=1_000_000)])
-    cfg = make_cfg(prices_per_million_tokens={"default": {"input": 2.0, "output": 10.0}})
+    cfg = make_cfg(prices_per_million_tokens={"claude-haiku-5-5": {"input": 2.0, "output": 10.0},
+                                              "claude-sonnet-5-5": {"input": 2.0, "output": 10.0}})
     r = client.call_llm_detailed("extract", "s", "t", 100, con=bcon, cfg=cfg)
     assert r.cost_usd == pytest.approx(12.0)
     assert cost.weekly_spend(bcon) == pytest.approx(12.0)
