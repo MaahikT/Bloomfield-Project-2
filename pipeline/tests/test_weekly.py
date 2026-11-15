@@ -148,6 +148,21 @@ def test_office_is_shown_by_default_and_can_be_hidden(tmp_path):
     assert "Property type" not in row
 
 
+def test_zero_signal_properties_are_scored_and_kept_not_dropped(tmp_path):
+    """Score EVERYTHING: a property with no signals and no context is still scored and stored -
+    'nothing found yet' is an honest, queryable result - it just stays off the ranked list."""
+    con = open_db(tmp_path / "t.duckdb")
+    weekly.create_tables(con)
+    _add(con, "recorded_loans", record_id="quiet1", loan_kind="refinance", recording_date=date(2010, 1, 1),
+         property_address="1 Quiet Way", state="MI", amount=5e6, grantee="Bank", grantor="Owner LLC")
+    run_id = weekly.run(con, eq.load_equation_config(), date(2026, 11, 2))
+    row = con.execute("SELECT score, shown, filter_reason, rank FROM weekly_flags WHERE run_id = ?", [run_id]).fetchone()
+    assert row is not None, "a zero-signal property must still be scored and stored, never silently dropped"
+    score, shown, reason, rank = row
+    assert score == 0 and not shown and rank is None
+    assert reason == "no distress signals or context yet (missing data is not proof of absence)"
+
+
 def test_properties_known_only_from_public_loan_data_are_listed_not_hidden(tmp_path):
     """Real SEC data gives loans with no early warning signs (score 0). They pass the filters, so they must be listed."""
     con = open_db(tmp_path / "t.duckdb")
