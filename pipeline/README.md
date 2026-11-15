@@ -428,3 +428,31 @@ python -m collectors.discover --report
 If the network blocks NETR, save the county page from a browser and use
 `--from-html saved_page.html --state MI --county "Washtenaw County"`. Screened sites are only candidates:
 a person confirms each site's terms and adds its search settings before it becomes automatic.
+
+## The weekly run inside the dashboard (optional scheduler)
+
+The dashboard can run the whole weekly workflow by itself: collectors, then the AI reader, then the
+matcher, then the scoring run - the same as typing `python -m collectors.run_all`, `python -m reader.batch`,
+`python -m matcher` and `python -m scorer.weekly` in order.
+
+It runs as a background thread INSIDE the dashboard's process, not as a second service or a cron job.
+DuckDB allows exactly one process to have the database open for reading and writing (many threads inside
+that process are fine - appends never conflict), so a second process would lose the database file lock
+and fail. See `dashboard/scheduler.py`.
+
+OFF by default. Turn it on only after the team has settled source permissions (keep the NETR approval
+reply on file) and the rules for showing real records in the app.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `BLOOMFIELD_SCHEDULER` | off | `1` starts the weekly collector thread |
+| `BLOOMFIELD_SCHEDULER_INTERVAL_HOURS` | `168` | time between runs (168 h = weekly) |
+| `BLOOMFIELD_SCHEDULER_FIRST_DELAY_SECONDS` | `3600` | boot grace before the first run |
+| `BLOOMFIELD_SCHEDULER_ONLY` | all | optional collector subset, e.g. `inbox,edgar` |
+
+The reader step uses the configured LLM key and the repo's spending caps; with no key it is skipped
+with a warning and the rest of the cycle still runs. Results land in `collector_runs` and
+`weekly_runs`, same as a manual run, and the dashboard shows the new week on its next page load.
+
+Reminder: NETR Online's robots.txt sets `Crawl-delay: 10`, and `config/sources.yaml` now honors it
+(`domains: publicrecords.netronline.com`).
