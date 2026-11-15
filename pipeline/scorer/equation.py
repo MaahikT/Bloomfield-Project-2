@@ -149,6 +149,8 @@ class Result:
     late: float = 0.0
     late_why: list = field(default_factory=list)
     standouts: list = field(default_factory=list)
+    applicable: dict = field(default_factory=dict)
+    rescale: float = 1.0
     counters: list = field(default_factory=list)
     score: float = 0.0
     tier: str = "low"
@@ -347,11 +349,35 @@ def creative_signals(p: Property, facts: dict, cfg: dict, as_of: date, rents, ma
         cr.Sig("I", I.value, I.known, I.why, cfg["inspection_gap"]["reliability"], I.counter),
         cr.occupancy_slide(p, ptype, facts.get("state"), c["occupancy_slide"], extra.get("ops", {}),
                            extra.get("mkt_occ", {}), as_of),
-        cr.income_coverage(p, c["income_coverage"], extra.get("ops", {}), as_of),
+        cr.income_erosion(p, c["income_erosion"], extra.get("ops", {}), as_of),
         cr.cost_squeeze(p, c["cost_squeeze"], extra.get("ops", {}), as_of),
         cr.concession_creep(p, c["concession_creep"], extra.get("concessions", {}), as_of),
         cr.licensing_quality(p, c["licensing_quality"], extra.get("licenses", {}), as_of),
     ]
+
+
+def applicable_terms(p: Property, cfg: dict, as_of: date) -> dict:
+    """Which early terms CAN apply to this property (any industry).
+
+    Not applicable is different from "no data yet": a construction-loan clock cannot apply to a building that
+    was finished long ago with no construction financing, and an opening date cannot apply to a building that
+    has been open for years. Unknown-but-possible terms stay applicable (and simply score 0 until data arrives).
+    """
+    a = cfg["applicability"]
+    kinds = {(r.get("loan_kind") or "").lower() for r in p.recorded_loans}
+    pre_opening = any(pr.get("stale_candidate") or pr.get("page_still_unopened") or (pr.get("months_overdue") or 0) > 0
+                      for pr in p.projects)
+    permits = [f for f in p.filings if filing_kind(f) in ("building_permit", "certificate_of_occupancy")]
+    recent_build = any((d := filing_date(f)) and months_between(d, as_of) <= a["recent_construction_months"]
+                       for f in permits)
+    deadlines = [as_date(pr.get("opening_deadline")) for pr in p.projects if pr.get("opening_deadline")]
+    recent_opening = any(d and months_between(d, as_of) <= a["recent_opening_months"] for d in deadlines)
+    return {
+        "loan_clock": "construction" in kinds or pre_opening or recent_build,
+        # a construction loan means something is being built: its opening date is unknown, not inapplicable
+        "opening_delay": pre_opening or recent_opening or "construction" in kinds or recent_build,
+        "creative": True,
+    }
 
 
 def score_property(p: Property, cfg: dict, as_of: date, rents: dict, market: dict, inspections: dict,
@@ -385,7 +411,13 @@ def score_property(p: Property, cfg: dict, as_of: date, rents: dict, market: dic
             r.counters.append(part.counter)
     r.counters += counters
     # Downside extreme: each counter-signal cuts the early points.
-    r.early = early * cfg["counter_signal"]["factor"] ** len(r.counters)
+    early *= cfg["counter_signal"]["factor"] ** len(r.counters)
+    # Rescale for terms that cannot apply (e.g. no construction financing on a long-open building), at most x max_rescale.
+    r.applicable = applicable_terms(p, cfg, as_of)
+    w_all = sum(w[k] for k in parts)
+    w_app = sum(w[k] for k in parts if r.applicable[k])
+    r.rescale = min(cfg["applicability"]["max_rescale"], w_all / w_app) if w_app else 1.0
+    r.early = early * r.rescale
     r.late, r.late_why = late_points(p, facts, cfg["late"], as_of)
     r.score = round(min(cfg["max_score"], r.early + r.late), 1)
     t = cfg["tiers"]
@@ -455,6 +487,8 @@ def explain(r: Result, cfg: dict) -> dict:
         "anti_fluke": f"{r.showing} early signal(s) showing -> keeps {r.corroboration:.0%} of early points",
         "standouts": r.standouts,
         "counter_signals": r.counters,
+        "not_applicable": [k for k, ok in r.applicable.items() if not ok],
+        "rescale": round(r.rescale, 2),
         "early_points": round(r.early, 1),
         "late_points": round(r.late, 1),
         "late_why": r.late_why,

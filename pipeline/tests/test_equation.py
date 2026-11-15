@@ -172,3 +172,14 @@ def test_opened_but_construction_loan_still_outstanding_is_boosted(cfg):
 def test_filings_after_the_scoring_date_are_ignored(cfg):
     p = Property("a", filings=[{"file_id": "f1", "filing_type": "foreclosure_notice", "filing_date": date(2027, 1, 1)}])
     assert score(p, cfg).late == 0
+
+
+def test_terms_that_cannot_apply_are_rescaled_at_most_2x(cfg):
+    """A long-open building with no construction financing: L and O can't apply, so C is scaled up (max 2x)."""
+    filings = [{"file_id": "co", "filing_type": "certificate_of_occupancy", "filing_date": date(2015, 1, 1)}]
+    old = Property("a", filings=filings, projects=[project(stale_candidate=False, page_still_unopened=False,
+                                                           months_overdue=0)])
+    assert eq.applicable_terms(old, cfg, AS_OF) == {"loan_clock": False, "opening_delay": False, "creative": True}
+    building = Property("b", recorded_loans=[construction(date(2024, 1, 1))])
+    assert all(eq.applicable_terms(building, cfg, AS_OF).values())      # no website yet = unknown, not inapplicable
+    assert min(cfg["applicability"]["max_rescale"], 100 / 30) == 2.0

@@ -33,11 +33,11 @@ def test_occupancy_slide_is_measured_against_the_market(c):
     assert vs_mkt.value == pytest.approx((0.13 - 0.08) / 0.15, abs=0.01) and vs_mkt.q == 0.9
 
 
-def test_income_coverage_uses_dscr_and_noi_erosion(c):
-    o = ops((date(2019, 12, 31), 12, None, None, None, 4_000_000, 3_200_000),
-            (date(2022, 3, 31), 12, None, None, None, 1_400_000, 3_200_000))
-    v = cr.income_coverage(prop(), c["income_coverage"], o, AS_OF)
-    assert v.value == 1.0 and "DSCR 0.44x" in v.why
+def test_income_erosion_uses_noi_only_no_dscr(c):
+    o = ops((date(2019, 12, 31), 12, None, None, None, 4_000_000, 3_000_000),
+            (date(2022, 3, 31), 12, None, None, None, 3_000_000, 3_000_000))
+    v = cr.income_erosion(prop(), c["income_erosion"], o, AS_OF)
+    assert v.value == pytest.approx(0.25 / 0.5) and "DSCR" not in v.why   # debt service is ignored
 
 
 def test_cost_squeeze(c):

@@ -12,7 +12,7 @@ and C counts in the equation with weight 30:  Early = 50 L + 20 O + 30 C  (then 
     R  rent vs. city           (city rent change - property rent change) / 15 pts       B rent_observations + A market_rents
     I  site inactivity         ramp(days since last city inspection, 60 -> 180)        A permit_inspections
     Q  occupancy slide         (peak occ. in last 36 mo - occ. now - market drop) / 15 pts   B/A operating_metrics + market_occupancy
-    V  income coverage         max( (1.20 - DSCR) / 0.60 ,  NOI drop from peak / 50% )  A operating_metrics (EMMA / public disclosures)
+    V  income erosion          (best-year NOI - NOI now) / best-year NOI / 50%  (no DSCR) A operating_metrics (public disclosures)
     X  cost squeeze            (expense growth - revenue growth since peak NOI) / 15 pts    A operating_metrics
     K  concession creep        (free months per lease now - a year ago) / 2 months      B rent_observations.concession_months
     Lq licensing / care        CMS 1-star 0.8, 2-star 0.5; abuse flag +0.2; state distress 0.8   A licensing_records
@@ -27,7 +27,7 @@ from datetime import date
 from .signals import as_date
 
 CREATIVE_LABELS = {
-    "R": "Rent vs. city", "I": "Site inactivity", "Q": "Occupancy slide", "V": "Income coverage",
+    "R": "Rent vs. city", "I": "Site inactivity", "Q": "Occupancy slide", "V": "Income erosion",
     "X": "Cost squeeze", "K": "Concession creep", "Lq": "Licensing / care quality",
 }
 
@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS operating_metrics (
     revenue        DOUBLE,
     expenses       DOUBLE,
     noi            DOUBLE,
-    debt_service   DOUBLE,       -- annual principal + interest
+    debt_service   DOUBLE,       -- kept for reference only: NOT scored (DSCR needs Trepp, which we don't have)
     source         TEXT,
     file_id        TEXT,
     disclosed_on   DATE          -- when it became public (e.g. EMMA posting date); NULL = period_end
@@ -132,29 +132,23 @@ def occupancy_slide(p, ptype, state, c, ops, mkt_occ, as_of) -> Sig:
 
 
 # ---------------------------------------------------------------------------
-# V: income coverage (DSCR from public disclosures, and NOI erosion)
+# V: income erosion (NOI now vs. its best year in the lookback) - no DSCR: that needs Trepp
 # ---------------------------------------------------------------------------
-def income_coverage(p, c, ops, as_of) -> Sig:
+def income_erosion(p, c, ops, as_of) -> Sig:
     rows = [r for r in _ops(p, ops, as_of) if r.get("noi") is not None]
     if not rows:
         return Sig("V")
     now = rows[-1]
+    now_d = as_date(now["period_end"])
     noi_now = _annual(now, "noi")
-    parts, bits = [], []
-    ds = _annual(now, "debt_service")
-    if ds:
-        dscr = noi_now / ds
-        parts.append(clamp((c["dscr_ok"] - dscr) / (c["dscr_ok"] - c["dscr_full"])))
-        bits.append(f"DSCR {dscr:.2f}x (needs {c['dscr_ok']:.2f}x)")
-    annual = [_annual(r, "noi") for r in rows if (r.get("period_months") or 12) >= 12]
+    annual = [_annual(r, "noi") for r in rows if (r.get("period_months") or 12) >= 12
+              and (now_d - as_date(r["period_end"])).days <= c["lookback_months"] * 30.5]
     peak = max(annual) if annual else None
-    if peak and peak > 0:
-        erosion = (peak - noi_now) / peak
-        parts.append(clamp(erosion / c["full_noi_drop"]))
-        bits.append(f"NOI ${noi_now / 1e6:.2f}M vs. peak ${peak / 1e6:.2f}M ({-erosion:+.0%})")
-    if not parts:
+    if not peak or peak <= 0:
         return Sig("V")
-    return Sig("V", max(parts), True, "; ".join(bits), c["reliability"])
+    erosion = (peak - noi_now) / peak
+    return Sig("V", clamp(erosion / c["full_noi_drop"]), True,
+               f"NOI ${noi_now / 1e6:.2f}M/yr vs. best year ${peak / 1e6:.2f}M ({-erosion:+.0%})", c["reliability"])
 
 
 # ---------------------------------------------------------------------------

@@ -72,11 +72,11 @@ creative:
     reliability: 0.90
     no_market_penalty: 0.70     # no market data: compare with its own peak only, trusted 70% as much
     counter_rise: 0.05          # occupancy UP 5+ points = counter-signal
-  income_coverage:              # V = max( (dscr_ok - DSCR) / (dscr_ok - dscr_full),  NOI drop from peak / full_noi_drop )
-    dscr_ok: 1.20               # typical covenant
-    dscr_full: 0.60
+  income_erosion:               # V = (best-year NOI in lookback - NOI now) / best-year NOI / full_noi_drop
+                                # (no DSCR: debt service needs Trepp, which we don't have)
+    lookback_months: 48
     full_noi_drop: 0.50         # NOI down 50% from its best year = 1
-    reliability: 1.00           # audited / disclosed numbers
+    reliability: 1.00           # disclosed / audited numbers
   cost_squeeze:                 # X = (expense growth - revenue growth since the best year) / full_gap
     full_gap: 0.15
     reliability: 0.60           # often explained by one-off costs
@@ -113,6 +113,19 @@ counter_signal:
   factor: 0.85                 # each counter-signal keeps 85% of the early points
   rent_beats_city_by: 0.15     # property rent doing 15+ points BETTER than its city
   inspected_within_days: 14    # a city inspection in the last 2 weeks = the site is busy
+
+# ---- APPLICABILITY (any industry) -------------------------------------------------
+# A term that CANNOT apply (not the same as "no data yet") is taken out, and the remaining weights are
+# scaled up to fill 100 - but by at most max_rescale, so creative signals alone can't max out a score.
+#   loan clock applies if: a construction loan is recorded, the project is pre-opening/late, or a building
+#                          permit / certificate of occupancy is within recent_construction_months
+#   opening delay applies if: the project is pre-opening/late, its opening date is within recent_opening_months,
+#                          or something is being built (construction loan / recent permit)
+#   Early = (sum over applicable terms) x min(max_rescale, 100 / applicable weights)
+applicability:
+  recent_construction_months: 60
+  recent_opening_months: 36
+  max_rescale: 2.0
 
 # ---- LATE SIGNALS: already happened, so they barely move the rank -----------
 late:
@@ -152,6 +165,10 @@ deal_quality:
   demand_problem: -15        # rent falling faster than the city: may be weak demand
   off_market: 10             # no public sale or auction yet
   public_sale: -10           # already at a public sale or auction, so others can see it
+  # Equity cushion: what's owed / estimated value (valuation below). Applies to any property type with operating data.
+  ltv_cushion: 15            # LTV <= 75%: real cushion
+  ltv_thin: 5                # LTV 75-100%
+  ltv_underwater: -10        # LTV > 100%: owed more than it's worth
 
 # ---- WEEK-OVER-WEEK -----------------------------------------------------------------
 changes:
@@ -161,3 +178,28 @@ changes:
 goal:
   annual_deal_volume: 300000000
   last_year_volume: 200000000
+
+# ---- VALUATION (any property type) - scorer/valuation.py ---------------------------
+# Stabilized NOI (Bloomfield's method) = best full-year revenue in the lookback - latest 12-month expenses
+# Value = NOI / cap rate for the property type.  Stress cases: run-rate expenses at cap + 1%; today's NOI at cap + 2%.
+# Recovery to a debt buyer = value x (1 - closing) - legal/month x months + reserves held for lenders
+# Bid for the target IRR = recovery / (1 + target) ^ (months / 12)
+valuation:
+  lookback_months: 48
+  cap_rates:               # PLACEHOLDERS to confirm with Bloomfield (Senior housing 8.0% is Bloomfield's own)
+    Multifamily: 0.055
+    Student housing: 0.060
+    Senior housing: 0.080
+    Hotel: 0.090
+    Industrial: 0.060
+    Self storage: 0.060
+    Retail: 0.075
+    Office: 0.085
+    Mixed use: 0.070
+    default: 0.075
+  run_rate_cap_add: 0.010
+  downside_cap_add: 0.020
+  months_to_exit: 24
+  legal_per_month: 25000
+  closing_pct: 0.03
+  target_irr: 0.15

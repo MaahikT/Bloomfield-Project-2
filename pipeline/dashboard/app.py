@@ -170,6 +170,9 @@ def page_detail(con, run_id):
     c[1].metric("Tier", TIER_ICON[r["tier"]])
     c[2].metric("Deal quality", r["deal_quality"])
     c[3].metric("Loan", money(r["loan_amount"]))
+    if r.get("est_value") and not pd.isna(r["est_value"]):
+        st.caption(f"Estimated stabilized value {money(r['est_value'])} (best-year revenue − latest 12-month expenses, "
+                   f"÷ the {r['property_type']} cap rate) · owed / value {r['ltv']:.0%}")
     if not r["shown"]:
         st.warning(f"Filtered out by settings: {r['filter_reason']}")
     st.info(r["summary"])
@@ -341,7 +344,7 @@ def page_how(con, run_id):
     st.latex(r"\text{Score}=\min\!\left(100,\ \text{Early}\times %s^{\,\#\text{counter-signals}}+\text{Late}\right)" % cs["factor"])
     lc, od, rd, ig = cfg["loan_clock"], cfg["opening_delay"], cfg["rent_decline"], cfg["inspection_gap"]
     c = cfg["creative"]
-    qo, iv, xs, kc, lq = (c["occupancy_slide"], c["income_coverage"], c["cost_squeeze"], c["concession_creep"],
+    qo, iv, xs, kc, lq = (c["occupancy_slide"], c["income_erosion"], c["cost_squeeze"], c["concession_creep"],
                           c["licensing_quality"])
     st.dataframe(pd.DataFrame([
         {"Term": "L · Loan clock", "Weight": w["loan_clock"], "0 → 1": f"{lc['start_months']} → {lc['full_months']} months unpaid, +{lc['per_extension']} per extension, +{lc.get('opened_still_unpaid_bonus', 0)} if the building opened with the loan still outstanding", "From": "Part A recorded_loans"},
@@ -353,7 +356,7 @@ def page_how(con, run_id):
         {"Signal": "R · Rent vs. city", "s = 0 → 1": f"(city rent change − property rent change) ÷ {rd['full_gap']:.0%}", "q": rd["reliability"], "From": "B rent_observations + A market_rents"},
         {"Signal": "I · Site inactivity", "s = 0 → 1": f"{ig['start_days']} → {ig['full_days']} days since a city inspection", "q": ig["reliability"], "From": "A permit_inspections"},
         {"Signal": "Q · Occupancy slide", "s = 0 → 1": f"(peak occ. last {qo['lookback_months']} mo − occ. now − market drop) ÷ {qo['full_gap']:.0%}", "q": qo["reliability"], "From": "operating_metrics + market_occupancy"},
-        {"Signal": "V · Income coverage", "s = 0 → 1": f"max((DSCR {iv['dscr_ok']} − DSCR) ÷ {iv['dscr_ok'] - iv['dscr_full']:.2f}, NOI drop from peak ÷ {iv['full_noi_drop']:.0%})", "q": iv["reliability"], "From": "operating_metrics (EMMA / public disclosures)"},
+        {"Signal": "V · Income erosion", "s = 0 → 1": f"NOI drop from its best year (last {iv['lookback_months']} mo) ÷ {iv['full_noi_drop']:.0%}", "q": iv["reliability"], "From": "operating_metrics (public disclosures; no DSCR / Trepp)"},
         {"Signal": "X · Cost squeeze", "s = 0 → 1": f"(expense growth − revenue growth since best year) ÷ {xs['full_gap']:.0%}", "q": xs["reliability"], "From": "operating_metrics"},
         {"Signal": "K · Concession creep", "s = 0 → 1": f"(free months per lease now − a year ago) ÷ {kc['full_months']}", "q": kc["reliability"], "From": "B rent_observations"},
         {"Signal": "Lq · Licensing / care", "s = 0 → 1": "CMS 1-star 0.8 · 2-star 0.5 · abuse +0.2 · state distress 0.8", "q": lq["reliability"], "From": "A licensing_records"},

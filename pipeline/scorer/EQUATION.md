@@ -22,6 +22,7 @@ All numbers live in `config/equation.yaml`. Code: `scorer/equation.py`. Tests: `
 C     = 1 − Π (1 − q_j · s_j)        over the creative signals j        (noisy-or: several weak signals add up, never past 1)
 Early = Σ  weight × strength × (1.2 if STANDOUT else C(k))      over L (50), O (20), C (30)
 Early = Early × 0.85 ^ (number of COUNTER-SIGNALS)
+Early = Early × min(2.0, 100 ÷ weights of the terms that CAN apply)      (applicability)
 Score = min(100, Early + Late)
 ```
 
@@ -39,7 +40,7 @@ Score = min(100, Early + Late)
 | **R** rent vs. city | (city rent change − property rent change) ÷ 15 pts | 0.9 | B `rent_observations` + A `market_rents` |
 | **I** site inactivity | 60 → 180 days since a city inspection on an open permit | 0.8 | A `permit_inspections` |
 | **Q** occupancy slide | (peak occupancy in the last 36 months − occupancy now − market drop) ÷ 15 pts | 0.9 (×0.7 with no market data) | `operating_metrics` + `market_occupancy` |
-| **V** income coverage | max( (1.20 − DSCR) ÷ 0.60 , NOI drop from its best year ÷ 50% ) | 1.0 | `operating_metrics` (EMMA / public disclosures, not Trepp) |
+| **V** income erosion | (best-year NOI in the last 48 months − NOI now) ÷ best-year NOI ÷ 50%. **No DSCR** (debt service needs Trepp, which we don't have) | 1.0 | `operating_metrics` (public disclosures) |
 | **X** cost squeeze | (expense growth − revenue growth since the best year) ÷ 15 pts | 0.6 | `operating_metrics` |
 | **K** concession creep | (free months per lease now − a year ago) ÷ 2 months | 0.7 | B `rent_observations.concession_months` |
 | **Lq** licensing / care | CMS 1-star 0.8, 2-star 0.5; abuse flag +0.2; state license distress 0.8 | 0.6 | A `licensing_records` |
@@ -50,6 +51,25 @@ Related creative signals (e.g. falling occupancy and falling income) count as at
 
 **Tiers:** Hot ≥ 50 (call this week) · Watch ≥ 25 · Low below that.
 **Stage:** *Early* = no late filings yet (Bloomfield gets there first). *Ready to act* = a court filing or lien already exists.
+
+## Applicability (works for any industry)
+A term that **cannot** apply is different from one with **no data yet**:
+- **L** applies if a construction loan is recorded, the project is pre-opening or late, or a building permit / certificate of occupancy is less than 60 months old.
+- **O** applies if the project is pre-opening or late, its opening date is less than 36 months old, or something is being built.
+- **C** always applies.
+
+The weights of the terms that apply are scaled up to fill 100, **at most 2×**. Example: a building open for years with no construction financing has only C (30) → ×2 → creative signals can reach 60 (72 with a standout), never 100 on their own.
+
+## Valuation (any property type) — `scorer/valuation.py`
+```
+Stabilized NOI = best full-year revenue (last 48 months) − latest 12-month expenses       (Bloomfield's method)
+Value          = Stabilized NOI ÷ cap rate for the property type                           (config: valuation.cap_rates)
+Stress cases   = run-rate expenses at cap + 1%;  today's NOI at cap + 2%
+LTV            = what's owed ÷ value          → deal quality: ≤75% +15 · 75–100% +5 · >100% −10
+Recovery       = value × (1 − 3% closing) − $25K/month legal × 24 months + reserves held for lenders
+Bid            = recovery ÷ (1 + 15% target IRR) ^ 2
+```
+Sale comps are data, not formulas: value = Σ units × comparable $ per unit.
 
 ## Extremes: STANDOUT and COUNTER-SIGNAL
 - **STANDOUT (upside extreme):** a signal at 90%+ strength skips the anti-fluke discount and counts 1.2×. Example: a 5-year-old unpaid construction loan alone scores 50 × 1.0 × 1.2 = **60 → Hot**, tagged `STANDOUT` so the researcher knows why it ranks high on a single signal.

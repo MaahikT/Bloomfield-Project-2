@@ -60,6 +60,8 @@ CREATE TABLE IF NOT EXISTS weekly_flags (
     early_points    DOUBLE,
     late_points     DOUBLE,
     deal_quality    INTEGER,
+    est_value       DOUBLE,     -- stabilized value (valuation.py), when operating data exists
+    ltv             DOUBLE,     -- what's owed / est_value
     rank            INTEGER,    -- 1 = top; NULL when filtered out
     shown           BOOLEAN,
     filter_reason   TEXT,
@@ -102,6 +104,8 @@ def create_tables(con) -> None:
     eq.create_equation_tables(con)
     con.execute(SCHEMA)
     con.execute("ALTER TABLE weekly_flags ADD COLUMN IF NOT EXISTS c_creative DOUBLE")
+    con.execute("ALTER TABLE weekly_flags ADD COLUMN IF NOT EXISTS est_value DOUBLE")
+    con.execute("ALTER TABLE weekly_flags ADD COLUMN IF NOT EXISTS ltv DOUBLE")
 
 
 def clean_type(raw) -> str | None:
@@ -161,7 +165,7 @@ def is_public(p) -> bool:
     return any(filing_kind(f) in ("auction_listing", "ucc_sale_notice", "foreclosure_notice") for f in p.filings)
 
 
-def deal_quality(r: eq.Result, ptype, amount, public, cfg) -> tuple[int, list[dict]]:
+def deal_quality(r: eq.Result, ptype, amount, public, cfg, ltv=None) -> tuple[int, list[dict]]:
     q, f = cfg["deal_quality"], cfg["filters"]
     parts = [{"part": "Start", "points": q["starting_points"], "why": "Every flag starts here"}]
     if ptype and ptype not in f["property_types_excluded"]:
@@ -175,6 +179,13 @@ def deal_quality(r: eq.Result, ptype, amount, public, cfg) -> tuple[int, list[di
     if r.R.value >= 0.5 or (by.get("Q") and by["Q"].value >= 0.5 and by["Q"].known):
         parts.append({"part": "Demand", "points": q["demand_problem"],
                       "why": "Rent or occupancy is falling faster than its market"})
+    if ltv is not None:
+        if ltv <= 0.75:
+            parts.append({"part": "Equity cushion", "points": q["ltv_cushion"], "why": f"Owed is {ltv:.0%} of estimated value"})
+        elif ltv <= 1.0:
+            parts.append({"part": "Equity cushion", "points": q["ltv_thin"], "why": f"Thin cushion: owed is {ltv:.0%} of value"})
+        else:
+            parts.append({"part": "Equity cushion", "points": q["ltv_underwater"], "why": f"Underwater: owed is {ltv:.0%} of value"})
     if public:
         parts.append({"part": "Visibility", "points": q["public_sale"], "why": "Already public (auction / sale notice)"})
     else:
@@ -197,8 +208,8 @@ def deal_angles(r: eq.Result, p, ptype) -> list[str]:
         a.append("Site has gone quiet: completion financing may get it moving again.")
     by = {s.code: s for s in r.creative}
     if by.get("V") and by["V"].effective >= 0.5:
-        a.append("Income no longer covers the debt: buy the loan/bonds at a discount, or offer rescue capital "
-                 "sized to the coverage gap.")
+        a.append("Income has fallen sharply from its best year: buy the loan/bonds at a discount, or offer "
+                 "rescue capital to bridge the operating shortfall.")
     if by.get("Q") and by["Q"].effective >= 0.25 or by.get("X") and by["X"].effective >= 0.25:
         a.append("Operating fix (occupancy / staffing costs): pair the capital with an operator or affiliation plan.")
     if by.get("Lq") and by["Lq"].effective >= 0.25:
@@ -243,7 +254,12 @@ def run(con, cfg: dict | None = None, as_of: date | None = None) -> str:
         current = [ln.get("current_balance") for ln in p.cmbs_loans if ln.get("current_balance")]
         amount = max(current) if current else fx.get("loan_amount")   # what's owed now, not the original amount
         shown, reason = passes_filters(ptype, fx.get("state"), amount, cfg["filters"])
-        dq, dparts = deal_quality(r, ptype, amount, is_public(p), cfg)
+        from . import creative as cr
+        from . import valuation as val
+        cases = val.value_cases(cr._ops(p, extra["ops"], as_of), ptype, cfg["valuation"])
+        est_value = cases[0]["value"] if cases else None
+        ltv = amount / est_value if amount and est_value else None
+        dq, dparts = deal_quality(r, ptype, amount, is_public(p), cfg, ltv)
         name = fx.get("property_name") or fx.get("property_address") or p.property_id
         rows.append({
             "run_id": run_id, "property_id": p.property_id, "property_name": name,
@@ -252,7 +268,7 @@ def run(con, cfg: dict | None = None, as_of: date | None = None) -> str:
             "loan_amount": amount, "score": r.score, "tier": r.tier, "stage": r.stage, "flags": eq.flag_text(r),
             "l_loan_clock": r.L.value, "o_opening": r.O.value, "r_rent": r.R.value, "i_inspection": r.I.value, "c_creative": r.C.value,
             "signals_showing": r.showing, "corroboration": r.corroboration, "early_points": round(r.early, 2),
-            "late_points": round(r.late, 2), "deal_quality": dq, "rank": None, "shown": shown,
+            "late_points": round(r.late, 2), "deal_quality": dq, "est_value": est_value, "ltv": ltv, "rank": None, "shown": shown,
             "filter_reason": reason, "explanation": json.dumps(eq.explain(r, cfg)), "deal_parts": json.dumps(dparts),
             "angles": json.dumps(deal_angles(r, p, ptype)), "context": json.dumps(context_facts(p)),
             "summary": summary(r, name),
