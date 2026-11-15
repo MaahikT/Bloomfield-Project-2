@@ -98,10 +98,21 @@ def test_gives_up_after_five_retries(bcon, monkeypatch):
     assert len(api.calls) == 6          # first try + 5 retries
 
 
-def test_shipped_retry_default_is_one_for_money_safety():
+def test_shipped_retry_default_is_zero_for_money_safety():
     cfg = client.load_reader_config()
-    assert int((cfg.get("llm") or {}).get("max_retries", 5)) == 1   # every billable attempt stays reserved
+    assert int((cfg.get("llm") or {}).get("max_retries", 5)) == 0   # no unaccounted retry attempts
     assert float(cfg.get("weekly_cost_cap_usd", 10)) == 9.0         # user's "under $10" ceiling minus margin
+
+
+def test_a_sent_request_with_no_answer_is_charged_at_worst_case(bcon, monkeypatch):
+    api = use_api(monkeypatch, [requests.Timeout("t")])
+    cfg = client.load_reader_config()
+    with pytest.raises(client.LLMError):
+        client.call_llm("extract", "s", "t" * 400, 1000, con=bcon, cfg=cfg)
+    rows = bcon.execute("SELECT input_tokens, output_tokens, file_hash FROM llm_usage").fetchall()
+    assert rows, "an answered-or-not request must never vanish from the ledger"
+    assert rows[0][2] == "unknown-usage-worst-case"
+    assert rows[0][1] == 1000                       # full max output charged
 
 
 def test_bad_key_is_not_retried_and_key_never_shown(bcon, monkeypatch):
