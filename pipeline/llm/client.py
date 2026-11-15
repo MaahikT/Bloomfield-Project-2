@@ -8,7 +8,7 @@ In plain English: every other file that needs the AI calls call_llm(). This file
   * sends the request, retrying politely if the service is busy,
   * records what it cost and saves the answer in the cache.
 
-To switch AI companies, change LLM_PROVIDER in .env (anthropic, gemini or openai_compatible), or add a
+To switch AI companies, change LLM_PROVIDER in .env (openai_responses for Codex, openai_compatible, anthropic or gemini), or add a
 new builder/parser pair below and list it in PROVIDERS. Nothing else in the project needs to change.
 
 The AI here does ONE narrow job per call: it reads the text we give it and returns text.
@@ -102,7 +102,7 @@ def _post_json(url: str, headers: dict, payload: dict, timeout: float):
     return resp.status_code, body, resp.headers
 
 
-KEY_NAMES = {"anthropic": ["ANTHROPIC_API_KEY"], "openai_compatible": ["OPENAI_API_KEY"],
+KEY_NAMES = {"anthropic": ["ANTHROPIC_API_KEY"], "openai_compatible": ["OPENAI_API_KEY"], "openai_responses": ["OPENAI_API_KEY"],
              "gemini": ["GEMINI_API_KEY", "GOOGLE_API_KEY"]}
 
 
@@ -154,6 +154,29 @@ def _parse_openai_compatible(body):
             choice.get("finish_reason") == "length")
 
 
+def _build_openai_responses(model, system_prompt, user_text, max_tokens, cfg, key, task=None):
+    """
+    OpenAI's Responses API (POST /v1/responses). The Codex models are served through this endpoint rather than
+    chat/completions. Same key (OPENAI_API_KEY) and same base address as the other OpenAI provider.
+    """
+    oc = (cfg.get("llm") or {}).get("openai_responses") or (cfg.get("llm") or {}).get("openai_compatible") or {}
+    base = (os.environ.get(oc.get("base_url_env", "LLM_BASE_URL"), "").strip()
+            or oc.get("default_base_url", "https://api.openai.com/v1")).rstrip("/")
+    payload = {"model": model, "instructions": system_prompt, "input": user_text, "max_output_tokens": max_tokens}
+    payload.update((cfg.get("llm") or {}).get("request_params") or {})
+    headers = {"Authorization": f"Bearer {key}", "content-type": "application/json"}
+    return f"{base}/responses", headers, payload
+
+
+def _parse_openai_responses(body):
+    text = body.get("output_text") or "".join(
+        part.get("text", "") for item in body.get("output") or [] if item.get("type") == "message"
+        for part in item.get("content") or [] if part.get("type") in ("output_text", "text"))
+    usage = body.get("usage") or {}
+    cut = (body.get("incomplete_details") or {}).get("reason") == "max_output_tokens"
+    return text, usage.get("input_tokens"), usage.get("output_tokens"), cut
+
+
 def _build_gemini(model, system_prompt, user_text, max_tokens, cfg, key, task=None):
     """
     Google's Gemini API (generateContent). The key travels in a header (never in the web address, so it can
@@ -197,6 +220,7 @@ def _parse_gemini(body):
 PROVIDERS = {
     "anthropic": (_build_anthropic, _parse_anthropic),
     "openai_compatible": (_build_openai_compatible, _parse_openai_compatible),
+    "openai_responses": (_build_openai_responses, _parse_openai_responses),
     "gemini": (_build_gemini, _parse_gemini),
 }
 

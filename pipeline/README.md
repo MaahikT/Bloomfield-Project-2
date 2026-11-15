@@ -124,7 +124,8 @@ Add to `pipeline/.env` (never commit it, never paste a key into chat):
 
 ```
 OPENAI_API_KEY=your-openai-api-key-here    # the placeholder every AI step reads (os.environ["OPENAI_API_KEY"])
-# LLM_PROVIDER=openai_compatible           # the default; or anthropic / gemini (then use that provider's key)
+# LLM_PROVIDER=openai_responses            # the Codex API (default); or openai_compatible / anthropic / gemini
+# LLM_MODEL_CHEAP= / LLM_MODEL_STRONG=     # your Codex model names (verify with: python -m llm.check)
 # LLM_BASE_URL=https://api.openai.com/v1   # default; change it only for another OpenAI-style service
 ```
 

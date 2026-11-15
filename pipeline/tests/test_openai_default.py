@@ -15,8 +15,8 @@ def _clean_env(monkeypatch):
         monkeypatch.delenv(n, raising=False)
 
 
-def test_the_default_provider_is_openai():
-    assert settings.provider_name(settings.load_reader_config()) == "openai_compatible"
+def test_the_default_provider_is_the_codex_api():
+    assert settings.provider_name(settings.load_reader_config()) == "openai_responses"
 
 
 def test_the_key_comes_from_openai_api_key(monkeypatch):
@@ -43,3 +43,16 @@ def test_no_real_key_is_written_anywhere_in_the_project():
             assert not pattern.search(path.read_text(encoding="utf-8", errors="ignore")), path
     example = (ROOT / ".env.example").read_text(encoding="utf-8")
     assert "OPENAI_API_KEY=your-openai-api-key-here" in example
+
+
+def test_codex_requests_use_the_responses_endpoint_and_parse_the_answer():
+    cfg = settings.load_reader_config()
+    url, headers, payload = client._build_openai_responses("gpt-5-codex", "be brief", "hello", 500, cfg, "sk-x")
+    assert url == "https://api.openai.com/v1/responses" and headers["Authorization"] == "Bearer sk-x"
+    assert payload == {"model": "gpt-5-codex", "instructions": "be brief", "input": "hello", "max_output_tokens": 500}
+    body = {"output": [{"type": "reasoning"}, {"type": "message", "content": [{"type": "output_text", "text": '{"a": 1}'}]}],
+            "usage": {"input_tokens": 12, "output_tokens": 4}}
+    assert client._parse_openai_responses(body) == ('{"a": 1}', 12, 4, False)
+    cut = {"output_text": "par", "usage": {}, "incomplete_details": {"reason": "max_output_tokens"}}
+    assert client._parse_openai_responses(cut)[3] is True
+    assert "openai_responses" in client.PROVIDERS
