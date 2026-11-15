@@ -16,6 +16,13 @@ stops at the FIRST of these limits (set in config/agent.yaml under weekly_loop):
   * max_search_calls   - total web searches this pass (1 search = 1 search-provider credit)
   * max_minutes        - wall-clock limit
   * max_passes         - sweeps over the candidate list (default 1)
+  * max_est_cost_usd   - estimated dollars this pass, at the OFFICIAL U-M Toolkit rates in
+                         config/reader.yaml (gpt-4o $2.50 in / $10.00 out per 1M, verified
+                         against https://its.umich.edu/computing/ai/pricing on 2026-11-15).
+                         Before every goal the pass reserves that goal's whole worst-case
+                         cost; if spent + reserve would cross the cap, the goal never starts.
+                         Set below any hard money limit so retries and rate drift stay inside
+                         the real ceiling.
 
 It also stops early when a full sweep finds zero new verified evidence (convergence): more
 searching is not going to change this week's ranking.
@@ -55,7 +62,31 @@ DEFAULTS = {
     "max_search_calls": 100,
     "max_minutes": 45,
     "max_passes": 1,
+    "max_est_cost_usd": 8.0,
 }
+
+# Worst-case dollars one goal can cost, reserved BEFORE the goal starts. A goal is at most
+# max_steps model calls; each call's output is capped at max_output_tokens, and its input is
+# bounded by the instructions plus at most max_steps of tool results capped at
+# max_tool_result_chars each (2 per step allowed headroom). Tokens are priced at the official
+# U-M Toolkit rates for the configured model from config/reader.yaml.
+def _goal_reserve_usd(agent_cfg: dict, reader_cfg: dict | None = None) -> float:
+    from llm import client, cost
+    reader_cfg = reader_cfg or client.load_reader_config()
+    model = client.model_for_task(agent_loop.AGENT_TASK, reader_cfg)
+    pin, pout = cost.get_prices(model, reader_cfg)
+    steps = int(agent_cfg.get("max_steps", 12))
+    max_out = int(agent_cfg.get("max_output_tokens", 2000))
+    max_chars = int(agent_cfg.get("max_tool_result_chars", 6000))
+    instr_chars = len(agent_loop.load_instructions())
+    chars_per_token = float((reader_cfg.get("llm") or {}).get("chars_per_token", 4)) or 4
+    worst_in_per_call = (instr_chars + 2000 + steps * 2 * max_chars) / chars_per_token
+    worst_out_per_call = max_out
+    # get_prices returns DOLLARS PER TOKEN (e.g. gpt-4o: 2.5e-6 in, 1e-5 out).
+    # Reserve covers every possible BILLABLE attempt: 1 try + max_retries per call.
+    attempts = 1 + int((reader_cfg.get("llm") or {}).get("max_retries", 5))
+    usd = attempts * steps * (worst_in_per_call * pin + worst_out_per_call * pout)
+    return round(usd, 2)
 
 
 def load_limits(cfg: dict | None = None) -> dict:
@@ -97,20 +128,40 @@ def _latest_week_run(con) -> str | None:
 
 def _candidates(con, week_run_id: str | None) -> list[dict]:
     """
-    Every property the latest weekly run scored - shown or not. A property can be unshown
+    Every property the latest weekly run scored - shown or not - PLUS every other grouped
+    property in the database. A property can be missing from the run (score 0, no context)
     exactly because missing evidence kept its score at zero, so restricting goals to the
-    shown list would hide the properties research could help most. Order: shown first by
-    rank, then the rest by deal quality, so limited budget goes to the visible list first.
+    run's rows would hide the properties research could help most. Order: the run's shown
+    list first by rank, then its unshown rows, then the remaining grouped properties, so
+    limited budget goes to the visible ranking first and the long tail is queued behind it
+    for later passes (dedup markers make re-runs resume where the last pass stopped).
     """
-    if not week_run_id:
-        return []
-    cur = con.execute(
-        "SELECT property_id, property_name, address, city, state, shown, rank, deal_quality "
-        "FROM weekly_flags WHERE run_id = ? "
-        "ORDER BY shown DESC, rank ASC NULLS LAST, deal_quality DESC, property_id",
-        [week_run_id])
-    cols = [d[0] for d in cur.description]
-    return [dict(zip(cols, r)) for r in cur.fetchall()]
+    rows = []
+    if week_run_id:
+        cur = con.execute(
+            "SELECT property_id, property_name, address, city, state, shown, rank, deal_quality "
+            "FROM weekly_flags WHERE run_id = ? "
+            "ORDER BY shown DESC, rank ASC NULLS LAST, deal_quality DESC, property_id",
+            [week_run_id])
+        cols = [d[0] for d in cur.description]
+        rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+    seen = {r["property_id"] for r in rows}
+    from scorer.group import group_properties
+    for p in group_properties(con):
+        if p.property_id in seen:
+            continue
+        info: dict = {"property_id": p.property_id, "property_name": None,
+                      "address": None, "city": None, "state": None,
+                      "shown": False, "rank": None, "deal_quality": 0}
+        for row in p.projects + p.cmbs_loans + p.recorded_loans + p.filings:
+            info["property_name"] = info["property_name"] or row.get("project_name") or row.get("property_name")
+            info["address"] = info["address"] or row.get("address") or row.get("property_address")
+            info["city"] = info["city"] or row.get("city")
+            info["state"] = info["state"] or row.get("state")
+            if info["address"] or info["property_name"]:
+                break
+        rows.append(info)
+    return rows
 
 
 def _already_researched(con) -> set[str]:
@@ -147,18 +198,23 @@ def _goal_for(c: dict) -> str:
 # ---------------------------------------------------------------------------
 
 def _pass_usage(con, since: datetime) -> dict:
-    calls, tokens = con.execute(
-        "SELECT count(*), COALESCE(sum(input_tokens + output_tokens), 0) "
+    calls, tokens, usd = con.execute(
+        "SELECT count(*), COALESCE(sum(input_tokens + output_tokens), 0), "
+        "COALESCE(sum(est_cost_usd), 0) "
         "FROM llm_usage WHERE task = ? AND called_at >= ?", [PASS_TASK, since]).fetchone()
     searches = con.execute(
         "SELECT count(*) FROM agent_steps WHERE kind = 'tool_call' AND name = 'web_search' "
         "AND created_at >= ?", [since]).fetchone()[0]
-    return {"llm_calls": int(calls), "tokens": int(tokens or 0), "search_calls": int(searches)}
+    return {"llm_calls": int(calls), "tokens": int(tokens or 0), "search_calls": int(searches),
+            "est_cost_usd": float(usd or 0.0)}
 
 
-def _budget_stop(limits: dict, usage: dict, started: float, goals_run: int) -> str | None:
+def _budget_stop(limits: dict, usage: dict, started: float, goals_run: int,
+                 reserve_usd: float = 0.0) -> str | None:
     if goals_run >= limits["max_goals"]:
         return "goal_cap"
+    if usage["est_cost_usd"] + reserve_usd > float(limits.get("max_est_cost_usd", 8.0)):
+        return "cost_cap"
     if usage["llm_calls"] >= limits["max_model_calls"]:
         return "model_call_cap"
     if usage["tokens"] >= limits["max_total_tokens"]:
@@ -196,6 +252,7 @@ def run_pass(con, *, cfg: dict | None = None, limits: dict | None = None,
     researched = _already_researched(con)
     ev_before = con.execute("SELECT count(*) FROM evidence").fetchone()[0]
 
+    reserve = _goal_reserve_usd(agent_loop.load_agent_config() if cfg is None else cfg)
     goals_run = goals_skipped = 0
     stop = None
     sweeps = 0
@@ -208,7 +265,7 @@ def run_pass(con, *, cfg: dict | None = None, limits: dict | None = None,
             break
         for c in pending:
             usage = _pass_usage(con, started_at)
-            stop = _budget_stop(limits, usage, started_clock, goals_run)
+            stop = _budget_stop(limits, usage, started_clock, goals_run, reserve)
             if stop:
                 break
             before = con.execute("SELECT count(*) FROM evidence").fetchone()[0]
@@ -246,6 +303,7 @@ def run_pass(con, *, cfg: dict | None = None, limits: dict | None = None,
         "goals_skipped_already_researched": max(0, goals_skipped),
         "evidence_new": ev_new, "llm_calls": usage["llm_calls"],
         "tokens": usage["tokens"], "search_calls": usage["search_calls"],
+        "est_cost_usd": round(usage["est_cost_usd"], 4), "goal_reserve_usd": reserve,
         "sweeps": sweeps, "limits": limits,
     }
     con.execute(
