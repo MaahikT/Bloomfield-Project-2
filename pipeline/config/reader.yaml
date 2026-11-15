@@ -47,18 +47,21 @@ prices_per_million_tokens:
   # (thinking tokens are billed as output tokens)
   codex-mini-latest:     { input: 1.50, output: 6.00 }    # PLACEHOLDER: check the price list
   gpt-5-codex:           { input: 1.25, output: 10.00 }   # PLACEHOLDER: check the price list
-  gpt-4o-mini:           { input: 0.15, output: 0.60 }    # approximate: verify
-  gpt-4o:                { input: 2.50, output: 10.00 }   # approximate: verify
+  gpt-4o-mini:           { input: 0.15, output: 0.60 }    # VERIFIED vs U-M Toolkit pricing 2026-11-15: https://its.umich.edu/computing/ai/pricing
+  gpt-4o:                { input: 2.50, output: 10.00 }   # VERIFIED vs U-M Toolkit pricing 2026-11-15: https://its.umich.edu/computing/ai/pricing
   default:           { input: 3.00, output: 15.00 }   # used for any model not listed above
 
 # Spending limits (US dollars). The reader stops with a clear message instead of going over.
-weekly_cost_cap_usd: 10     # the program budget is $10 in total
+weekly_cost_cap_usd: 9.0    # HARD ceiling: user's rule is 'under $10 for U-M'. 9.0 leaves margin
+                           # so one reserved call plus its retry can never push the real bill to $10.
+                           # Rates VERIFIED 2026-11-15: https://its.umich.edu/computing/ai/pricing
 run_cost_cap_usd: 5      # one run can use at most half of it
 
 # How the wrapper talks to the service.
 llm:
   timeout_seconds: 180           # Gemini can take over a minute when Google is busy
-  max_retries: 5            # extra tries on rate limits (429) and server errors (5xx)
+  max_retries: 1            # money safety: at most 1 extra try (429/5xx); the cost cap's
+                           # pre-call reservation accounts for this retry (see weekly_cost_cap_usd)
   backoff_base_seconds: 2   # wait 2s, 4s, 8s, 16s, 32s
   chars_per_token: 4        # rough estimate used BEFORE a call to check the cost cap
   openai_responses:
