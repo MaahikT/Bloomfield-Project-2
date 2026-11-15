@@ -118,8 +118,8 @@ def test_proposed_files_are_manual_inbox_and_never_automatic(cand, tmp_path):
     assert OK_SITE in doc["sources"]["recorder"]["notes"]
 
 
-def test_the_shipped_settings_keep_the_directory_locked():
+def test_netr_is_approved_and_still_polite():
     cfg = discover.load_config()
     d = cfg["directories"]["netr_online"]
-    assert d["terms_checked"] is False             # a person must flip this after reading the terms
-    assert "automated" in cfg["terms_red_flags"]
+    assert d["terms_checked"] is True              # approved by NETR Online (via Bloomfield), Nov 2026
+    assert "automated" in cfg["terms_red_flags"]   # every county site NETR points to is still screened

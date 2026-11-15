@@ -13,8 +13,8 @@
 directories:
   netr_online:
     enabled: true
-    terms_checked: false          # TODO: a person reads the NETR Online terms of use, then sets this to true
-    terms_note: "Not checked yet. https://publicrecords.netronline.com/ (look for its terms / robots.txt)."
+    terms_checked: true           # Confirmed by the team lead (Nov 2026): Bloomfield contacted NETR Online and they agreed.
+    terms_note: "Approved in writing by NETR Online after Bloomfield asked them. Keep their reply on file. robots.txt and the polite rate limit still apply."
     # {state} = 2-letter code, {county_slug} = county name lower-cased, "County" removed, spaces -> "_".
     # TODO verify these two address patterns on the real site before the first run.
     state_url: "https://publicrecords.netronline.com/state/{state}"

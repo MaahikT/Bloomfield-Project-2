@@ -242,7 +242,7 @@ def sources_table() -> list[dict]:
     rows.append({"group": "Counties", "name": "All ~3,100 U.S. counties", "how": "County registry + add-county helper (one file per county)",
                  "status": "built", "note": "Adding a county is adding a settings file, not writing code."})
     rows.append({"group": "Counties", "name": "NETR Online directory (finds county record sites)", "how": "Reads the directory, screens every site, proposes county files",
-                 "status": "unverified", "note": "Built and tested on sample pages. Stays locked until a person confirms the directory's terms of use."})
+                 "status": "built", "note": "Approved by NETR Online. Every county site it points to is still screened (robots.txt, login or CAPTCHA wall, terms) before it is added."})
     rows += [
         {"group": "National", "name": "SEC EDGAR (CMBS loans)", "how": "Automatic download, 4 requests/second", "status": "unverified",
          "note": "XML field names still need checking against a real filing (the tool prints an audit)."},
