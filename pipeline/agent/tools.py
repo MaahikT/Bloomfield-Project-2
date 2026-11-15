@@ -325,7 +325,16 @@ def record_evidence(con, run_id: str, *, subject: str, claim: str,
                     value: str | None = None, file_id: str | None = None, source_url: str | None = None,
                     quote: str | None = None, db_query: str | None = None,
                     notes: str | None = None, model_name: str | None = None) -> dict:
-    """Save one fact ONLY if its proof checks out. Unverifiable claims are refused."""
+    """Save one fact ONLY if its proof checks out. Unverifiable claims are refused.
+
+    SCORER-CONSUMABLE claims: when the fact is one the scoring rules actually read, use
+    EXACTLY one of these claims so agent/mapping.py can fold it into the scorer's inputs:
+      asking_rent        value = the rent number; notes: unit_basis, lease_term_months,
+                         concession_months (optional)
+      market_rent_index  value = the index; notes: city, state, period (YYYY-MM-DD)
+      permit_inspection  notes: permit_number, city, state, inspection_date (YYYY-MM-DD),
+                         inspection_type, result
+    Every other claim stays narrative: it is shown as research, never scored."""
     if not subject.strip() or not claim.strip():
         return _err("record_evidence needs a subject and a claim.")
     source_kind, quote_out, url_out, fid_out, q_out = None, None, None, None, None
