@@ -7,8 +7,9 @@ but some scores are low simply because we have no data. This driver hands the so
 verified evidence - then the deterministic scorer re-runs and the ranking reflects what is
 actually verifiable, not what happened to be in the database already.
 
-It is BOUNDED on purpose. Nothing here runs on its own; a person starts a pass and the pass
-stops at the FIRST of these limits (set in config/agent.yaml under weekly_loop):
+It is BOUNDED on purpose. The dashboard scheduler starts one pass per weekly cycle
+(a person can also start one with python -m agent.weekly), and the pass stops at the FIRST
+of these limits (set in config/agent.yaml under weekly_loop):
 
   * max_goals          - how many candidate properties get one research goal each
   * max_model_calls    - total LLM calls across all goals this pass
@@ -16,13 +17,9 @@ stops at the FIRST of these limits (set in config/agent.yaml under weekly_loop):
   * max_search_calls   - total web searches this pass (1 search = 1 search-provider credit)
   * max_minutes        - wall-clock limit
   * max_passes         - sweeps over the candidate list (default 1)
-  * max_est_cost_usd   - estimated dollars this pass, at the OFFICIAL U-M Toolkit rates in
-                         config/reader.yaml (gpt-4o $2.50 in / $10.00 out per 1M, verified
-                         against https://its.umich.edu/computing/ai/pricing on 2026-11-15).
-                         Before every goal the pass reserves that goal's whole worst-case
-                         cost; if spent + reserve would cross the cap, the goal never starts.
-                         Set below any hard money limit so retries and rate drift stay inside
-                         the real ceiling.
+  * max_est_cost_usd   - ADVISORY landmark only, NOT a stop: the API account enforces its
+                         own dollar limit (user decision 2026-11-15). Passing it logs a
+                         warning; llm_usage keeps the full accounting either way.
 
 It also stops early when a full sweep finds zero new verified evidence (convergence): more
 searching is not going to change this week's ranking.
@@ -211,10 +208,11 @@ def _pass_usage(con, since: datetime) -> dict:
 
 def _budget_stop(limits: dict, usage: dict, started: float, goals_run: int,
                  reserve_usd: float = 0.0) -> str | None:
+    # NOTE: no dollar stop here. The API account enforces its own dollar limit (user
+    # decision 2026-11-15), so max_est_cost_usd is an advisory landmark that only logs.
+    # The shape bounds below stay as the operational controls.
     if goals_run >= limits["max_goals"]:
         return "goal_cap"
-    if usage["est_cost_usd"] + reserve_usd > float(limits.get("max_est_cost_usd", 8.0)):
-        return "cost_cap"
     if usage["llm_calls"] >= limits["max_model_calls"]:
         return "model_call_cap"
     if usage["tokens"] >= limits["max_total_tokens"]:
@@ -256,6 +254,7 @@ def run_pass(con, *, cfg: dict | None = None, limits: dict | None = None,
     goals_run = goals_skipped = 0
     stop = None
     sweeps = 0
+    warned = {"usd": False}
     while sweeps < max(1, int(limits["max_passes"])):
         sweeps += 1
         sweep_new = 0
@@ -265,6 +264,12 @@ def run_pass(con, *, cfg: dict | None = None, limits: dict | None = None,
             break
         for c in pending:
             usage = _pass_usage(con, started_at)
+            landmark = float(limits.get("max_est_cost_usd", 0) or 0)
+            if landmark and usage["est_cost_usd"] > landmark and not warned["usd"]:
+                log.warning("agent pass est. spend $%.2f passed the advisory landmark $%.2f "
+                            "(not enforced; the API account enforces the real dollar limit)",
+                            usage["est_cost_usd"], landmark)
+                warned["usd"] = True
             stop = _budget_stop(limits, usage, started_clock, goals_run, reserve)
             if stop:
                 break
