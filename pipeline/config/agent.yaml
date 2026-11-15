@@ -1,0 +1,21 @@
+# ---------------------------------------------------------------------------
+# agent.yaml - settings for the sourcing agent (agent/). The agent's standing
+# INSTRUCTIONS live in config/agent.md; this file is only the knobs.
+# ---------------------------------------------------------------------------
+
+# The agent is OFF by default. Turn it on here or with BLOOMFIELD_AGENT=1 in .env.
+# Nothing in the scheduler or dashboard runs it on its own; it spends LLM budget per run.
+enabled: false
+
+# Most think-act steps in one run. Each step is one AI call plus its tool calls, so this is also
+# the brake on cost (the reader.yaml spending cap still applies on top).
+max_steps: 12
+
+# Longest single reply the AI may write per step (tokens).
+max_output_tokens: 2000
+
+# Tool results handed back to the AI are cut to this many characters (pages can be huge).
+max_tool_result_chars: 6000
+
+# Which tools the agent may use (agent/tools.py). Remove a name to take that tool away.
+tools: [web_search, fetch_page, run_collector, query_db, record_evidence]
