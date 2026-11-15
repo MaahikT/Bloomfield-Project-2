@@ -508,7 +508,7 @@ def page_all(con, run_id):
         "Tier": df["tier"],
         "Listed": df["shown"].map({True: "yes", False: "no"}),
         "Why hidden": df["filter_reason"].fillna(""),
-    }).sort_values(["Score", "Property"], ascending=[False, True])
+    }).sort_values("Rank", na_position="last")   # default view follows the ranked list (unranked last); columns stay user-sortable
     c1, c2 = st.columns(2)
     tier_pick = c1.multiselect("Tiers", ["hot", "watch", "low"], default=["hot", "watch", "low"],
                                format_func=lambda t: TIER_ICON[t], key="all_tiers")
