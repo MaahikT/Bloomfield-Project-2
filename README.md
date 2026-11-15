@@ -1,3 +1,5 @@
+> U-M Toolkit setup: [pipeline/UMICH-WORKFLOW.md](pipeline/UMICH-WORKFLOW.md).
+
 # Bloomfield Sourcing Tool
 
 A tool that finds commercial-property owners in financial trouble **before the broker network does**, for Bloomfield Capital.
@@ -72,10 +74,10 @@ Sample (FAKE) properties are left out of every real list; the demo database opts
 
 ## Using the AI reader (needs a key)
 
-Every AI step uses the OpenAI Codex API through one wrapper (`pipeline/llm/client.py`).
+Every AI step defaults to U-M GPT Toolkit through one wrapper (`pipeline/llm/client.py`), using its OpenAI-compatible chat API.
 
 1. Copy `pipeline/.env.example` to `pipeline/.env` (the file is git-ignored and must never be committed).
-2. Put your key on the line `OPENAI_API_KEY=...`. Set `LLM_MODEL_CHEAP` and `LLM_MODEL_STRONG` to model names your key can use.
+2. Put your U-M Toolkit key on the line `OPENAI_API_KEY=...`. The defaults select `gpt-4o-mini` and `gpt-4o` at the U-M endpoint.
 3. Check it: `python -m llm.check`.
 
 Spending is capped in `pipeline/config/reader.yaml`: **$10 per week and $5 per run**. Anthropic and Gemini also work
