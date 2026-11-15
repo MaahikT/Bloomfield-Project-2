@@ -100,7 +100,12 @@ jobs:
           HERENOW_FOLDER: ${{ vars.HERENOW_FOLDER }}
           HERENOW_APP_NAME: ${{ github.event.repository.name }}
           HERENOW_LABEL: ${{ github.event.repository.name }}
-        run: node scripts/herenow-publish.mjs production
+        run: |
+          if [ -z "$HERENOW_API_KEY" ]; then
+            echo "::notice::HERENOW_API_KEY is not set, so publishing to here.now is skipped (this repo is not using here.now)."
+            exit 0
+          fi
+          node scripts/herenow-publish.mjs production
 
   development:
     needs: build
@@ -130,7 +135,12 @@ jobs:
           HERENOW_DEV_SLUG: ${{ vars.HERENOW_DEV_SLUG }}
           HERENOW_FOLDER: ${{ vars.HERENOW_FOLDER }}
           HERENOW_APP_NAME: ${{ github.event.repository.name }}
-        run: node scripts/herenow-publish.mjs development
+        run: |
+          if [ -z "$HERENOW_API_KEY" ]; then
+            echo "::notice::HERENOW_API_KEY is not set, so publishing to here.now is skipped (this repo is not using here.now)."
+            exit 0
+          fi
+          node scripts/herenow-publish.mjs development
 
   pr-preview:
     # Fork PRs get no secrets; skip them. Off unless the repo/org opts in.
