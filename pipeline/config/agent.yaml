@@ -3,9 +3,11 @@
 # INSTRUCTIONS live in config/agent.md; this file is only the knobs.
 # ---------------------------------------------------------------------------
 
-# The agent is OFF by default. Turn it on here or with BLOOMFIELD_AGENT=1 in .env.
-# Nothing in the scheduler or dashboard runs it on its own; it spends LLM budget per run.
-enabled: false
+# ON: the user asked (2026-11-15) for the agent to research every property as part of the
+# normal pipeline. BLOOMFIELD_AGENT=0 in the environment does NOT turn it off (only the
+# =1 switch turns it on when this is false); set enabled back to false to stop it.
+# The dashboard scheduler runs one bounded research pass per weekly cycle after scoring.
+enabled: true
 
 # Most think-act steps in one run. Each step is one AI call plus its tool calls, so this is also
 # the brake on cost (the reader.yaml spending cap still applies on top).
@@ -20,18 +22,20 @@ max_tool_result_chars: 6000
 # Which tools the agent may use (agent/tools.py). Remove a name to take that tool away.
 tools: [web_search, fetch_page, run_collector, query_db, record_evidence]
 
-# Bounded weekly research pass (agent/weekly.py). A person starts each pass; it researches
-# this week's ranking candidates one goal at a time and stops at the FIRST limit reached,
-# or when a full sweep finds no new verified evidence. Model calls/tokens are counted from
-# the llm_usage ledger, searches from the step log - enforced in code, never by the model.
+# Bounded research pass (agent/weekly.py). The scheduler starts one pass per weekly cycle;
+# a person can also start one with python -m agent.weekly. It researches every scored
+# property plus the unscored long tail, one goal at a time, resuming via dedup markers,
+# and stops at the FIRST shape limit reached, or when a full sweep finds no new verified
+# evidence. Model calls/tokens are counted from the llm_usage ledger, searches from the
+# step log - enforced in code, never by the model. Sized so one pass can sweep the whole
+# live universe (857+ properties) in a few hours; every real call is still accounted.
 weekly_loop:
-  max_goals: 20          # one research goal per candidate property, at most this many
-  max_model_calls: 60    # total LLM calls across the whole pass
-  max_total_tokens: 400000   # total input+output tokens across the whole pass
-  max_search_calls: 100  # total web searches (1 search = 1 search-provider credit)
-  max_minutes: 45        # wall-clock limit
-  max_passes: 1          # sweeps over the candidate list per run
-  max_est_cost_usd: 8.0  # pass dollar cap at the OFFICIAL U-M Toolkit rates (gpt-4o $2.50 in /
-                         # $10.00 out per 1M tokens, verified on https://its.umich.edu/computing/ai/pricing
-                         # 2026-11-15). Each goal's whole worst-case cost is reserved BEFORE it starts;
-                         # 8.0 keeps a 20% safety margin under the user's $10 hard ceiling.
+  max_goals: 1000        # one research goal per candidate property, at most this many
+  max_model_calls: 2000  # total LLM calls across the whole pass
+  max_total_tokens: 15000000   # total input+output tokens across the whole pass
+  max_search_calls: 5000 # total web searches (1 search = 1 search-provider credit)
+  max_minutes: 240       # wall-clock limit per pass
+  max_passes: 2          # sweeps over the candidate list per run
+  max_est_cost_usd: 9.0  # ADVISORY landmark only, NOT enforced (user decision 2026-11-15:
+                         # the API account enforces its own dollar limit). Passing it logs
+                         # a warning; llm_usage keeps the full accounting either way.
