@@ -3,12 +3,12 @@
 # Change values here instead of changing Python code.
 # ---------------------------------------------------------------------------
 
-# Which AI service to call: "openai_responses" (OpenAI Codex API, the default), "openai_compatible" (OpenAI chat
-# completions or any OpenAI-style service), "anthropic" or "gemini" (Google).
+# Default: U-M GPT Toolkit through its OpenAI-compatible chat API.
+# Other supported providers: openai_responses (OpenAI platform), anthropic, gemini.
 # (Can be overridden with LLM_PROVIDER in .env, which is the easy way to switch.)
 # EVERY AI STEP in this project (the reader, the scout, the summaries) reads its key from the environment variable
-# OPENAI_API_KEY. It is a placeholder: put your real key in pipeline/.env, never in code or in the repo.
-provider: openai_responses
+# OPENAI_API_KEY for the default U-M provider. Put the real key in pipeline/.env, never in code or the repo.
+provider: openai_compatible
 
 # Model names PER PROVIDER, so switching provider also switches models. "cheap" does quick yes/no style jobs;
 # "strong" does careful extraction. The AI Sprint manager may change these; nothing in the code hardcodes a model.
@@ -24,7 +24,7 @@ models:
   openai_responses:                # the Codex API. TODO verify: set these to the Codex model names your key can use
     cheap: codex-mini-latest       # (or override in .env with LLM_MODEL_CHEAP / LLM_MODEL_STRONG, then run python -m llm.check)
     strong: gpt-5-codex
-  openai_compatible:               # e.g. OpenAI itself, or Gemini through Google's OpenAI-compatible address
+  openai_compatible:               # U-M Toolkit, verified with the project credential
     cheap: gpt-4o-mini
     strong: gpt-4o
 
@@ -65,7 +65,7 @@ llm:
     default_base_url: https://api.openai.com/v1
   openai_compatible:
     base_url_env: LLM_BASE_URL            # set in .env; default is OpenAI's address below
-    default_base_url: https://api.openai.com/v1
+    default_base_url: https://api.toolkit.umgpt.umich.edu/v1
     max_tokens_field: max_tokens          # some newer services want "max_completion_tokens"
   # Extra settings sent with every request (anthropic / openai_compatible), e.g. {temperature: 0}.
   # Left empty on purpose: some newer models reject a temperature setting.
@@ -103,7 +103,7 @@ reader:
   require_quotes: true          # every filled-in field must come with a supporting quote
   value_in_quote_min_score: 85  # how well a field's value must match its own quote (0-100)
   max_consecutive_llm_errors: 3 # stop the batch if the AI service keeps failing
-  # Which kinds of files the reader processes. sec_edgar, ffiec and cms are already
+  # Which kinds of files the reader processes. sec_edgar, ffiec, cms and trepp are already
   # parsed into tables by Part A, so the reader skips them.
   process_sources: [county_court, recorder, public_notice, permit, state_license,
                     manual_upload, project_site, news, auction, wsj_notice]
@@ -116,4 +116,5 @@ ocr:
   language: eng
 
 # ---- Privacy switches. Bloomfield decides if these ever change. ----
+trepp_ai_allowed: false              # true = Trepp data may be sent to the outside AI service
 bloomfield_material_ai_allowed: false  # true = files marked confidential / from manual_upload/bloomfield/

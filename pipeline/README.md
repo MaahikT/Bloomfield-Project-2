@@ -1,3 +1,5 @@
+> U-M Toolkit setup: [UMICH-WORKFLOW.md](UMICH-WORKFLOW.md).
+
 # Bloomfield Sourcing Tool: Part A, Public Records Collectors
 
 These collectors get raw public data **into a DuckDB database** (`data/bloomfield.duckdb`).
@@ -122,10 +124,11 @@ python scripts/setup_db.py          # creates Part A's AND Part B's tables
 Add to `pipeline/.env` (never commit it, never paste a key into chat):
 
 ```
-OPENAI_API_KEY=your-openai-api-key-here    # the placeholder every AI step reads (os.environ["OPENAI_API_KEY"])
-# LLM_PROVIDER=openai_responses            # the Codex API (default); or openai_compatible / anthropic / gemini
-# LLM_MODEL_CHEAP= / LLM_MODEL_STRONG=     # your Codex model names (verify with: python -m llm.check)
-# LLM_BASE_URL=https://api.openai.com/v1   # default; change it only for another OpenAI-style service
+OPENAI_API_KEY=<your-U-M-Toolkit-key-set-locally>
+LLM_PROVIDER=openai_compatible
+LLM_BASE_URL=https://api.toolkit.umgpt.umich.edu/v1
+LLM_MODEL_CHEAP=gpt-4o-mini
+LLM_MODEL_STRONG=gpt-4o
 ```
 
 Every AI step (the reader, the scout, the plain-English summaries) goes through one wrapper (`llm/client.py`) and uses
