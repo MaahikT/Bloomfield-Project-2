@@ -426,3 +426,29 @@ python -m collectors.discover --report
 If the network blocks NETR, save the county page from a browser and use
 `--from-html saved_page.html --state MI --county "Washtenaw County"`. Screened sites are only candidates:
 a person confirms each site's terms and adds its search settings before it becomes automatic.
+
+
+## The web bot (`python -m bot`)
+
+One searcher per signal, run weekly. Settings are in `config/bot.yaml`.
+
+| Signal | What it does | Code |
+|---|---|---|
+| `opening_date` | Opens project websites you list, finds "Opening Fall 2026" or "coming soon", turns it into a deadline and flags late projects and dates that keep moving | `bot/opening.py` |
+| `distress_news` | Reads approved news feeds for foreclosures, receiverships, lis pendens, UCC sales, auctions and lender lawsuits on commercial property. Each lead is saved as `needs_review` with a word-for-word quote | `bot/news.py` |
+| `county_records` | Runs the county collectors for the sites that are set up | `collectors/county.py` |
+| `lenders` | Bank call reports (rising nonaccruals) | `collectors/ffiec.py` |
+| `cmbs` | SEC CMBS filings | `collectors/edgar.py` |
+
+```
+python -m bot --list                          # what each signal does
+python -m bot                                 # every enabled signal
+python -m bot --signals opening_date          # just one
+python -m matcher && python -m scorer.weekly  # then link and score
+```
+
+Rules it follows: every page goes through `collectors/common/fetch.py` (robots.txt obeyed, polite pace, stops at any
+login, CAPTCHA or "access denied", never gets around a block); third-party listing sites such as Zillow are never opened;
+one run opens at most `max_pages_per_run` pages. Searching the open web needs a licensed search service: set
+`search.provider: brave` in `config/bot.yaml` and `BRAVE_SEARCH_API_KEY` in `.env`. Without one the bot still checks the
+project sites and feeds you list. Court and lien news arrives late, so it confirms a deal is ready to act rather than warning early.
