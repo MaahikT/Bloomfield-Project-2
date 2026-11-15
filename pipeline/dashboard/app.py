@@ -157,6 +157,15 @@ def research_diagnostics(con) -> str:
     except Exception:
         pass
     try:
+        nfiles = con.execute("SELECT count(*) FROM raw_files").fetchone()[0]
+        cruns = con.execute("SELECT collector_name, status, started_at, files_new, errors "
+                            "FROM collector_runs ORDER BY started_at DESC LIMIT 4").fetchall()
+        lines.append(f"collected documents in this database: {nfiles}")
+        for c in cruns:
+            lines.append(f"collector {c[0]}: {c[1]} at {c[2]} · {c[3]} new · {c[4]} errors")
+    except Exception:
+        pass
+    try:
         runs = con.execute("SELECT started_at, status, llm_calls, cost_usd, "
                            "substr(goal, 1, 90), substr(coalesce(final_answer, ''), 1, 220) "
                            "FROM agent_runs ORDER BY started_at DESC LIMIT 3").fetchall()
@@ -530,6 +539,9 @@ def main():
     if not run_id:
         st.title("No weekly run yet")
         st.write("Run `python -m scorer.weekly` (real data) or `python -m scorer.demo_week` (made-up demo).")
+        st.caption(research_status(con))
+        with st.expander("Research diagnostics"):
+            st.text(research_diagnostics(con))
         return
     PAGES[st.session_state.page](con, run_id)
 
