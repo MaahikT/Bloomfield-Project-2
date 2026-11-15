@@ -78,6 +78,7 @@ def fake_llm(monkeypatch):
     for name in ("LLM_PROVIDER", "LLM_API_KEY", "LLM_MODEL", "LLM_MODEL_STRONG", "LLM_MODEL_CHEAP",
                  "GEMINI_API_KEY", "GOOGLE_API_KEY", "OPENAI_API_KEY", "LLM_BASE_URL", "GEMINI_BASE_URL"):
         monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("LLM_PROVIDER", "anthropic")      # the project default is OpenAI; these tests use pretend Anthropic answers
     monkeypatch.setattr(client, "_sleep", lambda s: None)
     cost.reset_run_spend()
     fake = FakeLLM()
