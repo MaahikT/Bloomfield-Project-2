@@ -97,10 +97,10 @@
       "note": "Real model, invented documents. The run stopped at Google's free-key limit (20 requests a day)."
     },
     "pipeline": {
-      "documents": 117,
-      "linked": 144,
-      "properties": 49,
-      "hot": 10,
+      "documents": 111,
+      "linked": 138,
+      "properties": 47,
+      "hot": 9,
       "watch": 12
     },
     "accuracy": "Not measured yet. Our labeled test set (about 30 documents, target about 90% of fields correct) is the next test to build."

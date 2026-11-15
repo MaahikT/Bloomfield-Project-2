@@ -166,7 +166,7 @@ def fake_middle_properties(con) -> None:
     }, replace=True)
 
     # 2) St. Petersburg hotel: lis pendens filed by its lender.
-    fid = "fake-chicago-lis-pendens"
+    fid = "fake-stpete-lis-pendens"
     con.execute("DELETE FROM raw_files WHERE file_id = ?", [fid])
     filed = TODAY - timedelta(days=60)
     store_file(con, (
@@ -190,7 +190,7 @@ def fake_middle_properties(con) -> None:
 
     # 3) A tax notice with a typo in the hotel's street name ("Exmaple"). Too uncertain to link
     #    automatically: Part C should put it in match_review for a person to decide.
-    fid = "fake-chicago-tax-typo"
+    fid = "fake-stpete-tax-typo"
     con.execute("DELETE FROM raw_files WHERE file_id = ?", [fid])
     store_file(con, (
         "*** FAKE DOCUMENT - NOT A REAL RECORD ***\nDELINQUENT PROPERTY TAX LIST (excerpt)\n"
