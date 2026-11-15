@@ -64,7 +64,8 @@ DEFAULTS = {
     "max_minutes": 45,
     "max_passes": 1,
     "max_est_cost_usd": 8.0,
-    "max_lifetime_est_usd": None,   # hard stop: total agent est. spend across ALL passes
+    "max_lifetime_est_usd": None,   # hard stop: total est. spend across ALL tasks/passes
+    "max_additional_est_usd": None, # hard stop: NEW est. spend on top of the pass-start baseline
 }
 
 # Worst-case dollars one goal can cost, reserved BEFORE the goal starts. A goal is at most
@@ -256,6 +257,9 @@ def run_pass(con, *, cfg: dict | None = None, limits: dict | None = None,
     candidates = _candidates(con, week_run_id)
     researched = _already_researched(con)
     ev_before = con.execute("SELECT count(*) FROM evidence").fetchone()[0]
+    # Freeze the spend baseline at pass start: the "additional spend" budget is measured
+    # against everything the account had already used (all tasks, all time) RIGHT NOW.
+    baseline_usd = float(con.execute("SELECT COALESCE(sum(est_cost_usd), 0) FROM llm_usage").fetchone()[0])
 
     reserve = _goal_reserve_usd(agent_loop.load_agent_config() if cfg is None else cfg)
     goals_run = goals_skipped = 0
@@ -284,14 +288,18 @@ def run_pass(con, *, cfg: dict | None = None, limits: dict | None = None,
             if stop:
                 break
             lifetime_cap = limits.get("max_lifetime_est_usd")
-            if lifetime_cap:
+            additional_cap = limits.get("max_additional_est_usd")
+            if lifetime_cap or additional_cap:
                 # Every chargeable task on the account counts, not just this pass, and the
                 # next goal's WORST-CASE reserve must still fit under the cap: a goal can
-                # overshoot, so the stop is lifetime + reserve >= cap, never lifetime alone.
+                # overshoot, so the stop is spend + reserve >= cap, never spend alone.
                 lifetime_usd = float(con.execute(
                     "SELECT COALESCE(sum(est_cost_usd), 0) FROM llm_usage").fetchone()[0])
-                if lifetime_usd + reserve >= float(lifetime_cap):
+                if lifetime_cap and lifetime_usd + reserve >= float(lifetime_cap):
                     stop = "lifetime_cost_cap"
+                    break
+                if additional_cap and (lifetime_usd - baseline_usd) + reserve >= float(additional_cap):
+                    stop = "additional_cost_cap"
                     break
             before = con.execute("SELECT count(*) FROM evidence").fetchone()[0]
             try:
