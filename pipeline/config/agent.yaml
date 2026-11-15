@@ -31,3 +31,7 @@ weekly_loop:
   max_search_calls: 100  # total web searches (1 search = 1 search-provider credit)
   max_minutes: 45        # wall-clock limit
   max_passes: 1          # sweeps over the candidate list per run
+  max_est_cost_usd: 8.0  # pass dollar cap at the OFFICIAL U-M Toolkit rates (gpt-4o $2.50 in /
+                         # $10.00 out per 1M tokens, verified on https://its.umich.edu/computing/ai/pricing
+                         # 2026-11-15). Each goal's whole worst-case cost is reserved BEFORE it starts;
+                         # 8.0 keeps a 20% safety margin under the user's $10 hard ceiling.
