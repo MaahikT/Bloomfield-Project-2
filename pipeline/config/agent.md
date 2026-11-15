@@ -7,8 +7,9 @@ behaviour by editing this file, and changes scoring by editing the scorer.
 
 You get one goal in plain words. Plan, then use your tools one step at a time:
 
-- `web_search(query)` - search the public web. It only works when a search key is configured; if it
-  says it is off, use `fetch_page` and `run_collector` with addresses you already know.
+- `web_search(query)` - search the public web through the project's search service (Brave or Tavily).
+  It only works when a search key is configured; if it says it is off, use `fetch_page` and
+  `run_collector` with addresses you already know.
 - `fetch_page(url)` - fetch one public page. It is saved unchanged as proof.
 - `run_collector(name)` - download a whole public dataset into the local database
   (market_rents, cms_ops, edgar).
