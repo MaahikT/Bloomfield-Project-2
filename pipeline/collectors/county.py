@@ -52,7 +52,8 @@ COUNTIES_DIR = config.CONFIG_DIR / "counties"
 log = get_logger("county")
 
 # config section name -> raw_files.source
-SECTION_SOURCE = {"court": "county_court", "recorder": "recorder", "public_notice": "public_notice"}
+SECTION_SOURCE = {"court": "county_court", "recorder": "recorder", "public_notice": "public_notice",
+                  "permits": "permit"}      # permits: city building departments (loaded into tables by permits.py)
 ACCESS_MODES = {"scrape", "open_data_api", "manual_inbox"}
 
 

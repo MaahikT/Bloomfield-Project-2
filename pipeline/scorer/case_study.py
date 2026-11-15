@@ -73,9 +73,13 @@ def valuation(con, case: dict, as_of: date, cfg: dict | None = None) -> list[dic
         if not rows:
             continue
         ptype = weekly.property_type(p)
-        for c in val.value_cases(rows, ptype, vcfg):
-            out.append(val.scenario(f"{c['case']} [{ptype}]", c["value"], v["upb"], v["price"], vcfg,
-                                    v.get("reserves", 0.0), v.get("units"), c["noi"], c["cap_rate"]))
+        capacity, series = val.property_inputs(p, ptype, eq.property_facts(p).get("state"), extra)
+        capacity = v.get("units") or capacity
+        for c in val.value_cases(rows, ptype, vcfg, capacity, series):
+            r = val.scenario(f"{c['case']} [{ptype}]", c["value"], v["upb"], v["price"], vcfg,
+                             v.get("reserves", 0.0), v.get("units"), c["noi"], c["cap_rate"])
+            r["cost_to_stabilize"], r["detail"] = c["cost_to_stabilize"], c["detail"]
+            out.append(r)
     for comp in v.get("comps", []):
         value = sum(x["units"] * x["per_unit"] for x in comp["parts"])
         out.append(val.scenario(comp["name"], value, v["upb"], v["price"], vcfg, v.get("reserves", 0.0), v.get("units")))
@@ -98,9 +102,17 @@ def main(argv=None):
     last = max(date.fromisoformat(str(d)) if not isinstance(d, date) else d for d in case["as_of"])
     rows = valuation(con, case, last)
     if rows:
+        d = next((r["detail"] for r in rows if r.get("detail")), None)
+        if d:
+            print(f"\n== Stabilized NOI build ==\nrevenue ${d['revenue']:,.0f}"
+                  + (f" = space x {d['stab_occ']:.1%} stabilized occ. x ${d['rent']:,.2f} ({d['rent_from']})" if d.get("stab_occ") else f" ({d['rent_from']})")
+                  + f"\n- expenses ${d['expenses']:,.0f} (latest 12 months)\n= NOI ${d['noi']:,.0f}"
+                  + (f"\ncost to stabilize ${d['cost_to_stabilize']:,.0f} ({d.get('lease_up_units', 0):,.0f} units/SF to lease)" if d.get("cost_to_stabilize") else ""))
         print("\n== Valuation scenarios ==")
         for r in rows:
             basis = (f"NOI ${r['noi'] / 1e6:5.2f}M  cap {r['cap_rate']:.1%}" if r["noi"] is not None else f"{'sale comps':>23}")
+            if r.get("cost_to_stabilize"):
+                basis += f" - lease-up ${r['cost_to_stabilize'] / 1e6:.2f}M"
             print(f"{r['scenario']:<48} {basis}  value ${r['value'] / 1e6:5.1f}M"
                   f"  recovery ${r['recovery'] / 1e6:5.1f}M  {r['multiple']:.2f}x  IRR {r['irr']:6.1%}"
                   f"  bid for target ${r['bid_for_target'] / 1e6:5.1f}M ({r['bid_pct_upb']:.0%} of UPB)")

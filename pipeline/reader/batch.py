@@ -83,7 +83,10 @@ def select_files(con, cfg: dict, state=None, source=None, retry_failed=False) ->
     retry_clause = " OR f.status = 'failed'" if retry_failed else ""
     sql = (f"SELECT r.* FROM raw_files r LEFT JOIN filing_fields f ON f.file_id = r.file_id "
            f"WHERE r.source IN ({marks}) "
-           f"AND (f.file_id IS NULL OR f.prompt_version IS DISTINCT FROM ?{retry_clause})")
+           f"AND (f.file_id IS NULL OR f.prompt_version IS DISTINCT FROM ?{retry_clause}) "
+           # structured permit data (CSV / JSON rows) is loaded by collectors/permits.py with no AI;
+           # scanned permits and certificates (PDF, images) are still read here.
+           f"AND NOT (r.source = 'permit' AND lower(coalesce(r.file_type, '')) IN ('csv', 'json'))")
     params = sorted(allowed) + [PROMPT_VERSION]
     if state:
         sql += " AND r.state = ?"

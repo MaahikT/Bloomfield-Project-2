@@ -102,10 +102,10 @@ def week1(con):
         inspection_date=date(2026, 10, 28), inspection_type="final framing", result="pass")
 
     # Filtered out: office (Bloomfield doesn't buy it) and a loan above $50M.
-    a = "200 FAKE W Sample St, Chicago, IL"
-    loan(con, "fk-mo-1", "construction", date(2021, 1, 15), a, "IL", "Cook", "FAKE Midtown Office LLC",
-         "FAKE Lakeshore Bank", 33e6)
-    project(con, "fk-mo", "FAKE Midtown Office Center", a, "Chicago", "IL", "office", "Available 2025", 10.0)
+    a = "200 FAKE Central Ave, St. Petersburg, FL"
+    loan(con, "fk-mo-1", "construction", date(2021, 1, 15), a, "FL", "Pinellas", "FAKE Midtown Office LLC",
+         "FAKE Gulf Coast Bank", 33e6)
+    project(con, "fk-mo", "FAKE Midtown Office Center", a, "St. Petersburg", "FL", "office", "Available 2025", 10.0)
     a = "9000 FAKE Gateway Blvd, Dallas, TX"
     loan(con, "fk-gp-1", "construction", date(2021, 3, 1), a, "TX", "Dallas", "FAKE Gateway Retail LLC",
          "FAKE Lone Star Bank", 72e6)

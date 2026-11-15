@@ -171,8 +171,8 @@ def page_detail(con, run_id):
     c[2].metric("Deal quality", r["deal_quality"])
     c[3].metric("Loan", money(r["loan_amount"]))
     if r.get("est_value") and not pd.isna(r["est_value"]):
-        st.caption(f"Estimated stabilized value {money(r['est_value'])} (best-year revenue − latest 12-month expenses, "
-                   f"÷ the {r['property_type']} cap rate) · owed / value {r['ltv']:.0%}")
+        st.caption(f"Estimated stabilized value {money(r['est_value'])} (revenue at stabilized occupancy − latest "
+                   f"12-month expenses, ÷ the {r['property_type']} cap rate, − cost to stabilize) · owed / value {r['ltv']:.0%}")
     if not r["shown"]:
         st.warning(f"Filtered out by settings: {r['filter_reason']}")
     st.info(r["summary"])
@@ -197,7 +197,7 @@ def page_detail(con, run_id):
     with a:
         st.markdown(f"**Anti-fluke:** {ex['anti_fluke']}")
         for s in ex.get("standouts", []):
-            st.markdown(f"⭐ **Standout** (counts ×{cfg['standout']['boost']}, skips anti-fluke): {esc(s)}")
+            st.markdown(f"⭐ **Standout** (counts ×max({cfg['standout']['boost']}, rescale), skips anti-fluke): {esc(s)}")
         for s in ex.get("counter_signals", []):
             st.markdown(f"↩ **Counter-signal** (×{cfg['counter_signal']['factor']}): {esc(s)}")
         st.markdown(f"**Early points:** {ex['early_points']}")
@@ -339,15 +339,16 @@ def page_how(con, run_id):
 - County records are found through **NETR Online** (`python -m collectors.discover`), recorders first because they feed the loan clock.
 """)
     st.latex(r"C = 1-\prod_{j\in\{R,I,Q,V,X,K,L_q\}}\left(1-q_j\,s_j\right)")
-    st.latex(r"\text{Early}=\sum_{L,O,C} w_i\, s_i \times \begin{cases}%s & s_i\ge %s\ (\text{STANDOUT})\\ C(k) & \text{otherwise}\end{cases}"
+    st.latex(r"\text{Early}=\sum_{L,O,C} w_i\, s_i \times \begin{cases}\max(%s,\ \text{rescale}) & s_i\ge %s\ (\text{STANDOUT})\\ C(k)\times\text{rescale} & \text{otherwise}\end{cases}"
              % (so["boost"], so["at_strength"]))
+    st.latex(r"\text{rescale}=\min\!\left(%s,\ \frac{100}{\text{weights of terms that can apply}}\right)" % cfg["applicability"]["max_rescale"])
     st.latex(r"\text{Score}=\min\!\left(100,\ \text{Early}\times %s^{\,\#\text{counter-signals}}+\text{Late}\right)" % cs["factor"])
     lc, od, rd, ig = cfg["loan_clock"], cfg["opening_delay"], cfg["rent_decline"], cfg["inspection_gap"]
     c = cfg["creative"]
     qo, iv, xs, kc, lq = (c["occupancy_slide"], c["income_erosion"], c["cost_squeeze"], c["concession_creep"],
                           c["licensing_quality"])
     st.dataframe(pd.DataFrame([
-        {"Term": "L · Loan clock", "Weight": w["loan_clock"], "0 → 1": f"{lc['start_months']} → {lc['full_months']} months unpaid, +{lc['per_extension']} per extension, +{lc.get('opened_still_unpaid_bonus', 0)} if the building opened with the loan still outstanding", "From": "Part A recorded_loans"},
+        {"Term": "L · Loan clock (construction, or any short-term loan that needed an extension)", "Weight": w["loan_clock"], "0 → 1": f"{lc['start_months']} → {lc['full_months']} months unpaid, +{lc['per_extension']} per extension, +{lc.get('opened_still_unpaid_bonus', 0)} if the building opened with the loan still outstanding", "From": "Part A recorded_loans"},
         {"Term": "O · Opening delay", "Weight": w["opening_delay"], "0 → 1": f"{od['start_months']} → {od['full_months']} months late (under {od['start_months']} is normal)", "From": "Part B projects"},
         {"Term": "C · Creative signals (combined)", "Weight": w["creative"], "0 → 1": "1 − Π(1 − q·s) over the signals below", "From": "see below"},
     ]), hide_index=True, use_container_width=True)
@@ -358,13 +359,13 @@ def page_how(con, run_id):
         {"Signal": "Q · Occupancy slide", "s = 0 → 1": f"(peak occ. last {qo['lookback_months']} mo − occ. now − market drop) ÷ {qo['full_gap']:.0%}", "q": qo["reliability"], "From": "operating_metrics + market_occupancy"},
         {"Signal": "V · Income erosion", "s = 0 → 1": f"NOI drop from its best year (last {iv['lookback_months']} mo) ÷ {iv['full_noi_drop']:.0%}", "q": iv["reliability"], "From": "operating_metrics (public disclosures; no DSCR)"},
         {"Signal": "X · Cost squeeze", "s = 0 → 1": f"(expense growth − revenue growth since best year) ÷ {xs['full_gap']:.0%}", "q": xs["reliability"], "From": "operating_metrics"},
-        {"Signal": "K · Concession creep", "s = 0 → 1": f"(free months per lease now − a year ago) ÷ {kc['full_months']}", "q": kc["reliability"], "From": "B rent_observations"},
+        {"Signal": "K · Concession creep", "s = 0 → 1": f"(free months per lease-year now − 6+ months ago) ÷ {kc['full_per_year']}", "q": kc["reliability"], "From": "B rent_observations (free rent + lease term)"},
         {"Signal": "Lq · Licensing / care", "s = 0 → 1": "CMS 1-star 0.8 · 2-star 0.5 · abuse +0.2 · state distress 0.8", "q": lq["reliability"], "From": "A licensing_records"},
     ]), hide_index=True, use_container_width=True)
     cor = {int(k): v for k, v in cfg["corroboration"].items()}   # JSON turns the keys into text
     st.markdown(f"""
 - **Anti-fluke C(k):** k = early signals at ≥ {cfg['shows_at']:.0%}. 1 → {cor[1]:.0%}, 2 → {cor[2]:.0%}, 3+ → {cor[3]:.0%}.
-- **⭐ STANDOUT:** a signal at ≥ {so['at_strength']:.0%} counts ×{so['boost']} and skips the anti-fluke discount.
+- **⭐ STANDOUT:** a signal at ≥ {so['at_strength']:.0%} counts ×max({so['boost']}, rescale) and skips the anti-fluke discount (the boost and the rescale don't stack).
 - **↩ COUNTER-SIGNAL:** strong evidence the other way (rent beating its city by {cs['rent_beats_city_by']:.0%}+, or a city inspection in the last {cs['inspected_within_days']} days) multiplies early points by {cs['factor']} each.
 - **Ready to act (max {late['max_points']}):** court/legal filing {late['court_points']}, contractor liens {late['lien_points']} each up to {late['max_lien_points']}. Older than {late['recent_days']} days count half.
 - **Not scored:** Ten-X auctions and CMBS data are shown as context only.

@@ -256,7 +256,8 @@ def run(con, cfg: dict | None = None, as_of: date | None = None) -> str:
         shown, reason = passes_filters(ptype, fx.get("state"), amount, cfg["filters"])
         from . import creative as cr
         from . import valuation as val
-        cases = val.value_cases(cr._ops(p, extra["ops"], as_of), ptype, cfg["valuation"])
+        capacity, series = val.property_inputs(p, ptype, fx.get("state"), extra)
+        cases = val.value_cases(cr._ops(p, extra["ops"], as_of), ptype, cfg["valuation"], capacity, series)
         est_value = cases[0]["value"] if cases else None
         ltv = amount / est_value if amount and est_value else None
         dq, dparts = deal_quality(r, ptype, amount, is_public(p), cfg, ltv)

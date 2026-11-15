@@ -34,6 +34,8 @@ weights:
                           #    income coverage, cost squeeze, concession creep, licensing / care quality)
 
 loan_clock:               # L: 0 before 30 months, rises in a straight line to 1 at 60 months
+                          # Counts a construction loan, or any other mortgage that has needed an extension or
+                          # modification since it was recorded (bridge / value-add loans "on the clock").
   start_months: 30
   full_months: 60
   per_extension: 0.10     # each recorded extension/modification adds this...
@@ -80,8 +82,9 @@ creative:
   cost_squeeze:                 # X = (expense growth - revenue growth since the best year) / full_gap
     full_gap: 0.15
     reliability: 0.60           # often explained by one-off costs
-  concession_creep:             # K = (free months per lease now - a year ago) / full_months
-    full_months: 2.0
+  concession_creep:             # K = (free months per lease-YEAR now - 6+ months ago) / full_per_year
+    full_per_year: 1.0          # +1 free month per year of lease term = 1
+    default_term_months: 12     # when the lease term is unknown (typical apartment lease)
     min_days_between: 180
     reliability: 0.70
   licensing_quality:            # Lq from CMS stars / state licensing (Part A licensing_records)
@@ -194,9 +197,16 @@ valuation:
     Industrial: 0.060
     Self storage: 0.060
     Retail: 0.075
-    Office: 0.085
+    Office: 0.100          # Bloomfield underwriting (Feb 2024)
     Mixed use: 0.070
     default: 0.075
+  # Cost to stabilize = max(0, stabilized occ. - occupancy now) x space x (build_out_per_unit + commission_pct x rent x lease_years)
+  # Units follow the space measure: $/SF for office/retail/industrial, $/unit for apartments, $/bed for senior housing.
+  stabilization:
+    Office:          {build_out_per_unit: 40, commission_pct: 0.06, lease_years: 5}    # Bloomfield underwriting
+    Retail:          {build_out_per_unit: 30, commission_pct: 0.06, lease_years: 5}    # PLACEHOLDER
+    Industrial:      {build_out_per_unit: 5,  commission_pct: 0.05, lease_years: 5}    # PLACEHOLDER
+    default:         {build_out_per_unit: 0,  commission_pct: 0.0,  lease_years: 1}   # housing / senior / hotel: no lease-up cost (Bloomfield underwriting)
   run_rate_cap_add: 0.010
   downside_cap_add: 0.020
   months_to_exit: 24

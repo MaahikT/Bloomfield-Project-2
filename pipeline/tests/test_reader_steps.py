@@ -466,10 +466,10 @@ def test_ai_service_down_stops_after_three_errors_and_saves_nothing(bcon, fake_l
 
 def test_filters_by_state_and_source(bcon, fake_llm):
     files.store_file(bcon, LIEN_TEXT.encode(), source="recorder", doc_category="mechanics_lien",
-                     collector_name="t", state="IL", county="Cook County", ext="txt")
+                     collector_name="t", state="FL", county="Pinellas County", ext="txt")
     add_raw(bcon, LIEN_TEXT + "x")
     fake_llm.reply = lien_reply()
-    assert batch.run(state="IL", con=bcon, progress=False, quiet=True)["processed"] == 1
+    assert batch.run(state="FL", con=bcon, progress=False, quiet=True)["processed"] == 1
     assert batch.run(source="permit", con=bcon, progress=False, quiet=True)["candidates"] == 0
     assert batch.run(source="recorder", con=bcon, progress=False, quiet=True)["processed"] == 1
 

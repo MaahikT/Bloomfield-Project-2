@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS rent_observations (
     observed_at   DATE,
     asking_rent   DOUBLE,      -- lowest advertised rent, $/month
     concession_months DOUBLE,  -- free rent offered per lease, in months (0 if none)
+    lease_term_months DOUBLE,  -- length of that lease (NULL = config default, 12)
     unit_basis    TEXT,        -- unit / bed / sqft
     source_url    TEXT,
     file_id       TEXT         -- the saved page in raw_files
@@ -115,7 +116,9 @@ def create_equation_tables(con) -> None:
     con.execute(INPUT_SCHEMA)
     con.execute(cr.INPUT_SCHEMA)
     con.execute("ALTER TABLE rent_observations ADD COLUMN IF NOT EXISTS concession_months DOUBLE")
+    con.execute("ALTER TABLE rent_observations ADD COLUMN IF NOT EXISTS lease_term_months DOUBLE")
     con.execute("ALTER TABLE operating_metrics ADD COLUMN IF NOT EXISTS disclosed_on DATE")
+    con.execute("ALTER TABLE market_occupancy ADD COLUMN IF NOT EXISTS rent_per_unit_year DOUBLE")
 
 
 def ramp(x: float | None, start: float, full: float) -> float:
@@ -167,27 +170,49 @@ def has_opened(p: Property) -> bool:
     return any(pr.get("stale_candidate") is False and pr.get("page_still_unopened") is False for pr in p.projects)
 
 
+CHANGE_KINDS = ("extension", "modification")
+NOT_A_LOAN = ("extension", "modification", "release", "assignment", "permanent_takeout")
+
+
+def clock_loan(p: Property, as_of: date | None = None):
+    """The loan whose clock is running: the latest construction loan, or else a short-term ("transitional")
+    loan - any other mortgage that has needed an extension or modification since it was recorded."""
+    loans = sorted([r for r in p.recorded_loans if as_date(r.get("recording_date"))
+                    and (as_of is None or as_date(r["recording_date"]) <= as_of)],   # nothing recorded after as_of
+                   key=lambda r: as_date(r["recording_date"]))
+    kind = lambda r: (r.get("loan_kind") or "").lower()
+    built = [r for r in loans if kind(r) == "construction"]
+    if built:
+        return built[-1], "construction loan"
+    for r in reversed(loans):
+        if kind(r) in NOT_A_LOAN:
+            continue
+        d = as_date(r["recording_date"])
+        if any(kind(x) in CHANGE_KINDS and as_date(x["recording_date"]) > d for x in loans):
+            return r, "short-term loan (extended)"
+    return None
+
+
 def loan_clock(p: Property, c: dict, as_of: date) -> Part:
-    loans = sorted(p.recorded_loans, key=lambda r: as_date(r.get("recording_date")) or date.min)
-    built = [r for r in loans if (r.get("loan_kind") or "").lower() == "construction"]
-    if not built:
+    loan = clock_loan(p, as_of)
+    if not loan:
         return Part()
-    con_loan = built[-1]
+    con_loan, label = loan
+    loans = sorted([r for r in p.recorded_loans if (as_date(r.get("recording_date")) or date.min) <= as_of],
+                   key=lambda r: as_date(r.get("recording_date")) or date.min)
     start = as_date(con_loan.get("recording_date"))
-    if not start:
-        return Part()
     later = [r for r in loans if (as_date(r.get("recording_date")) or date.min) > start]
     if any((r.get("loan_kind") or "").lower() in ("permanent", "release") for r in later):
-        return Part(0.0, True, "construction loan was paid off by a permanent loan or release")
+        return Part(0.0, True, f"{label} was paid off by a permanent loan or release")
     months = months_between(start, as_of)
     ext = sum(1 for r in later if (r.get("loan_kind") or "").lower() in ("extension", "modification"))
     base = ramp(months, c["start_months"], c["full_months"])
     bonus = min(c["max_extension_bonus"], c["per_extension"] * ext) if base > 0 else 0.0
-    opened = has_opened(p) and months >= c.get("opened_min_months", 24)
+    opened = label == "construction loan" and has_opened(p) and months >= c.get("opened_min_months", 24)
     if opened:
         bonus += c.get("opened_still_unpaid_bonus", 0.0)
     value = min(1.0, base + bonus)
-    why = f"construction loan recorded {months:.0f} months ago, still not paid off"
+    why = f"{label} recorded {months:.0f} months ago, still not paid off"
     if ext:
         why += f"; {ext} extension(s)/modification(s)"
     if opened:
@@ -373,7 +398,7 @@ def applicable_terms(p: Property, cfg: dict, as_of: date) -> dict:
     deadlines = [as_date(pr.get("opening_deadline")) for pr in p.projects if pr.get("opening_deadline")]
     recent_opening = any(d and months_between(d, as_of) <= a["recent_opening_months"] for d in deadlines)
     return {
-        "loan_clock": "construction" in kinds or pre_opening or recent_build,
+        "loan_clock": clock_loan(p, as_of) is not None or pre_opening or recent_build,
         # a construction loan means something is being built: its opening date is unknown, not inapplicable
         "opening_delay": pre_opening or recent_opening or "construction" in kinds or recent_build,
         "creative": True,
@@ -400,24 +425,24 @@ def score_property(p: Property, cfg: dict, as_of: date, rents: dict, market: dic
     r.corroboration = float(cfg["corroboration"][min(r.showing, 4)])
     so = cfg["standout"]
     early = 0.0
-    for name, part in parts.items():
-        if part.value >= so["at_strength"]:
-            # Upside extreme: counts in full, plus a boost, whatever the other signals say.
-            early += w[name] * part.value * so["boost"]
-            r.standouts.append(f"{STANDOUT_LABEL[name]}: {part.why}")
-        else:
-            early += w[name] * part.value * r.corroboration
-        if part.counter:
-            r.counters.append(part.counter)
-    r.counters += counters
-    # Downside extreme: each counter-signal cuts the early points.
-    early *= cfg["counter_signal"]["factor"] ** len(r.counters)
     # Rescale for terms that cannot apply (e.g. no construction financing on a long-open building), at most x max_rescale.
     r.applicable = applicable_terms(p, cfg, as_of)
     w_all = sum(w[k] for k in parts)
     w_app = sum(w[k] for k in parts if r.applicable[k])
     r.rescale = min(cfg["applicability"]["max_rescale"], w_all / w_app) if w_app else 1.0
-    r.early = early * r.rescale
+    for name, part in parts.items():
+        if part.value >= so["at_strength"]:
+            # Upside extreme: counts in full and skips the anti-fluke discount. Its boost and the rescale
+            # do NOT stack: it gets whichever is larger.
+            early += w[name] * part.value * max(so["boost"], r.rescale)
+            r.standouts.append(f"{STANDOUT_LABEL[name]}: {part.why}")
+        else:
+            early += w[name] * part.value * r.corroboration * r.rescale
+        if part.counter:
+            r.counters.append(part.counter)
+    r.counters += counters
+    # Downside extreme: each counter-signal cuts the early points.
+    r.early = early * cfg["counter_signal"]["factor"] ** len(r.counters)
     r.late, r.late_why = late_points(p, facts, cfg["late"], as_of)
     r.score = round(min(cfg["max_score"], r.early + r.late), 1)
     t = cfg["tiers"]
@@ -434,11 +459,13 @@ def load_inputs(con):
         cols = {r[0] for r in con.execute("SELECT column_name FROM information_schema.columns "
                                           "WHERE table_name = 'rent_observations'").fetchall()}
         conc = "concession_months" if "concession_months" in cols else "NULL"
-        for pid, d, rent, cm in con.execute(f"SELECT project_id, observed_at, asking_rent, {conc} FROM rent_observations").fetchall():
+        term = "lease_term_months" if "lease_term_months" in cols else "NULL"
+        for pid, d, rent, cm, tm in con.execute(
+                f"SELECT project_id, observed_at, asking_rent, {conc}, {term} FROM rent_observations").fetchall():
             if rent is not None:
                 rents.setdefault(str(pid), []).append((as_date(d), rent))
             if cm is not None:
-                extra["concessions"].setdefault(str(pid), []).append((as_date(d), cm))
+                extra["concessions"].setdefault(str(pid), []).append((as_date(d), cm, tm))
     if table_exists(con, "operating_metrics"):
         cur = con.execute("SELECT * FROM operating_metrics")
         names = [x[0] for x in cur.description]
@@ -447,8 +474,12 @@ def load_inputs(con):
             extra["ops"].setdefault(str(d["link_id"]), []).append(d)
     if table_exists(con, "market_occupancy"):
         from .weekly import clean_type
-        for st, pt, d, occ in con.execute("SELECT state, property_type, period, occupancy FROM market_occupancy").fetchall():
-            extra["mkt_occ"].setdefault(((st or "").upper(), clean_type(pt)), []).append((as_date(d), occ))
+        mcols = {r[0] for r in con.execute("SELECT column_name FROM information_schema.columns "
+                                            "WHERE table_name = 'market_occupancy'").fetchall()}
+        rent = "rent_per_unit_year" if "rent_per_unit_year" in mcols else "NULL"
+        for st, pt, d, occ, mr in con.execute(
+                f"SELECT state, property_type, period, occupancy, {rent} FROM market_occupancy").fetchall():
+            extra["mkt_occ"].setdefault(((st or "").upper(), clean_type(pt)), []).append((as_date(d), occ, mr))
     if table_exists(con, "licensing_records"):
         cur = con.execute("SELECT * FROM licensing_records")
         names = [x[0] for x in cur.description]

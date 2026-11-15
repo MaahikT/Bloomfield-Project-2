@@ -193,7 +193,7 @@ def make_troubled_project(con) -> None:
 # 2. Twenty ordinary, healthy-looking properties
 # ---------------------------------------------------------------------------
 PLACES = [("MI", "Washtenaw County", "Ann Arbor"), ("MI", "Wayne County", "Detroit"),
-          ("IL", "Cook County", "Chicago"), ("AZ", "Maricopa County", "Phoenix"),
+          ("FL", "Pinellas County", "St. Petersburg"), ("AZ", "Maricopa County", "Phoenix"),
           ("TX", "Travis County", "Austin"), ("FL", "Miami-Dade County", "Miami")]
 KINDS = ["Garden Apartments", "Shopping Center", "Industrial Warehouse", "Medical Office",
          "Self Storage", "Hotel", "Senior Living", "Student Housing"]

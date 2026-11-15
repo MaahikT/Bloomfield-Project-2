@@ -29,6 +29,11 @@ sources:                        # include only the ones that exist; any may be m
   recorder:                     # -> recorder (recorded documents: mortgages, liens, ...)
     access: manual_inbox
 
+  permits:                      # -> permit (city building department: permits, inspections, certificates of
+    access: manual_inbox        #    occupancy). NOT on NETR. collectors/permits.py turns the files into tables.
+    default_doc_category: building_permit   # or permit_inspection / certificate_of_occupancy for those datasets
+    # columns: {permit_number: "Permit #", issued_date: "Issue Date"}   # only if not BLDS names (see permits.py)
+
   public_notice:                # -> public_notice (foreclosure and other legal notices)
     access: scrape              # EXAMPLE of a scrape source; delete or change
     base_url: "https://notices.example.gov"

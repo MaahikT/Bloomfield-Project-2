@@ -1,0 +1,12 @@
+# AZ statewide links from NETR Online (pulled Nov 14, 2026). No collected sources yet: reference links only.
+statewide: true
+state: AZ
+notes: "Statewide UCC and business-entity searches. TODO verify terms of use before automating anything."
+sources: {}
+
+reference_sites:
+  - {office: "UCC Search", url: "https://azsos.gov/",
+     feeds: "UCC-1s on LLC membership interests = mezzanine loans; the lender who could run a UCC sale (READY TO ACT context)"}
+  - {office: "Corporation Search (AZ Corporation Commission)", url: "https://azcc.gov/",
+     feeds: "Part C contacts: the developer's principals and registered agent, to reach the borrower directly"}
+  - {office: "Official State Website", url: "https://az.gov/", feeds: "-"}

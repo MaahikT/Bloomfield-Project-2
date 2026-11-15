@@ -11,3 +11,11 @@ sources:
   public_notice:
     access: manual_inbox
     notes: "Michigan Press Association public notice site (michiganpublicnotices.com). Terms not checked; may use a CAPTCHA."
+
+reference_sites:                  # Michigan statewide links (NETR Online, Nov 14, 2026)
+  - {office: "UCC Search", url: "https://ucc.sos.state.mi.us/",
+     feeds: "UCC-1s on LLC membership interests = mezzanine loans; the lender who could run a UCC sale (READY TO ACT context)"}
+  - {office: "Business Entity Search (LARA)", url: "https://cofs.lara.state.mi.us/SearchApi/Search/Search",
+     feeds: "Part C contacts: the developer's principals and registered agent, to reach the borrower directly"}
+  - {office: "Statewide Subdivision Plat Maps", url: "https://aca3.accela.com/LARA/Default.aspx", feeds: "Part C: parcels for matching"}
+  - {office: "Official State Website", url: "https://www.michigan.gov/", feeds: "-"}
