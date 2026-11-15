@@ -12,6 +12,8 @@ from scout_reader_schema import create_scout_reader_tables
 @pytest.fixture()
 def con():
     c = duckdb.connect(":memory:")
+    from collectors.common import db as cdb
+    cdb.create_tables(c)                   # the full collector schema group_properties reads
     create_scout_reader_tables(c)          # llm_usage / llm_cache
     scorer_weekly.create_tables(c)         # weekly_runs / weekly_flags
     aw.create_tables(c)                    # agent tables + weekly_research_passes
@@ -112,3 +114,33 @@ def test_token_cap_stops_pass_midway(con):
     s = aw.run_pass(con, limits=_limits(max_total_tokens=1000), agent_run=fake_agent)
     assert s["goals_run"] == 1
     assert s["status"] == "stopped:token_cap"
+
+
+def test_cost_cap_reserves_worst_case_before_goal(con):
+    _add_week(con, ["p1", "p2", "p3"])
+
+    def fake_agent(c, goal):
+        from collectors.common import db
+        c.execute("INSERT INTO llm_usage (called_at, task, model, input_tokens, output_tokens, "
+                  "est_cost_usd) VALUES (?, 'agent', 'm', 100, 10, 7.9)", [db.utc_now()])
+        return {"status": "done", "evidence_rows": 0}
+
+    s = aw.run_pass(con, limits=_limits(max_est_cost_usd=8.0), agent_run=fake_agent)
+    assert s["goals_run"] == 1                      # 7.9 spent + reserve > 8.0 -> second goal never starts
+    assert s["status"] == "stopped:cost_cap"
+
+
+def test_unscored_grouped_properties_are_queued(con):
+    _add_week(con, ["p1"])
+    con.execute("INSERT INTO projects (project_id, project_name, property_address, city, state) "
+                "VALUES ('x9', 'Tail Property', '500 Tail St', 'Austin', 'TX')")
+    seen = []
+
+    def fake_agent(c, goal):
+        seen.append(goal)
+        return {"status": "done", "evidence_rows": 0}
+
+    s = aw.run_pass(con, limits=_limits(max_goals=5), agent_run=fake_agent)
+    assert s["candidates"] == 2               # the ranked one + the unscored grouped one
+    assert s["goals_run"] == 2
+    assert any("Tail Property" in g or "x9" in g for g in seen)
