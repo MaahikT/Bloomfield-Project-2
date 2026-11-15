@@ -161,8 +161,10 @@ def test_rate_limit_hint_in_the_error_body_is_honoured(gemini, monkeypatch, bcon
 
 def test_server_errors_are_retried_up_to_five_times(gemini, monkeypatch, bcon):
     api = use(monkeypatch, (503, {"error": {"message": "overloaded"}}, {}))
+    cfg = make_cfg()
+    cfg.setdefault("llm", {})["max_retries"] = 5       # exercise the mechanism, not the shipped default
     with pytest.raises(client.LLMError, match="5 retries"):
-        client.call_llm("extract", "s", "t", 100, con=bcon, cfg=make_cfg())
+        client.call_llm("extract", "s", "t", 100, con=bcon, cfg=cfg)
     assert len(api.calls) == 6
 
 
