@@ -248,18 +248,20 @@ def _retry_delay_from_body(body: dict) -> float:
     return 0.0
 
 
-def _log_unknown_usage(con, task, provider, model, worst_in, max_tokens, cfg) -> None:
-    """A request was SENT but the answer never came back (timeout / connection drop): the
-    provider may still bill it. Charge the FULL WORST CASE (estimated prompt + max output)
-    so the spending ledger never under-counts. Rows are marked unknown-usage-worst-case."""
-    if con is None:
-        return
+def _log_unknown_usage(con, task, provider, model, worst_in, max_tokens, cfg) -> float:
+    """A request was SENT but we cannot prove what it used: the answer never came back
+    (timeout / connection drop) or came back without usage numbers. The provider may
+    still bill it, so charge the FULL WORST CASE (estimated prompt + max output) -
+    the spending ledger never under-counts. Rows are marked unknown-usage-worst-case.
+    Returns the dollars charged."""
     try:
-        cost.record_usage(con, task, provider, model, worst_in, max_tokens,
-                          "unknown-usage-worst-case", cfg)
-        log.warning("no response after sending; charged worst-case estimate for task=%s", task)
+        charged = cost.record_usage(con, task, provider, model, worst_in, max_tokens,
+                                    "unknown-usage-worst-case", cfg)
+        log.warning("usage unknown for task=%s; charged the worst-case estimate", task)
+        return charged
     except Exception:
         log.exception("could not record unknown-usage worst case")
+        return 0.0
 
 
 def _send_with_retries(provider, model, system_prompt, user_text, max_tokens, cfg, key, task=None,
@@ -351,11 +353,16 @@ def call_llm_detailed(task: str, system_prompt: str, user_text: str, max_output_
     # 3. The real call.
     text, in_tok, out_tok, truncated = _send_with_retries(
         provider, model, system_prompt, user_text, max_output_tokens, cfg, api_key, task, con=con)
-    in_tok = int(in_tok) if in_tok is not None else est_in
-    out_tok = int(out_tok) if out_tok is not None else cost.estimate_tokens(text, cfg)
 
-    # 4. Record what it cost; cache the answer unless it was cut off.
-    spent = cost.record_usage(con, task, provider, model, in_tok, out_tok, file_hash, cfg)
+    # 4. Record what it cost; cache the answer unless it was cut off. An answered call
+    #    that did NOT report usage is charged at full worst case, never at a guess.
+    if in_tok is None or out_tok is None:
+        spent = _log_unknown_usage(con, task, provider, model, est_in, max_output_tokens, cfg)
+        in_tok = int(in_tok) if in_tok is not None else est_in
+        out_tok = int(out_tok) if out_tok is not None else max_output_tokens
+    else:
+        in_tok, out_tok = int(in_tok), int(out_tok)
+        spent = cost.record_usage(con, task, provider, model, in_tok, out_tok, file_hash, cfg)
     if con is not None and use_cache and not truncated:
         _cache_put(con, key_id, task, text, in_tok, out_tok)
     if truncated:
@@ -448,11 +455,16 @@ def call_with_tools(task: str, system_prompt: str, messages: list[dict], tools: 
                 choice = (body.get("choices") or [{}])[0]
                 message = choice.get("message") or {}
                 usage = body.get("usage") or {}
-                in_tok = int(usage.get("prompt_tokens") or est_in)
-                out_tok = int(usage.get("completion_tokens") or 0)
                 truncated = choice.get("finish_reason") == "length"
-                spent = cost.record_usage(con, task, provider, model, in_tok, out_tok,
-                                          hashlib.sha256(json.dumps(messages).encode()).hexdigest(), cfg)
+                if usage.get("prompt_tokens") is None or usage.get("completion_tokens") is None:
+                    # answered but unmetered: charge the full worst case, never a guess
+                    spent = _log_unknown_usage(con, task, provider, model, est_in, max_output_tokens, cfg)
+                    in_tok, out_tok = est_in, max_output_tokens
+                else:
+                    in_tok = int(usage["prompt_tokens"])
+                    out_tok = int(usage["completion_tokens"])
+                    spent = cost.record_usage(con, task, provider, model, in_tok, out_tok,
+                                              hashlib.sha256(json.dumps(messages).encode()).hexdigest(), cfg)
                 if truncated:
                     log.warning("agent step for task=%s was cut off at max_output_tokens=%d", task, max_output_tokens)
                 return {"message": message, "tool_calls": _parse_tool_calls(message),
