@@ -70,3 +70,14 @@ def test_noisy_or_combination_and_confirmation_cap(c):
     value, showing, _ = cr.combine(sigs, c)
     assert value == pytest.approx(1 - (1 - 0.45) * 0 * (1 - 0.6))
     assert showing == 3 and c["max_confirmations"] == 2
+
+
+def test_nursing_benchmark_never_serves_assisted_living(c):
+    o = ops((date(2022, 1, 1), 12, 0.95, 0, 0, 0, 0), (date(2022, 7, 1), 12, 0.70, 0, 0, 0, 0))
+    nursing_mkt = {("MI", "Senior housing (nursing)"): [(date(2022, 1, 1), 0.90, None), (date(2022, 7, 1), 0.88, None)]}
+    assisted = Property("p", projects=[{"project_id": "x", "property_type": "Assisted living", "state": "MI"}])
+    nursing = Property("p", projects=[{"project_id": "x", "property_type": "Skilled nursing facility", "state": "MI"}])
+    a = cr.occupancy_slide(assisted, "Senior housing", "MI", c["occupancy_slide"], o, nursing_mkt, AS_OF)
+    n = cr.occupancy_slide(nursing, "Senior housing", "MI", c["occupancy_slide"], o, nursing_mkt, AS_OF)
+    assert "no market data" in a.why            # honest miss, not a nursing-facility comparison
+    assert "nursing" in n.why and "no market data" not in n.why
