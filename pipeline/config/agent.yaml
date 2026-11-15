@@ -42,8 +42,10 @@ weekly_loop:
   max_passes: 2          # sweeps over the candidate list per run
   max_est_cost_usd: 9.0  # ADVISORY landmark only, NOT enforced. Passing it logs
                          # a warning; llm_usage keeps the full accounting either way.
-  max_lifetime_est_usd: 8.50   # HARD stop (2026-11-15 user decisions, phonemsg trail): stop
-                         # before the next goal once lifetime est. spend across ALL chargeable
-                         # tasks plus the next goal's worst-case reserve reaches this. Binding
-                         # constraint = min($8.50 total incl. ~$3.81 used, $5.00 additional,
-                         # $1.00 of the account preserved).
+  max_lifetime_est_usd: 8.50   # HARD backstop: stop before the next goal once lifetime est.
+                         # spend across ALL chargeable tasks plus the next goal's worst-case
+                         # reserve reaches this.
+  max_additional_est_usd: 4.51 # HARD stop, the binding one (2026-11-15 user decisions): the
+                         # account has 5.51 remaining (user-reported), 1.00 stays untouched,
+                         # so at most 4.51 NEW est. spend on top of the frozen pass-start
+                         # baseline; the next goal's worst-case reserve must fit inside it.
