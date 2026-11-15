@@ -124,6 +124,59 @@ def research_status(con) -> str:
             f"{ev} verified evidence record{'s' if ev != 1 else ''} · model usage ≈ ${usd:.2f} (estimate)")
 
 
+def research_diagnostics(con) -> str:
+    """Non-secret live diagnostics for the research pass: whether the search service and the
+    model key are CONFIGURED (yes/no only - never the values), the latest pass row, the most
+    recent goals and the most recent FAILED tool calls (which carry the plain-words reason,
+    e.g. 'No search service is configured'). Read-only; safe to show on the public app."""
+    lines = []
+    try:
+        import yaml
+        bot_cfg = yaml.safe_load((PIPELINE / "config" / "bot.yaml").read_text()) or {}
+        provider = ((bot_cfg.get("search") or {}).get("provider", "none"))
+    except Exception as e:
+        provider = f"unreadable ({e})"
+    key_env = "TAVILY_API_KEY" if provider == "tavily" else "BRAVE_SEARCH_API_KEY"
+    key_set = bool(os.environ.get(key_env, "").strip())
+    try:
+        from collectors.common import config as _c  # loads .env into os.environ
+        _c.load_env()
+    except Exception:
+        pass
+    llm_set = any(os.environ.get(n, "").strip()
+                  for n in ("LLM_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"))
+    lines.append(f"search provider: {provider} · {key_env} set: {'yes' if key_set else 'NO'} · "
+                 f"LLM key set: {'yes' if llm_set else 'NO'}")
+    try:
+        row = con.execute("SELECT started_at, status, goals_run, goals_skipped, evidence_new, "
+                          "llm_calls, search_calls FROM weekly_research_passes ORDER BY started_at DESC "
+                          "LIMIT 1").fetchone()
+        if row:
+            lines.append(f"latest pass: started {row[0]} · status {row[1]} · goals {row[2]} "
+                         f"(skipped {row[3]}) · new evidence {row[4]} · llm calls {row[5]} · searches {row[6]}")
+    except Exception:
+        pass
+    try:
+        runs = con.execute("SELECT started_at, status, llm_calls, cost_usd, "
+                           "substr(goal, 1, 90), substr(coalesce(final_answer, ''), 1, 220) "
+                           "FROM agent_runs ORDER BY started_at DESC LIMIT 3").fetchall()
+        for r in runs:
+            lines.append(f"goal {r[0]}: {r[1]} · {r[2]} calls · ${r[3]:.4f} · {r[4]}")
+            if r[5]:
+                lines.append(f"  last words: {r[5]}")
+    except Exception:
+        pass
+    try:
+        fails = con.execute("SELECT created_at, name, substr(detail, 1, 220) FROM agent_steps "
+                            "WHERE kind = 'tool_result' AND detail LIKE '%\"ok\": false%' "
+                            "ORDER BY created_at DESC LIMIT 3").fetchall()
+        for f_ in fails:
+            lines.append(f"FAILED tool {f_[1]} at {f_[0]}: {f_[2]}")
+    except Exception:
+        pass
+    return "\n".join(lines) if len(lines) > 1 else lines[0]
+
+
 def page_ranked(con, run_id):
     df, cfg = flags(con, run_id), run_cfg(con, run_id)
     f = cfg["filters"]
@@ -133,6 +186,8 @@ def page_ranked(con, run_id):
                f"{(', '.join(f['property_types_excluded']) + ' hidden') if f['property_types_excluded'] else 'all property types shown'} · loans from {money(f['min_loan_size'])}"
                f"{' to ' + money(f['max_loan_size']) if f.get('max_loan_size') else ' (no upper limit)'} · {'states ' + ', '.join(f['states']) if f['states'] else 'all U.S.'}")
     st.caption(research_status(con))
+    with st.expander("Research diagnostics"):
+        st.text(research_diagnostics(con))
     hide_office = st.toggle("Hide office properties", value=False,
                             help="Office is shown by default. Turn this on to filter it out of the list and the counts.")
     if hide_office:
@@ -444,7 +499,7 @@ def page_all(con, run_id):
         "Tier": df["tier"],
         "Listed": df["shown"].map({True: "yes", False: "no"}),
         "Why hidden": df["filter_reason"].fillna(""),
-    }).sort_values(["Rank", "Score", "Property"], ascending=[True, False, True], na_position="last")
+    }).sort_values(["Score", "Property"], ascending=[False, True])
     c1, c2 = st.columns(2)
     tier_pick = c1.multiselect("Tiers", ["hot", "watch", "low"], default=["hot", "watch", "low"],
                                format_func=lambda t: TIER_ICON[t], key="all_tiers")
