@@ -126,7 +126,7 @@ def test_robots_disallowed_pages_are_not_fetched(con, env, tmp_path):
 def test_a_selector_that_matches_nothing_is_logged_and_the_run_continues(con, env, tmp_path):
     bad = washtenaw()
     bad["sources"]["public_notice"]["selectors"] = {**SCRAPE_SRC["selectors"], "record_id": "td.nope"}
-    good = {"county": "Cook County", "state": "IL", "fips": "17031", "status": "configured",
+    good = {"county": "Pinellas County", "state": "FL", "fips": "12103", "status": "configured",
             "sources": {"public_notice": {**SCRAPE_SRC, "base_url": BASE}}}
     folder = make_dir(tmp_path, {"a_bad": bad, "b_good": good})
     run = county.collect(con, session=site(), config_dir=folder)
@@ -197,7 +197,7 @@ API_URL = "https://data.example.gov/resource/abcd-1234.json"
 
 
 def api_cfg(fmt="socrata"):
-    return {"county": "Cook County", "state": "IL", "fips": "17031", "status": "configured", "sources": {"court": {
+    return {"county": "Pinellas County", "state": "FL", "fips": "12103", "status": "configured", "sources": {"court": {
         "access": "open_data_api", "base_url": "https://data.example.gov",
         "api": {"format": fmt, "url": API_URL, "params": {"$where": "filed >= '{since:%Y-%m-%d}'"},
                 "limit_param": "$limit", "offset_param": "$offset", "page_size": 2, "max_pages": 3,
@@ -228,7 +228,7 @@ def test_socrata_api_rows_are_saved_as_json_and_paged(con, env, tmp_path):
             {"case_no": "C3", "filed": iso(7), "who": "FAKE LENDER v OAK LP", "ctype": "Foreclosure", "doc": "/d/c3.pdf"}]
     session = ApiSession(lambda off: rows[off:off + 2], **{"https://data.example.gov/d/c3.pdf":
                                                           FakeResponse("%PDF c3", content_type="application/pdf")})
-    run = county.collect(con, session=session, config_dir=make_dir(tmp_path, {"il_cook": api_cfg()}))
+    run = county.collect(con, session=session, config_dir=make_dir(tmp_path, {"fl_pinellas": api_cfg()}))
     got = {f[4]: f for f in files(con)}
     assert set(got) == {"C1", "C3"}                          # C2 is residential
     assert got["C1"][5] == "json" and got["C3"][5] == "pdf" and got["C3"][0] == "county_court"
@@ -244,7 +244,7 @@ def test_arcgis_format(con, env, tmp_path):
     cfg["sources"]["court"]["api"].pop("offset_param")
     payload = {"features": [{"attributes": {"case_no": "A9", "filed": TODAY.isoformat(), "who": "X v Y",
                                             "ctype": "Foreclosure"}}]}
-    county.collect(con, session=ApiSession(lambda off: payload), config_dir=make_dir(tmp_path, {"il_cook": cfg}))
+    county.collect(con, session=ApiSession(lambda off: payload), config_dir=make_dir(tmp_path, {"fl_pinellas": cfg}))
     assert [f[4] for f in files(con)] == ["A9"]
 
 
@@ -252,7 +252,7 @@ def test_arcgis_format(con, env, tmp_path):
 def test_statewide_config_runs_once_for_the_state_and_filters_work(con, env, tmp_path):
     state_cfg = {"statewide": True, "state": "MI", "sources": {"public_notice": {**SCRAPE_SRC}}}
     folder = make_dir(tmp_path, {"mi_washtenaw": washtenaw(), "mi_wayne": {**washtenaw(), "county": "Wayne County"},
-                                 "mi_statewide": state_cfg, "il_cook": {**washtenaw(), "state": "IL"}})
+                                 "mi_statewide": state_cfg, "fl_pinellas": {**washtenaw(), "state": "FL"}})
     assert [c["id"] for c in county.load_configs(folder, state="MI")] == ["mi_statewide", "mi_washtenaw", "mi_wayne"]
     assert [c["id"] for c in county.load_configs(folder, county="mi_wayne")] == ["mi_wayne"]
     session = site()
@@ -272,8 +272,8 @@ def test_template_files_are_ignored(tmp_path):
 def test_shipped_configs_cover_the_five_sample_counties_and_are_all_manual_for_now():
     cfgs = {c["id"]: c for c in county.load_configs()}
     fips = {c["fips"]: c["county"] for c in cfgs.values() if c.get("fips")}
-    assert fips == {"26161": "Washtenaw County", "17031": "Cook County", "04013": "Maricopa County",
-                    "48453": "Travis County", "12086": "Miami-Dade County"}
+    assert fips == {"26161": "Washtenaw County", "12103": "Pinellas County", "04013": "Maricopa County",
+                    "48453": "Travis County", "12086": "Miami-Dade County"}       # Cook County removed (Nov 2026)
     assert cfgs["mi_statewide"]["statewide"] is True
     for c in cfgs.values():
         assert c["status"] == "manual_inbox" if not c.get("statewide") else True
@@ -333,3 +333,20 @@ def test_registry_status_follows_the_yaml_files(con, env, tmp_path):
     assert reg.sync_from_yaml(con, tmp_path) == 2
     status = dict(con.execute("SELECT fips, config_status FROM county_registry").fetchall())
     assert status["26161"] == "configured" and status["12086"] == "manual_inbox" and status["24005"] == "not_started"
+
+
+def test_sample_counties_follow_bloomfields_priorities():
+    """Recorder first (loan clock), NETR page kept, every reference link says which signal it feeds,
+    and each state has statewide UCC + business-entity searches. Cook County is no longer a sample."""
+    cfgs = {c["id"]: c for c in county.load_configs()}
+    assert "il_cook" not in cfgs
+    counties = [c for c in cfgs.values() if not c.get("statewide")]
+    for c in counties:
+        assert c["netr_page"].startswith("https://publicrecords.netronline.com/state/")
+        rec = c["sources"]["recorder"]
+        assert rec["access"] == "manual_inbox" and rec["url"].startswith("http")
+        assert "modification" in rec["notes"].lower() and "permanent" in rec["notes"].lower()
+        assert all(site.get("feeds") and site.get("url") for site in c["reference_sites"])
+    for st in {c["state"] for c in counties}:
+        offices = " ".join(s["office"] for s in cfgs[f"{st.lower()}_statewide"]["reference_sites"]).lower()
+        assert "ucc" in offices and ("entity" in offices or "corporation" in offices)

@@ -1,18 +1,45 @@
-# Washtenaw County, MI. Status: manual_inbox until a person checks the sites below and their terms of use.
+# Washtenaw County, MI. Links from NETR Online (pulled Nov 14, 2026). Status: manual_inbox until a person checks
+# each site's terms of use / robots.txt (NETR itself is approved; every county site is still screened).
 county: Washtenaw County
 state: MI
 fips: "26161"
 status: manual_inbox
 priority: 1
-notes: "Ann Arbor is our demo case (student housing project). TODO verify each site below (terms of use, robots.txt, whether a login or CAPTCHA is needed); then switch a source to scrape or open_data_api (see _template.yaml) and set status: configured."
+netr_page: "https://publicrecords.netronline.com/state/MI/county/washtenaw"
+notes: "Ann Arbor is our demo market (student housing). Recorder first: it feeds the loan clock, Bloomfield's strongest signal."
 
 sources:
-  court:
+  recorder:                       # PRIORITY 1 -> L loan clock (Part A recorded_loans)
     access: manual_inbox
-    notes: "Washtenaw County Trial Court (22nd Circuit and 14A District) case search. Not checked yet: a person downloads filings by hand into data/inbox/county_court/MI/<county>/."
-  recorder:
+    url: "https://ssclerk.ewashtenaw.org/web/"
+    phone: "(734) 222-6710"
+    notes: >-
+      Washtenaw County Register of Deeds. Pull: construction mortgages; mortgage modifications and extensions
+      (a modification on ANY short-term loan starts the loan clock); assignments; discharges / releases and new
+      permanent mortgages (stop the clock); claims of lien / construction liens and lis pendens (READY TO ACT).
+      Until checked, drop documents into data/inbox/recorder/MI/<county>/.
+  court:                          # READY TO ACT confirmation (foreclosure, receivership, lender lawsuits)
     access: manual_inbox
-    notes: "Washtenaw County Register of Deeds (recorded mortgages, liens). Not checked yet: drop documents into data/inbox/recorder/MI/<county>/."
-  public_notice:
+    notes: "Washtenaw County Trial Court (22nd Circuit and 14A District) case search (not on NETR). Drop filings into data/inbox/county_court/MI/<county>/."
+  public_notice:                  # READY TO ACT (foreclosure by advertisement, sheriff sales)
     access: manual_inbox
-    notes: "Washtenaw County / Michigan public notice sites (foreclosure by advertisement is published in newspapers and posted by the Sheriff). Not checked yet: drop notices into data/inbox/public_notice/MI/<county>/."
+    notes: "Michigan foreclosure by advertisement is published in newspapers and posted by the Sheriff (see mi_statewide). Drop notices into data/inbox/public_notice/MI/<county>/."
+
+reference_sites:                  # not collected automatically; what each one feeds
+  - {office: "Equalization Office (assessment)", phone: "(734) 994-2511", url: "https://www.washtenaw.org/431/Equalization",
+     feeds: "Part C: parcel numbers and owner names; a new building's value appearing on the roll = it was finished"}
+  - {office: "MapWashtenaw (GIS)", url: "https://www.washtenaw.org/1197/MapWashtenaw",
+     feeds: "Part C: parcel boundaries and addresses for matching"}
+  - {office: "City of Ann Arbor (BS&A Online)", phone: "(734) 994-2663", url: "https://bsaonline.com/?uid=283",
+     feeds: "Assessing and tax records; BS&A Online may also carry building permits / inspections (I signal) - verify"}
+  - {office: "City of Ypsilanti (BS&A Online)", url: "https://bsaonline.com/?uid=421", feeds: "Same as Ann Arbor"}
+  - {office: "City of Milan (BS&A Online)", url: "https://bsaonline.com/?uid=394", feeds: "Same as Ann Arbor"}
+  - {office: "Township of Ypsilanti (BS&A Online)", phone: "(734) 487-4927", url: "https://bsaonline.com/?uid=182", feeds: "Same as Ann Arbor"}
+  - {office: "Township of Scio (BS&A Online)", phone: "(734) 665-2123", url: "https://bsaonline.com/?uid=127", feeds: "Same as Ann Arbor"}
+  - {office: "Township of Bridgewater (BS&A Online)", url: "https://bsaonline.com/?uid=392", feeds: "Same as Ann Arbor"}
+  - {office: "Township of Sharon (BS&A Online)", url: "https://bsaonline.com/?uid=1906", feeds: "Same as Ann Arbor"}
+  - {office: "NETR city/township directory", url: "https://publicrecords.netronline.com/directory/mi_numbers_washtenaw",
+     feeds: "Index of the local BS&A sites above"}
+  - {office: "NETR Mapping and GIS", url: "https://map.netronline.com/michigan-washtenaw/26161", feeds: "Part C: parcel lookups"}
+  - {office: "Historic Aerials", url: "https://www.historicaerials.com/",
+     feeds: "Checking construction progress on stalled sites (I / O context), by hand"}

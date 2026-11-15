@@ -146,7 +146,7 @@
   "asks": [
     {
       "ask": "Which states and counties first?",
-      "detail": "We have five samples: Washtenaw MI, Cook IL, Maricopa AZ, Travis TX, Miami-Dade FL.",
+      "detail": "We have five samples: Washtenaw MI, Maricopa AZ, Travis TX, Miami-Dade FL, Pinellas FL.",
       "by": "On this call"
     },
     {

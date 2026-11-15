@@ -1,18 +1,35 @@
-# Miami-Dade County, FL. Status: manual_inbox until a person checks the sites below and their terms of use.
+# Miami-Dade County, FL. Links from NETR Online (pulled Nov 14, 2026). Status: manual_inbox until a person checks
+# each site's terms of use / robots.txt (NETR itself is approved; every county site is still screened).
 county: Miami-Dade County
 state: FL
 fips: "12086"
 status: manual_inbox
 priority: 2
-notes: "Miami (UM and FIU). Foreclosure sales are run online by the Clerk of Courts (an auction calendar, which may be JavaScript-driven). TODO verify each site below (terms of use, robots.txt, whether a login or CAPTCHA is needed); then switch a source to scrape or open_data_api (see _template.yaml) and set status: configured."
+netr_page: "https://publicrecords.netronline.com/state/FL/county/miami-dade"
+notes: "Miami (UM and FIU). Florida records a Notice of Commencement when construction starts, which dates the start of a construction loan. Foreclosure sales are run online by the Clerk."
 
 sources:
+  recorder:                       # PRIORITY 1 -> L loan clock (+ O: notice of commencement dates construction)
+    access: manual_inbox
+    url: "https://onlineservices.miamidadeclerk.gov/officialrecords/"
+    phone: "(305) 275-1155"
+    notes: >-
+      Miami-Dade Clerk, official records. Pull: construction mortgages and notices of commencement; modifications
+      and extensions (any short-term loan); assignments; satisfactions and new permanent mortgages (stop the clock);
+      claims of lien and lis pendens (READY TO ACT). Until checked, drop documents into data/inbox/recorder/FL/<county>/.
   court:
     access: manual_inbox
-    notes: "Miami-Dade Clerk of the Courts online case search and foreclosure auction calendar. Not checked yet: a person downloads filings by hand into data/inbox/county_court/FL/<county>/."
-  recorder:
-    access: manual_inbox
-    notes: "Miami-Dade Clerk, official records search. Not checked yet: drop documents into data/inbox/recorder/FL/<county>/."
+    notes: "Miami-Dade Clerk of the Courts case search and foreclosure auction calendar (not on NETR). Drop filings into data/inbox/county_court/FL/<county>/."
   public_notice:
     access: manual_inbox
-    notes: "Florida Press Association public notice site (floridapublicnotices.com). Not checked yet: drop notices into data/inbox/public_notice/FL/<county>/."
+    notes: "Florida Press Association public notice site (floridapublicnotices.com). Drop notices into data/inbox/public_notice/FL/<county>/."
+
+reference_sites:
+  - {office: "Property Appraiser", phone: "(305) 375-4712", url: "https://www.miamidade.gov/Apps/PA/propertysearch/#/",
+     feeds: "Part C: parcel numbers and owner names; a new building's value appearing = it was finished"}
+  - {office: "Tax Collector", phone: "(305) 270-4916", url: "https://county-taxes.net/fl-miamidade/property-tax",
+     feeds: "READY TO ACT: delinquent property taxes / tax certificates"}
+  - {office: "County GIS", phone: "(305) 596-8200", url: "https://www.miamidade.gov/global/service.page?Mduid_service=ser1495571905689513",
+     feeds: "Part C: parcels for matching"}
+  - {office: "NETR Mapping and GIS", url: "https://map.netronline.com/florida-miami-dade/12086", feeds: "Part C: parcel lookups"}
+  - {office: "Historic Aerials", url: "https://www.historicaerials.com/", feeds: "Checking construction progress by hand"}
