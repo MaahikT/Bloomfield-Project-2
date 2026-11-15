@@ -191,4 +191,7 @@ def test_one_failing_signal_does_not_stop_the_others(bcon, monkeypatch):
 def test_the_signal_list_matches_the_config():
     real = botrun.load_config()
     assert set(real["enabled_signals"]) == set(botrun.DESCRIPTIONS)
-    assert real["search"]["provider"] == "none"                     # no search service is on until a key is set up
+    # The user approved the free Tavily account on 2026-11-15; the key still comes only from
+    # the environment (TAVILY_API_KEY) and is never committed.
+    assert real["search"]["provider"] == "tavily"
+    assert real["search"]["tavily"]["api_key_env"] == "TAVILY_API_KEY"
