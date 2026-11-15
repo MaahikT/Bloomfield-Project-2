@@ -289,7 +289,9 @@ def run(con, cfg: dict | None = None, as_of: date | None = None) -> str:
             "angles": json.dumps(deal_angles(r, p, ptype)), "context": json.dumps(context_facts(p)),
             "summary": summary(r, name),
         })
-    ranked = sorted([x for x in rows if x["shown"] and x["score"] > 0],
+    # Every property that passes the filters is on the list. Ones with warning signs come first (highest score first);
+    # properties we only know from public loan data (score 0) follow, best deal quality first, so they are not hidden.
+    ranked = sorted([x for x in rows if x["shown"]],
                     key=lambda x: (-x["score"], -x["deal_quality"], x["property_id"]))
     for i, x in enumerate(ranked, 1):
         x["rank"] = i
