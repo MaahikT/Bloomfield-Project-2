@@ -49,17 +49,23 @@ def estimate_tokens(text: str, cfg: dict | None = None) -> int:
 
 
 def get_prices(model: str, cfg: dict | None = None) -> tuple[float, float]:
-    """(dollars per input token, dollars per output token) for a model."""
+    """(dollars per input token, dollars per output token) for a model.
+
+    Fail-closed: a model with no listed price is charged at the HIGHEST rates in the
+    table, never at a cheaper guess, so the ledger and the spending cap can never
+    under-count an unfamiliar model."""
     cfg = cfg or load_reader_config()
     table = cfg.get("prices_per_million_tokens") or {}
     entry = table.get(model)
     if entry is None:
-        entry = table.get("default")
+        entries = list(table.values())
+        if not entries:
+            raise ValueError("reader.yaml needs prices_per_million_tokens (at least a 'default')")
         if model not in _warned_models:
             _warned_models.add(model)
-            log.warning("no price listed for model %r in reader.yaml; using the default price (add the real one)", model)
-    if entry is None:
-        raise ValueError("reader.yaml needs prices_per_million_tokens (at least a 'default')")
+            log.warning("no price listed for model %r in reader.yaml; charging the highest listed price until one is added", model)
+        return (max(float(e["input"]) for e in entries) / 1_000_000,
+                max(float(e["output"]) for e in entries) / 1_000_000)
     return float(entry["input"]) / 1_000_000, float(entry["output"]) / 1_000_000
 
 
