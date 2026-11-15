@@ -115,6 +115,32 @@ def test_a_sent_request_with_no_answer_is_charged_at_worst_case(bcon, monkeypatc
     assert rows[0][1] == 1000                       # full max output charged
 
 
+def test_an_answered_call_without_usage_numbers_is_charged_at_worst_case(bcon, monkeypatch):
+    # The service answered 200 but its body carried NO usage block: we cannot prove what
+    # it used, so it must be charged at the full worst case, never at a guess.
+    use_api(monkeypatch, [(200, {"content": [{"type": "text", "text": '{"a": 1}'}],
+                                 "stop_reason": "end_turn"}, {})])
+    text, i, o = client.call_llm("extract", "sys", "t" * 400, 1000, con=bcon,
+                                 file_hash="h1", prompt_version="v9")
+    assert text == '{"a": 1}'
+    rows = bcon.execute("SELECT input_tokens, output_tokens, file_hash FROM llm_usage").fetchall()
+    assert len(rows) == 1 and rows[0][2] == "unknown-usage-worst-case"
+    assert rows[0][0] == cost.estimate_tokens("sys" + "t" * 400) and rows[0][1] == 1000
+    assert (i, o) == (rows[0][0], 1000)
+
+
+def test_unknown_model_is_priced_at_the_highest_listed_rate():
+    # fail-closed pricing: an unlisted model costs the table's MAX, never a cheap guess
+    cfg = client.load_reader_config()
+    table = cfg["prices_per_million_tokens"]
+    pin, pout = cost.get_prices("some-model-not-in-the-table", cfg)
+    assert pin == max(float(e["input"]) for e in table.values()) / 1_000_000
+    assert pout == max(float(e["output"]) for e in table.values()) / 1_000_000
+    # a listed model still gets its own price (the verified U-M rate here)
+    gpin, gpout = cost.get_prices("gpt-4o-mini", cfg)
+    assert (gpin, gpout) == (0.15 / 1_000_000, 0.60 / 1_000_000)
+
+
 def test_bad_key_is_not_retried_and_key_never_shown(bcon, monkeypatch):
     api = use_api(monkeypatch, [(401, {"error": {"message": "invalid key sk-test-secret-123"}}, {})])
     with pytest.raises(client.LLMError) as err:
