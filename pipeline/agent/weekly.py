@@ -190,7 +190,9 @@ def _goal_for(c: dict) -> str:
         "occupancy trends, health/fire inspection history, and anything else public records "
         "show about this property. Save every fact you rely on as an evidence row with its "
         "exact source URL and a verbatim quote; record nothing you cannot verify. If a source "
-        "blocks you, say so honestly and move on."
+        "blocks you, say so honestly and move on. Work in as FEW steps as you can: two or three "
+        "good searches and one or two page fetches are usually enough; stop as soon as you have "
+        "saved what is verifiable or you know there is nothing to find."
     )
 
 
