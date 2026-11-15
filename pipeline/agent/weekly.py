@@ -21,8 +21,12 @@ of these limits (set in config/agent.yaml under weekly_loop):
                          own dollar limit (user decision 2026-11-15). Passing it logs a
                          warning; llm_usage keeps the full accounting either way.
 
-It also stops early when a full sweep finds zero new verified evidence (convergence): more
-searching is not going to change this week's ranking.
+It also stops early when a full sweep finds zero new verified evidence AND every goal ran
+clean (true convergence): more searching is not going to change this week's ranking. If a
+sweep finds no new evidence but goals failed (exceptions or failed tool calls, e.g. the
+search service missing or out of quota), that is NOT convergence: the pass stops with the
+distinct status ``no_new_evidence_with_failures`` so a missing API key or quota can never
+masquerade as completed research, and failed properties stay pending for the next pass.
 
 Dedup: a property is skipped when an earlier agent run already researched that exact property
 marker and saved at least one evidence row - re-researching what is already verified wastes
@@ -255,9 +259,12 @@ def run_pass(con, *, cfg: dict | None = None, limits: dict | None = None,
     stop = None
     sweeps = 0
     warned = {"usd": False}
+    failed_goals = 0
+    failed_tool_calls = 0
     while sweeps < max(1, int(limits["max_passes"])):
         sweeps += 1
         sweep_new = 0
+        sweep_failures = 0
         pending = [c for c in candidates if c["property_id"] not in researched]
         if not pending:
             stop = "all_candidates_researched"
@@ -274,18 +281,40 @@ def run_pass(con, *, cfg: dict | None = None, limits: dict | None = None,
             if stop:
                 break
             before = con.execute("SELECT count(*) FROM evidence").fetchone()[0]
-            result = agent_run(con, _goal_for(c))
+            try:
+                result = agent_run(con, _goal_for(c))
+            except Exception:
+                # One bad goal must not kill the pass. The property stays pending so a
+                # later pass retries it, and the failure is counted honestly.
+                log.exception("pass %s goal %s: agent run raised", pass_id, c["property_id"])
+                goals_run += 1
+                failed_goals += 1
+                sweep_failures += 1
+                continue
             goals_run += 1
+            tool_failures = 0
+            if result.get("run_id"):
+                tool_failures = con.execute(
+                    "SELECT count(*) FROM agent_steps WHERE run_id = ? AND kind = 'tool_result' "
+                    "AND detail LIKE '%\"ok\": false%'", [result["run_id"]]).fetchone()[0]
+            failed_tool_calls += tool_failures
+            if result.get("status") == "failed" or tool_failures > 0:
+                sweep_failures += 1
             gained = con.execute("SELECT count(*) FROM evidence").fetchone()[0] - before
             sweep_new += max(0, gained)
             if result.get("evidence_rows", 0) > 0:
                 researched.add(c["property_id"])
-            log.info("pass %s goal %s: %s, +%d evidence", pass_id, c["property_id"],
-                     result.get("status"), gained)
+            log.info("pass %s goal %s: %s, +%d evidence, %d failed tool calls",
+                     pass_id, c["property_id"], result.get("status"), gained, tool_failures)
         else:
             # full sweep finished without hitting a cap
-            if sweep_new == 0:
+            if sweep_new == 0 and sweep_failures == 0:
                 stop = "converged_no_new_evidence"
+                break
+            if sweep_new == 0:
+                # Zero new evidence WITH failures is not convergence: the search service
+                # may be missing or out of quota. Say so explicitly.
+                stop = "no_new_evidence_with_failures"
                 break
             stop = None
             continue
@@ -305,6 +334,7 @@ def run_pass(con, *, cfg: dict | None = None, limits: dict | None = None,
         "pass_id": pass_id, "week_run_id": week_run_id, "new_week_run_id": new_run_id,
         "status": f"stopped:{stop}" if stop not in ("completed", "passes_done") else stop,
         "candidates": len(candidates), "goals_run": goals_run,
+        "goals_failed": failed_goals, "tool_call_failures": failed_tool_calls,
         "goals_skipped_already_researched": max(0, goals_skipped),
         "evidence_new": ev_new, "llm_calls": usage["llm_calls"],
         "tokens": usage["tokens"], "search_calls": usage["search_calls"],
