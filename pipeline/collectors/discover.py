@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS website_candidates (
     url            TEXT PRIMARY KEY,
     state          TEXT,
     county         TEXT,
-    kind           TEXT,        -- recorder / court / public_notice / assessor / other
+    kind           TEXT,        -- recorder / building / court / public_notice / assessor / other
     link_text      TEXT,
     found_on       TEXT,        -- the directory page the link came from
     directory      TEXT,
@@ -164,8 +164,11 @@ def screen_site(url: str, cfg: dict, session=None) -> tuple[str, str]:
 
 def screen_pending(con, cfg: dict, limit: int | None = None, session=None) -> dict:
     counts: dict[str, int] = {}
+    # Screen the sites that feed the strongest signal first (recorders -> loan clock).
+    rank = priority_sql(cfg)
     rows = con.execute("SELECT url FROM website_candidates WHERE screen_status = 'not_screened' "
-                       "AND kind != 'other' ORDER BY state, county" + (f" LIMIT {int(limit)}" if limit else "")).fetchall()
+                       f"AND kind != 'other' ORDER BY {rank}, state, county"
+                       + (f" LIMIT {int(limit)}" if limit else "")).fetchall()
     for (url,) in rows:
         status, reason = screen_site(url, cfg, session)
         con.execute("UPDATE website_candidates SET screen_status=?, screen_reason=?, screened_at=? WHERE url=?",
@@ -177,7 +180,14 @@ def screen_pending(con, cfg: dict, limit: int | None = None, session=None) -> di
 # ---------------------------------------------------------------------------
 # Adding to the list: a PROPOSED county file for a person to review
 # ---------------------------------------------------------------------------
-SOURCE_FOR_KIND = {"recorder": "recorder", "court": "court", "public_notice": "public_notice"}
+SOURCE_FOR_KIND = {"recorder": "recorder", "building": "permits", "court": "court", "public_notice": "public_notice"}
+
+
+def priority_sql(cfg: dict) -> str:
+    """SQL ordering by signal_priority in discovery.yaml (unknown kinds last)."""
+    pri = cfg.get("signal_priority", {})
+    whens = " ".join(f"WHEN '{k}' THEN {int(v.get('rank', 9))}" for k, v in pri.items() if str(k).isidentifier())
+    return f"CASE kind {whens} ELSE 9 END" if whens else "(CASE WHEN TRUE THEN 9 END)"
 
 
 def write_proposals(con, out_dir: str | Path | None = None) -> list[Path]:
@@ -190,10 +200,10 @@ def write_proposals(con, out_dir: str | Path | None = None) -> list[Path]:
         if not rows:
             continue
         sources = {}
-        for kind in SOURCE_FOR_KIND.values():
+        for kind, source in SOURCE_FOR_KIND.items():
             mine = [r for r in rows if r[1] == kind]
             if mine:
-                sources[kind] = {"access": "manual_inbox",
+                sources[source] = {"access": "manual_inbox",
                                  "notes": "PROPOSED by discover.py. A person must confirm each site's terms before changing "
                                           "access to scrape/open_data_api. Candidates: "
                                           + "; ".join(f"{u} [{s}: {why or 'not screened yet'}]" for u, _, s, why in mine)}
@@ -208,9 +218,16 @@ def write_proposals(con, out_dir: str | Path | None = None) -> list[Path]:
     return written
 
 
-def report(con) -> str:
+def report(con, cfg: dict | None = None) -> str:
     rows = con.execute("SELECT screen_status, count(*) FROM website_candidates GROUP BY 1 ORDER BY 1").fetchall()
-    return "Candidate websites: " + (", ".join(f"{n} {s}" for s, n in rows) if rows else "none yet")
+    out = "Candidate websites: " + (", ".join(f"{n} {s}" for s, n in rows) if rows else "none yet")
+    pri = (cfg or {}).get("signal_priority", {})
+    if pri and rows:
+        kinds = dict(con.execute("SELECT kind, count(*) FROM website_candidates GROUP BY 1").fetchall())
+        out += "\nBy what they feed in the Opportunity Score (look at these first):"
+        for kind, v in sorted(pri.items(), key=lambda kv: kv[1].get("rank", 9)):
+            out += f"\n  {v.get('rank')}. {kind:<13} {kinds.get(kind, 0):>4} site(s) -> {v.get('feeds')}"
+    return out
 
 
 def main() -> None:
@@ -241,7 +258,7 @@ def main() -> None:
     if args.proposals:
         for p in write_proposals(con):
             print("Proposed:", p)
-    print(report(con))
+    print(report(con, cfg))
 
 
 if __name__ == "__main__":

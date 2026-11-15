@@ -1,5 +1,18 @@
 # Bloomfield Opportunity Score (0–100)
 
+## What we heard from Bloomfield
+- Construction loan still on the clock is the **strongest** signal. A project that opened with its construction loan still outstanding, or a loan from five years ago never paid off, is distress.
+- Opening date watch is good but **weaker**. A 3–6 month delay is normal, so it's weighted accordingly.
+- Creative signals are very promising once we find a reliable way to detect them.
+- Court and lien filings come **late**: they show a situation that's already actionable, not an early warning.
+- Forced and public sales are not really a signal, and Trepp gives little edge because everyone has it.
+
+## What we changed
+- The construction-loan clock (weight 50) and opening date watch (20) outweigh the other signals (15 each). A building that **opened with its construction loan still outstanding** gets +0.25 on L.
+- Court and lien filings are a **READY TO ACT** confirmation: at most 10 points, plus the tag.
+- Auctions and Trepp/CMBS are shown as context only.
+- County records are found through **NETR Online** (`python -m collectors.discover`). Sites are screened in signal order: recorders (loan clock) → building departments (inspections, certificates of occupancy) → assessors (parcel IDs for Part C) → courts and public notices (ready to act). See `signal_priority` in `config/discovery.yaml`.
+
 Built from Bloomfield's feedback: **early signals find the opportunity; court filings and liens only confirm it.**
 All numbers live in `config/equation.yaml`. Code: `scorer/equation.py`. Tests: `tests/test_equation.py`.
 
@@ -13,7 +26,7 @@ Score = min(100, Early + Late)
 
 | Term | What it measures | Strength 0 → 1 | Weight | Data from |
 |---|---|---|---|---|
-| **L** loan clock | Construction loan still not paid off by a permanent loan or release | 0 before 30 months → 1 at 60 months (5 years). +0.1 per extension, max +0.2 | 50 | Part A `recorded_loans` |
+| **L** loan clock | Construction loan still not paid off by a permanent loan or release | 0 before 30 months → 1 at 60 months (5 years). +0.1 per extension (max +0.2); +0.25 if the building opened with the loan still outstanding | 50 | Part A `recorded_loans` |
 | **O** opening delay | Months past the latest reasonable opening date, page still "coming soon" | 0 under 6 months (normal) → 1 at 18 months. +0.1 missed student move-in, +0.05 per date slip (max +0.1) | 20 | Part B `projects` |
 | **R** rent decline | Property's asking-rent change **minus** its city's rent change, same dates | 0 if keeping up with the city → 1 at 15 points worse | 15 | Part B `rent_observations` vs. Part A `market_rents` |
 | **I** inspection gap | Days since the last city inspection on a permit with no certificate of occupancy | 0 under 60 days → 1 at 180 days | 15 | Part A `permit_inspections` + Part B permits in `filing_fields` |
@@ -23,7 +36,7 @@ Score = min(100, Early + Late)
 **Not scored** (Bloomfield: public, forced, or everyone already has it): Ten-X auctions, Trepp / CMBS DSCR and watchlists.
 
 **Tiers:** Hot ≥ 50 (call this week) · Watch ≥ 25 · Low below that.
-**Stage:** *Early* = no late filings yet (Bloomfield gets there first). *Actionable* = a court filing or lien already exists.
+**Stage:** *Early* = no late filings yet (Bloomfield gets there first). *Ready to act* = a court filing or lien already exists.
 
 ## Extremes: STANDOUT and COUNTER-SIGNAL
 - **STANDOUT (upside extreme):** a signal at 90%+ strength skips the anti-fluke discount and counts 1.2×. Example: a 5-year-old unpaid construction loan alone scores 50 × 1.0 × 1.2 = **60 → Hot**, tagged `STANDOUT` so the researcher knows why it ranks high on a single signal.

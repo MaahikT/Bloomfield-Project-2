@@ -7,7 +7,22 @@
 #
 # L, O, R, I are each a strength from 0 to 1. Late is at most 10.
 # ---------------------------------------------------------------------------
-version: "eq-1.1"
+version: "eq-1.2"
+
+# ---- WHAT BLOOMFIELD TOLD US (Nov 2026) -> HOW THIS FILE USES IT ----------------
+# * Construction loan still on the clock is the STRONGEST signal: a project that opened with its
+#   construction loan still outstanding, or a 5-year-old loan never paid off, is distress.
+#     -> loan_clock has the biggest weight (50), full strength at 60 months, plus an
+#        "opened but still unpaid" boost below.
+# * Opening date watch is good but weaker; a 3-6 month delay is normal.
+#     -> opening_delay is the 2nd-biggest weight (20) and scores 0 under 6 months.
+# * Creative signals are promising once we can detect them reliably.
+#     -> rent_decline and inspection_gap (15 each), plus the anti-fluke check.
+# * Court and lien filings come late: the situation is already actionable, not an early warning.
+#     -> "late" adds at most 10 points and tags the flag READY TO ACT.
+# * Forced / public sales are not really a signal; Trepp gives little edge (everyone has it).
+#     -> auctions and Trepp/CMBS are shown as context only, never scored.
+# * Records are found through NETR Online (config/discovery.yaml), recorders first.
 max_score: 100
 
 # ---- EARLY SIGNALS: these drive the rank (90+ of the 100 points) ----------
@@ -22,6 +37,10 @@ loan_clock:               # L: 0 before 30 months, rises in a straight line to 1
   full_months: 60
   per_extension: 0.10     # each recorded extension/modification adds this...
   max_extension_bonus: 0.20   # ...up to this much (L never goes above 1)
+  # Bloomfield: "if a project OPENS and its construction loan is still outstanding, that is distress."
+  # Opened = certificate of occupancy issued, or the website no longer says coming soon.
+  opened_still_unpaid_bonus: 0.25
+  opened_min_months: 24       # only once the loan is at least this old
 
 opening_delay:            # O: delays under 6 months are normal (Bloomfield), so they score 0
   start_months: 6

@@ -123,3 +123,12 @@ def test_the_shipped_settings_keep_the_directory_locked():
     d = cfg["directories"]["netr_online"]
     assert d["terms_checked"] is False             # a person must flip this after reading the terms
     assert "automated" in cfg["terms_red_flags"]
+
+
+def test_recorders_are_screened_first_because_they_feed_the_loan_clock():
+    from collectors import discover
+    cfg = discover.load_config()
+    assert cfg["signal_priority"]["recorder"]["rank"] == 1
+    assert discover.classify("Building Department permits", "https://x.gov/permits", cfg["classify"]) == "building"
+    sql = discover.priority_sql(cfg)
+    assert "WHEN 'recorder' THEN 1" in sql and "WHEN 'building' THEN 2" in sql

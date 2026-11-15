@@ -27,7 +27,17 @@ classify:
   recorder:      ["recorder", "register of deeds", "land records", "deeds", "clerk of the circuit", "county clerk", "official records"]
   court:         ["court", "case search", "docket", "judiciary", "judicial"]
   public_notice: ["public notice", "legal notice", "foreclosure", "sheriff sale", "sheriff's sale", "tax sale"]
+  building:      ["building department", "building permit", "permits", "inspection", "code enforcement", "certificate of occupancy", "development services"]
   assessor:      ["assessor", "appraisal", "property appraiser", "parcel", "tax collector", "treasurer"]
 
 # If a site's terms page contains any of these, a person must read it before we go near the site.
 terms_red_flags: ["automated", "scrap", "robot", "spider", "crawl", "harvest", "bots", "data mining", "machine"]
+
+# Which site to look at first, and which part of the Opportunity Score (config/equation.yaml) it feeds.
+# Bloomfield: the construction-loan clock is the strongest signal, so recorders come first.
+signal_priority:
+  recorder:      {rank: 1, feeds: "L loan clock (construction loans, extensions, permanent loans, releases)"}
+  building:      {rank: 2, feeds: "I site inactivity + certificate of occupancy (opened but still unpaid)"}
+  assessor:      {rank: 3, feeds: "parcel numbers so Part C can link records to one property"}
+  court:         {rank: 4, feeds: "READY TO ACT confirmation (foreclosure, lis pendens, lawsuits)"}
+  public_notice: {rank: 4, feeds: "READY TO ACT confirmation (sheriff and tax sales, lien notices)"}

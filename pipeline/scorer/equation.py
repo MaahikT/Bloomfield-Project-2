@@ -76,7 +76,7 @@ CREATE TABLE IF NOT EXISTS equation_scores (
     loan_amount    DOUBLE,
     score          DOUBLE,
     tier           TEXT,
-    stage          TEXT,      -- early / actionable
+    stage          TEXT,      -- early / ready_to_act
     flags          TEXT,      -- e.g. "STANDOUT" / "COUNTER-SIGNAL"
     l_loan_clock   DOUBLE,
     o_opening      DOUBLE,
@@ -149,6 +149,13 @@ class Result:
 # ---------------------------------------------------------------------------
 # L: construction loan on the clock (Part A recorded_loans)
 # ---------------------------------------------------------------------------
+def has_opened(p: Property) -> bool:
+    """Certificate of occupancy issued, or a tracked project whose site no longer says coming soon."""
+    if any(filing_kind(f) == "certificate_of_occupancy" for f in p.filings):
+        return True
+    return any(pr.get("stale_candidate") is False and pr.get("page_still_unopened") is False for pr in p.projects)
+
+
 def loan_clock(p: Property, c: dict, as_of: date) -> Part:
     loans = sorted(p.recorded_loans, key=lambda r: as_date(r.get("recording_date")) or date.min)
     built = [r for r in loans if (r.get("loan_kind") or "").lower() == "construction"]
@@ -165,10 +172,15 @@ def loan_clock(p: Property, c: dict, as_of: date) -> Part:
     ext = sum(1 for r in later if (r.get("loan_kind") or "").lower() in ("extension", "modification"))
     base = ramp(months, c["start_months"], c["full_months"])
     bonus = min(c["max_extension_bonus"], c["per_extension"] * ext) if base > 0 else 0.0
+    opened = has_opened(p) and months >= c.get("opened_min_months", 24)
+    if opened:
+        bonus += c.get("opened_still_unpaid_bonus", 0.0)
     value = min(1.0, base + bonus)
     why = f"construction loan recorded {months:.0f} months ago, still not paid off"
     if ext:
         why += f"; {ext} extension(s)/modification(s)"
+    if opened:
+        why += "; the building has OPENED but the construction loan is still outstanding"
     return Part(value, True, why)
 
 
@@ -336,7 +348,7 @@ def score_property(p: Property, cfg: dict, as_of: date, rents: dict, market: dic
     r.score = round(min(cfg["max_score"], r.early + r.late), 1)
     t = cfg["tiers"]
     r.tier = "hot" if r.score >= t["hot"] else "watch" if r.score >= t["watch"] else "low"
-    r.stage = "actionable" if r.late > 0 else "early"
+    r.stage = "ready_to_act" if r.late > 0 else "early"   # court/lien filings confirm it's actionable
     return r
 
 

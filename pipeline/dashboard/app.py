@@ -95,7 +95,7 @@ def tags(r):
         out.append(":violet-badge[⭐ STANDOUT]")
     if "COUNTER-SIGNAL" in (r["flags"] or ""):
         out.append(":blue-badge[↩ COUNTER-SIGNAL]")
-    out.append(":red-badge[Actionable]" if r["stage"] == "actionable" else ":green-badge[Early]")
+    out.append(":red-badge[✅ READY TO ACT]" if r["stage"] == "ready_to_act" else ":green-badge[Early warning]")
     return " ".join(out)
 
 
@@ -115,7 +115,7 @@ def page_ranked(con, run_id):
     c[0].metric("Ranked", len(ranked))
     c[1].metric("Hot (call this week)", int((ranked["tier"] == "hot").sum()))
     c[2].metric("Watch", int((ranked["tier"] == "watch").sum()))
-    c[3].metric("Early (before any filing)", int((ranked["stage"] == "early").sum()))
+    c[3].metric("Early warning (no filing yet)", int((ranked["stage"] == "early").sum()))
     c[4].metric("Filtered out", int((~df["shown"]).sum()))
 
     left, right = st.columns([2, 1])
@@ -190,7 +190,7 @@ def page_detail(con, run_id):
             st.markdown(f"↩ **Counter-signal** (×{cfg['counter_signal']['factor']}): {esc(s)}")
         st.markdown(f"**Early points:** {ex['early_points']}")
     with b:
-        st.markdown(f"**Late points (already happened, max {cfg['late']['max_points']}):** {ex['late_points']}")
+        st.markdown(f"**Ready-to-act confirmation (court/lien filings, max {cfg['late']['max_points']}):** {ex['late_points']}")
         for s in ex.get("late_why", []):
             st.markdown(f"- {esc(s)}")
         st.markdown(f"**Score = min(100, {ex['early_points']} + {ex['late_points']}) = {ex['score']}**")
@@ -264,8 +264,8 @@ def page_changes(con, run_id):
     _list(ch["worse"], "worse", lambda r: f"up {r['delta']} from {r['previous_score']:.0f}")
     st.subheader("⭐ Became a standout")
     _list(ch["new_standouts"], "so")
-    st.subheader("⚖️ New court filings or liens (already happened)")
-    _list(ch["new_late"], "late", lambda r: f"late points {r['late_points']:.0f}")
+    st.subheader("✅ Became ready to act (new court filing or lien)")
+    _list(ch["new_late"], "late", lambda r: "now READY TO ACT")
     st.subheader("🔻 Got better")
     _list(ch["better"], "better", lambda r: f"down {-r['delta']} from {r['previous_score']:.0f}")
     st.subheader("✔️ Dropped off")
@@ -311,14 +311,27 @@ def page_how(con, run_id):
     cfg = run_cfg(con, run_id)
     w, so, cs, late = cfg["weights"], cfg["standout"], cfg["counter_signal"], cfg["late"]
     st.title("How the score works")
-    st.markdown("Built from Bloomfield's feedback: **early signals find the opportunity; court filings and "
-                "liens only confirm it.**")
+    with st.expander("What we heard from Bloomfield, and what we changed", expanded=True):
+        st.markdown("""
+**What we heard**
+- Construction loan still on the clock is the **strongest** signal. A project that opened with its construction loan still outstanding, or a loan from five years ago never paid off, is distress.
+- Opening date watch is good but **weaker**. A 3–6 month delay is normal.
+- Creative signals (rent vs. the city, a site gone quiet) are very promising once we can detect them reliably.
+- Court and lien filings come **late**: the situation is already actionable, not an early warning.
+- Forced and public sales are not really a signal, and Trepp gives little edge because everyone has it.
+
+**What we changed**
+- The construction-loan clock (50) and opening date watch (20) outweigh every other signal; a building that opened with its loan still outstanding gets an extra boost.
+- Court and lien filings add at most a few points and tag the flag **✅ READY TO ACT**.
+- Auctions and Trepp/CMBS are shown as context only, never scored.
+- County records are found through **NETR Online** (`python -m collectors.discover`), recorders first because they feed the loan clock.
+""")
     st.latex(r"\text{Early}=\sum_{L,O,R,I} w_i\, s_i \times \begin{cases}%s & s_i\ge %s\ (\text{STANDOUT})\\ C(k) & \text{otherwise}\end{cases}"
              % (so["boost"], so["at_strength"]))
     st.latex(r"\text{Score}=\min\!\left(100,\ \text{Early}\times %s^{\,\#\text{counter-signals}}+\text{Late}\right)" % cs["factor"])
     lc, od, rd, ig = cfg["loan_clock"], cfg["opening_delay"], cfg["rent_decline"], cfg["inspection_gap"]
     st.dataframe(pd.DataFrame([
-        {"Term": "L · Loan clock", "Weight": w["loan_clock"], "0 → 1": f"{lc['start_months']} → {lc['full_months']} months unpaid, +{lc['per_extension']} per extension", "From": "Part A recorded_loans"},
+        {"Term": "L · Loan clock", "Weight": w["loan_clock"], "0 → 1": f"{lc['start_months']} → {lc['full_months']} months unpaid, +{lc['per_extension']} per extension, +{lc.get('opened_still_unpaid_bonus', 0)} if the building opened with the loan still outstanding", "From": "Part A recorded_loans"},
         {"Term": "O · Opening delay", "Weight": w["opening_delay"], "0 → 1": f"{od['start_months']} → {od['full_months']} months late (under {od['start_months']} is normal)", "From": "Part B projects"},
         {"Term": "R · Rent vs. city", "Weight": w["rent_decline"], "0 → 1": f"0 → {rd['full_gap']:.0%} worse than the city", "From": "Part B rent_observations + Part A market_rents"},
         {"Term": "I · Site inactivity", "Weight": w["inspection_gap"], "0 → 1": f"{ig['start_days']} → {ig['full_days']} days since a city inspection", "From": "Part A permit_inspections"},
@@ -328,7 +341,7 @@ def page_how(con, run_id):
 - **Anti-fluke C(k):** k = early signals at ≥ {cfg['shows_at']:.0%}. 1 → {cor[1]:.0%}, 2 → {cor[2]:.0%}, 3+ → {cor[3]:.0%}.
 - **⭐ STANDOUT:** a signal at ≥ {so['at_strength']:.0%} counts ×{so['boost']} and skips the anti-fluke discount.
 - **↩ COUNTER-SIGNAL:** strong evidence the other way (rent beating its city by {cs['rent_beats_city_by']:.0%}+, or a city inspection in the last {cs['inspected_within_days']} days) multiplies early points by {cs['factor']} each.
-- **Late (max {late['max_points']}):** court/legal filing {late['court_points']}, contractor liens {late['lien_points']} each up to {late['max_lien_points']}. Older than {late['recent_days']} days count half.
+- **Ready to act (max {late['max_points']}):** court/legal filing {late['court_points']}, contractor liens {late['lien_points']} each up to {late['max_lien_points']}. Older than {late['recent_days']} days count half.
 - **Not scored:** Ten-X auctions and Trepp/CMBS data are shown as context only.
 - **Tiers:** Hot ≥ {cfg['tiers']['hot']}, Watch ≥ {cfg['tiers']['watch']}.
 

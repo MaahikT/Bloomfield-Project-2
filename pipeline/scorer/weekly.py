@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS weekly_flags (
     loan_amount     DOUBLE,
     score           DOUBLE,
     tier            TEXT,       -- hot / watch / low
-    stage           TEXT,       -- early / actionable
+    stage           TEXT,       -- early / ready_to_act
     flags           TEXT,       -- STANDOUT / COUNTER-SIGNAL
     l_loan_clock    DOUBLE,
     o_opening       DOUBLE,

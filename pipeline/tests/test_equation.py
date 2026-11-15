@@ -137,7 +137,7 @@ def test_late_signals_add_at_most_ten(cfg):
     ] + [{"file_id": f"l{i}", "filing_type": "mechanics_lien", "filing_date": date(2026, 10, 1),
           "lien_amount": 50_000} for i in range(5)]
     r = score(Property("a", filings=filings), cfg)
-    assert r.early == 0 and r.late == 10 and r.score == 10 and r.stage == "actionable"
+    assert r.early == 0 and r.late == 10 and r.score == 10 and r.stage == "ready_to_act"
 
 
 def test_ann_arbor_example_is_hot(cfg):
@@ -156,3 +156,14 @@ def test_ann_arbor_example_is_hot(cfg):
     r = score(p, cfg, rents, market, {"BP-9": [date(2026, 6, 1)]})
     assert r.showing == 4 and r.corroboration == 1.0
     assert r.tier == "hot" and r.score > 70
+
+
+def test_opened_but_construction_loan_still_outstanding_is_boosted(cfg):
+    """Bloomfield: a project that opened with its construction loan still outstanding is distress."""
+    loans = [construction(date(2022, 8, 1))]                                    # ~51 months
+    still_building = eq.loan_clock(Property("a", recorded_loans=loans), cfg["loan_clock"], AS_OF)
+    opened = eq.loan_clock(Property("b", recorded_loans=loans,
+                                    filings=[{"file_id": "co", "filing_type": "certificate_of_occupancy"}]),
+                           cfg["loan_clock"], AS_OF)
+    assert opened.value == pytest.approx(min(1.0, still_building.value + 0.25))
+    assert "OPENED" in opened.why

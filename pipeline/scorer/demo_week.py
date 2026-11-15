@@ -111,6 +111,18 @@ def week1(con):
          "FAKE Lone Star Bank", 72e6)
     project(con, "fk-gp", "FAKE Gateway Plaza", a, "Dallas", "TX", "retail", "Opening 2025", 11.0)
 
+    # Bloomfield's strongest case: the building OPENED (certificate of occupancy) but its
+    # construction loan from 2022 is still outstanding.
+    a = "300 FAKE Foundry Row, Detroit, MI"
+    loan(con, "fk-fr-1", "construction", date(2022, 8, 1), a, "MI", "Wayne", "FAKE Foundry Row LLC",
+         "FAKE Great Lakes Regional Bank", 27.5e6)
+    ins(con, "projects", project_id="fk-fr", project_name="FAKE Foundry Row Apartments", property_address=a,
+        city="Detroit", state="MI", property_type="multifamily", stated_opening_phrase="Now open",
+        stale_candidate=False, page_still_unopened=False, months_overdue=0.0)
+    filing(con, "fk-fr-co", "certificate_of_occupancy", a, "Detroit", "MI",
+           "Certificate of Occupancy issued 03/12/2026.", filing_date=date(2026, 3, 12),
+           project_name="FAKE Foundry Row Apartments")
+
     # Drops off next week: a late opening the city later signs off on.
     a = "45 FAKE Maple Ave, Lansing, MI"
     loan(con, "fk-mc-1", "construction", date(2023, 9, 1), a, "MI", "Ingham", "FAKE Maple Commons LLC",
@@ -119,7 +131,7 @@ def week1(con):
 
 
 def week2(con):
-    # Kestrel Hall: a UCC sale notice runs in the WSJ (late signal: small add-on, stage -> actionable).
+    # Kestrel Hall: a UCC sale notice runs in the WSJ (court filing: small add-on, tagged READY TO ACT).
     filing(con, "fk-kh-ucc", "ucc_sale_notice", "410 FAKE Sample Way, Ann Arbor, MI", "Ann Arbor", "MI",
            "NOTICE OF UCC SALE: 100% of the membership interests in FAKE Kestrel Hall Owner LLC will be sold on "
            "December 10, 2026.", filing_date=date(2026, 11, 5), sale_date=date(2026, 12, 10),
