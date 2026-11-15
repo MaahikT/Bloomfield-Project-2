@@ -428,7 +428,11 @@ def main():
         st.radio("Page", list(PAGES), key="page")
         run_id = st.selectbox("Week", all_runs, format_func=lambda x: x.replace("week-", "Week of ")) if all_runs else None
         st.caption(f"Database: {Path(db_path() or 'data/bloomfield.duckdb').name}")
-        st.caption("Sample data only. The tool reads and flags; Bloomfield's team does all outreach.")
+        if "demo" in Path(db_path() or "").name:
+            st.caption("Sample data only. The tool reads and flags; Bloomfield's team does all outreach.")
+        else:
+            st.caption("Live data from public SEC filings (CMBS loans). County sources are not turned on. "
+                       "The tool reads and flags; Bloomfield's team does all outreach.")
     if not run_id:
         st.title("No weekly run yet")
         st.write("Run `python -m scorer.weekly` (real data) or `python -m scorer.demo_week` (made-up demo).")
