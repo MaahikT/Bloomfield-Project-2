@@ -1,0 +1,513 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bloomfield Sourcing Tool - Demo</title>
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #f5f6f8; --panel: #ffffff; --text: #1b2430; --muted: #566273; --line: #dde1e7; --soft: #eef1f5;
+    --accent: #1f4f8f; --accent-text: #ffffff; --maize: #ffcb05; --navy: #00274c;
+    --hot: #b42318; --hot-bg: #fde8e6; --watch: #8a5a00; --watch-bg: #fff1d0; --low: #52606f; --low-bg: #e8ecf1;
+    --good: #1a7f46; --good-bg: #dff3e6; --mark: #ffe58a; --shadow: 0 1px 2px rgba(16, 24, 40, .08), 0 4px 14px rgba(16, 24, 40, .06);
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #12161c; --panel: #1b212a; --text: #e8ecf1; --muted: #9aa6b5; --line: #2c3541; --soft: #232b35;
+    --accent: #6aa5f0; --accent-text: #0d1117; --navy: #0a1b30;
+    --hot: #ff8f85; --hot-bg: #43201d; --watch: #f1c25b; --watch-bg: #3e3213; --low: #a7b3c2; --low-bg: #2a323d;
+    --good: #6fd29a; --good-bg: #173626; --mark: #6b5a12; --shadow: none;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.5 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  body.touring .wrap { padding-bottom: 190px; } body.touring .drawer { padding-bottom: 190px; }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 16px 64px; }
+  header.top { background: var(--panel); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; }
+  .top-in { max-width: 1180px; margin: 0 auto; padding: 10px 16px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .brand { font-weight: 700; font-size: 1.1rem; } .brand small { font-weight: 500; color: var(--muted); margin-left: 6px; }
+  .chip { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: .78rem; font-weight: 600; background: var(--watch-bg); color: var(--watch); }
+  .top-actions { display: flex; gap: 8px; margin-left: auto; align-items: center; }
+  .go { border: 0; background: var(--navy); color: #fff; font-weight: 700; padding: 8px 14px; border-radius: 8px; }
+  .go b { color: var(--maize); } .go:hover { filter: brightness(1.2); }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button { border: 0; background: var(--panel); padding: 6px 10px; font-size: .85rem; color: var(--muted); } .seg button[aria-pressed="true"] { background: var(--soft); color: var(--text); font-weight: 700; }
+  nav.tabs { display: flex; gap: 2px; flex-wrap: wrap; width: 100%; }
+  nav.tabs button { border: 0; background: transparent; padding: 7px 11px; border-radius: 8px; color: var(--muted); font-weight: 600; font-size: .93rem; }
+  nav.tabs button[aria-selected="true"] { background: var(--soft); color: var(--text); box-shadow: inset 0 -2px 0 var(--maize); }
+  h1 { font-size: 1.5rem; margin: 22px 0 4px; } h2 { font-size: 1.15rem; margin: 22px 0 8px; } h3 { font-size: 1rem; margin: 14px 0 6px; }
+  p.lead { color: var(--muted); margin: 0 0 14px; max-width: 72ch; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 14px 0; }
+  .tile { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; box-shadow: var(--shadow); }
+  .tile b { display: block; font-size: 1.6rem; line-height: 1.1; } .tile span { color: var(--muted); font-size: .85rem; }
+  .bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 10px 0 14px; }
+  .bar input[type=search], .bar select { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); font: inherit; }
+  .bar input[type=search] { flex: 1 1 200px; min-width: 0; }
+  label.check { display: flex; gap: 6px; align-items: center; color: var(--muted); font-size: .92rem; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; box-shadow: var(--shadow); }
+  .flag { display: grid; grid-template-columns: 44px 1fr; gap: 12px; margin-bottom: 10px; cursor: pointer; text-align: left; width: 100%; }
+  .flag:hover { border-color: var(--accent); }
+  .rank { font-weight: 700; color: var(--muted); font-size: 1.2rem; padding-top: 2px; }
+  .flag-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; } .flag-head .name { font-weight: 700; font-size: 1.05rem; }
+  .sub { color: var(--muted); font-size: .9rem; } .why { margin: 6px 0 0; font-size: .95rem; }
+  .pill { display: inline-block; padding: 1px 9px; border-radius: 999px; font-size: .75rem; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; white-space: nowrap; }
+  .pill.hot, .pill.bad { background: var(--hot-bg); color: var(--hot); } .pill.watch, .pill.warn { background: var(--watch-bg); color: var(--watch); }
+  .pill.low { background: var(--low-bg); color: var(--low); } .pill.good { background: var(--good-bg); color: var(--good); }
+  .scorebar { height: 8px; border-radius: 6px; background: var(--soft); overflow: hidden; min-width: 90px; flex: 0 0 110px; }
+  .scorebar i { display: block; height: 100%; background: var(--low); } .scorebar.hot i { background: var(--hot); } .scorebar.watch i { background: var(--watch); }
+  .score { font-weight: 700; } .decision { margin-left: auto; } .empty { color: var(--muted); text-align: center; padding: 30px; }
+  .scrim { position: fixed; inset: 0; background: rgba(8, 12, 18, .5); z-index: 20; display: none; } .scrim.open { display: block; }
+  .drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(760px, 100%); background: var(--bg); z-index: 21; overflow-y: auto; padding: 16px; box-shadow: -8px 0 30px rgba(0,0,0,.25); display: none; }
+  .drawer.open { display: block; }
+  .drawer .close { float: right; border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 6px 12px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; } @media (max-width: 640px) { .grid2 { grid-template-columns: 1fr; } .flag { grid-template-columns: 30px 1fr; } }
+  dl.facts { display: grid; grid-template-columns: max-content 1fr; gap: 3px 14px; margin: 0; font-size: .93rem; } dl.facts dt { color: var(--muted); } dl.facts dd { margin: 0; }
+  .ev { margin-bottom: 10px; } .ev-top { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+  .ev-title { font-weight: 700; } .pts { margin-left: auto; font-weight: 700; color: var(--hot); white-space: nowrap; }
+  .ev.spot, .card.spot { outline: 3px solid var(--maize); outline-offset: 2px; }
+  blockquote.quote { margin: 8px 0 6px; padding: 6px 12px; border-left: 3px solid var(--accent); background: var(--soft); font-size: .92rem; border-radius: 0 8px 8px 0; }
+  .btn { border: 1px solid var(--line); background: var(--panel); padding: 6px 12px; border-radius: 8px; font-size: .9rem; } .btn:hover { border-color: var(--accent); }
+  .btn.on { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  .btn.approve.on { background: var(--good); border-color: var(--good); color: #fff; } .btn.dismiss.on { background: var(--low); border-color: var(--low); color: #fff; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
+  textarea.note { width: 100%; min-height: 70px; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); font: inherit; }
+  ol.timeline { list-style: none; margin: 0; padding: 0 0 0 4px; border-left: 2px solid var(--line); }
+  ol.timeline li { position: relative; padding: 0 0 10px 16px; font-size: .93rem; }
+  ol.timeline li::before { content: ""; position: absolute; left: -7px; top: 6px; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); border: 2px solid var(--bg); }
+  ol.timeline li.today::before { background: var(--hot); } ol.timeline li.good::before { background: var(--good); }
+  ol.timeline time { color: var(--muted); font-size: .82rem; display: block; }
+  table { width: 100%; border-collapse: collapse; font-size: .92rem; } th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: .82rem; text-transform: uppercase; letter-spacing: .3px; } .scroll { overflow-x: auto; }
+  pre.doc { white-space: pre-wrap; word-break: break-word; font: .86rem/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: var(--soft); border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin: 0; max-height: 420px; overflow: auto; }
+  mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 1px; }
+  .pillrow { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0 14px; }
+  .banner { border-radius: 10px; padding: 10px 14px; margin: 10px 0; font-size: .95rem; } .banner.ok { background: var(--good-bg); color: var(--good); } .banner.review { background: var(--watch-bg); color: var(--watch); }
+  .story { background: var(--watch-bg); color: var(--text); border: 1px solid var(--line); border-left: 4px solid var(--watch); border-radius: 10px; padding: 10px 14px; margin: 10px 0; font-size: .93rem; }
+  .execsum { border-left: 4px solid var(--accent); } .execsum p { margin: 6px 0; } .execsum .eyebrow { color: var(--accent); font-weight: 700; letter-spacing: .6px; font-size: .78rem; text-transform: uppercase; }
+  .kfacts { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin: 8px 0; } .kfacts div { background: var(--soft); border-radius: 8px; padding: 6px 10px; } .kfacts b { display: block; font-size: 1.1rem; } .kfacts span { font-size: .78rem; color: var(--muted); }
+  h2.tierhead { margin: 22px 0 8px; font-size: 1.05rem; border-bottom: 2px solid var(--line); padding-bottom: 6px; } h2.tierhead.hot { border-color: var(--hot); } h2.tierhead.watch { border-color: var(--watch); } h2.tierhead .sub { font-weight: 400; font-size: .85rem; }
+  .pill.rta { background: var(--navy); color: #fff; }
+  .prio { display: grid; grid-template-columns: 170px 1fr; gap: 4px 14px; padding: 9px 0; border-bottom: 1px solid var(--line); } .prio:last-child { border-bottom: 0; } .prio .w { font-size: .78rem; color: var(--accent); font-weight: 700; text-transform: uppercase; letter-spacing: .4px; }
+  @media (max-width: 640px) { .prio { grid-template-columns: 1fr; } }
+  .approach { margin: 14px 0; } .approach .opt { background: var(--soft); border-radius: 8px; padding: 8px 12px; }
+  footer { color: var(--muted); font-size: .85rem; margin-top: 30px; }
+  .steps { counter-reset: s; padding: 0; list-style: none; } .steps li { counter-increment: s; display: grid; grid-template-columns: 34px 1fr; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .steps li::before { content: counter(s); background: var(--accent); color: var(--accent-text); border-radius: 50%; width: 28px; height: 28px; display: grid; place-items: center; font-weight: 700; }
+  .spark { display: block; }
+  #asks, #ships { scroll-margin-top: 130px; }
+  .hero { background: var(--navy); color: #fff; border-radius: 16px; padding: 22px clamp(16px, 4vw, 34px); margin: 18px 0 14px; }
+  .hero h1 { margin: 0 0 8px; font-size: clamp(1.5rem, 4vw, 2.3rem); line-height: 1.15; max-width: 22ch; } .hero p { margin: 0 0 14px; color: #cfd8e4; max-width: 62ch; }
+  .hero .eyebrow { color: var(--maize); font-weight: 700; letter-spacing: .6px; font-size: .8rem; text-transform: uppercase; }
+  .hero .go { background: var(--maize); color: var(--navy); } .hero .go b { color: var(--navy); }
+  .stat { border-left: 4px solid var(--maize); padding: 2px 0 2px 12px; } .stat b { display: block; font-size: 1.7rem; line-height: 1.1; } .stat span { color: var(--muted); font-size: .9rem; }
+  .big { font-size: clamp(2.4rem, 7vw, 4rem); font-weight: 800; line-height: 1; } .big small { font-size: .45em; font-weight: 600; color: var(--muted); }
+  .sigrow { display: flex; gap: 10px; align-items: flex-start; padding: 9px 0; border-bottom: 1px solid var(--line); } .sigrow:last-child { border-bottom: 0; } .sigrow > div { flex: 1; min-width: 0; }
+  .twocol { display: grid; grid-template-columns: 1.1fr 1fr; gap: 12px; } @media (max-width: 760px) { .twocol { grid-template-columns: 1fr; } }
+  .asks .card { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 8px; } .asks .n { font-size: 1.6rem; font-weight: 800; color: var(--accent); line-height: 1; }
+  .nextrow { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+  .nextrow .card b.when { color: var(--accent); font-size: 1.2rem; display: block; }
+  ul.tight { margin: 6px 0 0; padding-left: 20px; } ul.tight li { margin: 3px 0; }
+  #tour { position: fixed; left: 0; right: 0; bottom: 0; z-index: 40; background: var(--navy); color: #fff; border-top: 3px solid var(--maize); box-shadow: 0 -6px 24px rgba(0,0,0,.25); display: none; }
+  #tour.on { display: block; }
+  .tour-in { max-width: 1180px; margin: 0 auto; padding: 12px 16px; display: grid; grid-template-columns: 1fr auto; gap: 8px 16px; align-items: center; }
+  .tour-kicker { color: var(--maize); font-weight: 700; font-size: .78rem; letter-spacing: .6px; text-transform: uppercase; }
+  .tour-title { font-weight: 800; font-size: 1.15rem; line-height: 1.2; } .tour-text { color: #d6deea; font-size: .95rem; max-width: 80ch; }
+  .tour-notes { grid-column: 1 / -1; background: rgba(255,255,255,.08); border-radius: 8px; padding: 8px 12px; font-size: .9rem; color: #e7edf5; display: none; } .tour-notes.on { display: block; }
+  .tour-ctl { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; } .tour-ctl .btn { background: transparent; color: #fff; border-color: rgba(255,255,255,.35); }
+  .tour-ctl .btn.next { background: var(--maize); color: var(--navy); border-color: var(--maize); font-weight: 800; } .tour-ctl .btn[disabled] { opacity: .4; cursor: default; }
+  .dots { display: flex; gap: 4px; grid-column: 1 / -1; } .dots i { height: 4px; flex: 1; border-radius: 2px; background: rgba(255,255,255,.22); } .dots i.done { background: var(--maize); } .dots i.now { background: #fff; }
+  @media (max-width: 640px) {
+    header.top { position: static; } .brand small { display: none; } h1 { font-size: 1.3rem; }
+    nav.tabs { overflow-x: auto; flex-wrap: nowrap; } nav.tabs button { white-space: nowrap; padding: 8px 10px; }
+    .drawer { padding: 12px; } .tile b { font-size: 1.35rem; } .tour-in { grid-template-columns: 1fr; } body.touring .wrap, body.touring .drawer { padding-bottom: 260px; }
+  }
+</style>
+</head>
+<body>
+<header class="top"><div class="top-in">
+  <div class="brand">Bloomfield sourcing tool <small>research workflow · distressed-borrower sourcing</small></div>
+  <span class="chip" title="Every name, address and number is invented">SAMPLE DATA · illustrative only</span>
+  <div class="top-actions">
+    <button class="go" id="tourbtn" title="A guided tour for the client call">▶ <b>Guided walkthrough</b></button>
+    <div class="seg" role="group" aria-label="Theme"><button id="th-light" aria-pressed="true">Light</button><button id="th-dark" aria-pressed="false">Dark</button></div>
+  </div>
+  <nav class="tabs" role="tablist" id="tabs"></nav>
+</div></header>
+
+<main class="wrap" id="main"></main>
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer" aria-label="Details"></aside>
+<section id="tour" aria-label="Guided walkthrough" aria-live="polite"></section>
+
+<script>
+const DATA = /*__DEMO_DATA__*/null;
+
+/* ---------- tiny helpers ---------- */
+const $ = (s, el = document) => el.querySelector(s);
+function h(tag, attrs, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v == null || v === false) continue;
+    if (k === 'class') e.className = v; else if (k.startsWith('on')) e.addEventListener(k.slice(2), v); else e.setAttribute(k, v === true ? '' : v);
+  }
+  for (const kid of kids.flat(Infinity)) { if (kid == null || kid === false) continue; e.append(kid.nodeType ? kid : document.createTextNode(String(kid))); }
+  return e;
+}
+const money = n => n == null ? '-' : (Math.abs(n) >= 1e6 ? '$' + (n / 1e6).toFixed(1) + 'M' : '$' + Math.round(n).toLocaleString('en-US'));
+const day = iso => iso ? new Date(iso + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '-';
+const pct = x => x == null ? '-' : (x * 100).toFixed(1) + '%';
+const title = s => String(s || '').replace(/_/g, ' ').replace(/^./, c => c.toUpperCase());
+function monthsBetween(a, b) { return Math.round((new Date(b) - new Date(a)) / 86400000 / 30.44); }
+function ago(iso) { const m = monthsBetween(iso, DATA.meta.as_of); return m <= 0 ? '' : m < 24 ? m + ' months before' : (m / 12).toFixed(1) + ' years before'; }
+const store = { get(k, d) { try { const v = localStorage.getItem('bloomfield-demo-' + k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
+                set(k, v) { try { localStorage.setItem('bloomfield-demo-' + k, JSON.stringify(v)); } catch (e) { /* storage may be blocked */ } } };
+const C = (DATA && DATA.content) || {};
+
+const SIGNAL_NAMES = {
+  construction_loan_no_takeout: 'Construction loan never replaced', construction_loan_modified: 'Construction loan modified or extended',
+  stale_opening: 'Opening date passed, site still says coming soon', missed_lease_up: 'Missed the August student move-in', opening_date_moved: 'Opening date moved',
+  mechanics_lien: "Contractor's lien filed", permit_extended: 'Building permit extended', permit_without_co: 'No certificate of occupancy',
+  permit_expired: 'Building permit expired', lender_nonaccruals_rising: "Lender's bad loans rising two quarters in a row",
+  lender_high_nonaccrual: "Lender has many CRE loans on nonaccrual", cmbs_dscr_below_1: "Property doesn't cover its debt payments (DSCR under 1.0x)",
+  lis_pendens: 'Lawsuit filed against the property (lis pendens)', tax_delinquent: 'Property taxes delinquent',
+  foreclosure_scheduled: 'Foreclosure sale noticed', receiver_appointed: 'Court-appointed receiver', ucc_sale_scheduled: 'UCC sale of ownership interests',
+  listed_for_auction: 'Listed for public auction', lender_lawsuit: 'Lender lawsuit filed', construction_stalled: 'Construction stalled',
+  cmbs_low_occupancy: 'Occupancy below 80%', cmbs_watchlist: 'On the CMBS servicer watchlist', cmbs_delinquent: 'CMBS loan delinquent',
+  cmbs_maturity_near: 'CMBS loan matures within 12 months', cmbs_past_maturity: 'CMBS loan past maturity'
+};
+const TIER = C.tiers || {};
+const tierShort = t => (TIER[t] || {}).label || title(t);
+const tierName = t => (TIER[t] || {}).name || '';
+const tierFull = t => tierShort(t) + (tierName(t) ? ' · ' + tierName(t) : '');
+const signalName = s => SIGNAL_NAMES[s] || title(s);
+
+const state = { tab: 'start', q: '', tier: 'all', office: false, onlyApproved: false, selected: null, reader: 0, tour: -1, notes: false,
+                decisions: store.get('decisions', {}), matches: store.get('matches', {}), callNotes: store.get('callnotes', '') };
+const saveDecisions = () => store.set('decisions', state.decisions);
+
+/* ---------- theme: light by default ---------- */
+function setTheme(t) {
+  document.documentElement.setAttribute('data-theme', t);
+  $('#th-light').setAttribute('aria-pressed', String(t === 'light')); $('#th-dark').setAttribute('aria-pressed', String(t === 'dark'));
+  store.set('theme', t);
+}
+$('#th-light').addEventListener('click', () => setTheme('light')); $('#th-dark').addEventListener('click', () => setTheme('dark'));
+setTheme(store.get('theme', 'light') === 'dark' ? 'dark' : 'light');
+
+/* ---------- finding a quote inside a document (ignoring case and extra spaces) ---------- */
+function highlight(text, quotes) {
+  const spans = [];
+  for (const q of quotes.filter(Boolean)) {
+    const words = q.trim().split(/\s+/).map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    const m = new RegExp(words.join('\\s+'), 'i').exec(text);
+    if (m) spans.push([m.index, m.index + m[0].length]);
+  }
+  spans.sort((a, b) => a[0] - b[0]);
+  const out = []; let pos = 0;
+  for (const [s, e] of spans) { if (s < pos) continue; out.push(text.slice(pos, s)); out.push(h('mark', {}, text.slice(s, e))); pos = e; }
+  out.push(text.slice(pos));
+  return out;
+}
+
+/* ---------- start here ---------- */
+function prioritiesPanel() {
+  const P = C.priorities; if (!P) return null;
+  return h('div', { class: 'card', id: 'priorities' }, h('h2', { style: 'margin-top:0' }, P.headline),
+    (P.items || []).map(i => h('div', { class: 'prio' }, h('div', {}, h('b', {}, i.name), h('div', { class: 'w' }, i.weight)), h('div', { class: 'sub' }, i.why))),
+    P.netr && h('p', { class: 'sub', style: 'margin:10px 0 0' }, P.netr));
+}
+function approachPanel() {
+  const A = C.approach; if (!A) return null; const D = A.decision || {};
+  return h('div', { class: 'card approach', id: 'approach' }, h('h2', { style: 'margin-top:0' }, 'Our approach: explore every route, then focus'), h('p', { class: 'lead', style: 'margin-top:0' }, A.body),
+    h('div', { class: 'grid2' }, (A.options || []).map(o => h('div', { class: 'opt' }, h('b', {}, o.name), h('div', { class: 'sub' }, o.idea)))),
+    h('p', { style: 'margin:12px 0 4px' }, h('b', {}, 'Decision point: '), D.when + '. We will choose between: ' + (D.paths || []).join('  or  ') + '.'),
+    h('div', { class: 'sub' }, 'How we will choose: ' + (D.criteria || []).join('; ') + '.'));
+}
+const SIG_STATUS = { coded: ['good', 'Coded'], in_progress: ['warn', 'In progress'], not_built: ['low', 'Not built yet'] };
+function renderStart(root) {
+  const P = C.problem || {};
+  root.append(
+    h('div', { class: 'hero' }, h('div', { class: 'eyebrow' }, (C.event || {}).client + ' · ' + (C.event || {}).title),
+      h('h1', {}, P.headline), h('p', {}, P.body), h('button', { class: 'go', onclick: () => startTour() }, '▶ ', h('b', {}, 'Start the guided walkthrough'))),
+    h('div', { class: 'tiles' }, (P.stats || []).map(s => h('div', { class: 'stat' }, h('b', {}, s.n), h('span', {}, s.label)))),
+    h('div', { class: 'twocol' },
+      h('div', {}, h('h2', { style: 'margin-top:0' }, 'Bloomfield\'s own example'), h('div', { class: 'story' }, P.story),
+        h('p', { class: 'sub' }, 'Our test case reproduces it with invented data. The ranked list opens on it.'),
+        h('div', { class: 'actions' }, h('button', { class: 'btn on', onclick: () => { state.tab = 'flags'; render(); } }, 'View flagged properties'),
+          h('button', { class: 'btn', onclick: () => { state.tab = 'how'; render(); } }, 'Methodology'))),
+      h('div', {}, h('h2', { style: 'margin-top:0' }, 'Build status by signal'), h('div', { class: 'card' }, (C.signals || []).map(s => h('div', { class: 'sigrow' },
+        h('span', { class: 'pill ' + SIG_STATUS[s.status][0], style: 'min-width:92px;text-align:center' }, SIG_STATUS[s.status][1]),
+        h('div', {}, h('b', {}, s.name), h('div', { class: 'sub' }, s.built), s.next && h('div', { class: 'sub' }, h('b', {}, 'Next: '), s.next))))))),
+    prioritiesPanel(), approachPanel(),
+    h('footer', {}, 'A researcher at Bloomfield reviews every flag and decides what is worth a call. The tool never contacts anyone.'));
+}
+
+/* ---------- flags tab ---------- */
+function visibleProperties() {
+  const q = state.q.trim().toLowerCase();
+  return DATA.properties.filter(p => {
+    if (!state.office && p.type === 'office') return false;
+    if (state.tier !== 'all' && p.tier !== state.tier) return false;
+    if (state.onlyApproved && (state.decisions[p.id] || {}).action !== 'approved') return false;
+    if (q && ![p.name, p.address, p.city, p.state, p.borrower, p.lender].join(' ').toLowerCase().includes(q)) return false;
+    return true;
+  });
+}
+const DECISION_LABEL = { approved: 'On weekly list', dismissed: 'Dismissed', digging: 'Needs digging' };
+
+function flagCard(p, position) {
+  const d = state.decisions[p.id];
+  return h('button', { class: 'card flag', 'data-prop': p.id, onclick: () => openDetail(p.id), 'aria-label': 'Open ' + p.name }, h('div', { class: 'rank' }, '#' + position),
+    h('div', {},
+      h('div', { class: 'flag-head' }, h('span', { class: 'name' }, p.name), h('span', { class: 'pill ' + p.tier }, tierShort(p.tier)), p.ready_to_act && h('span', { class: 'pill rta', title: 'A court or lien filing confirms this is actionable now' }, 'Ready to act'),
+        h('span', { class: 'scorebar ' + p.tier, title: 'score' }, h('i', { style: 'width:' + p.score + '%' })), h('span', { class: 'score' }, Math.round(p.score) + '/100'),
+        d && d.action && h('span', { class: 'pill ' + (d.action === 'approved' ? 'good' : 'low') + ' decision' }, DECISION_LABEL[d.action])),
+      h('div', { class: 'sub' }, [[p.city, p.state].filter(Boolean).join(', '), p.type !== 'unknown' ? title(p.type) : null, p.lender && 'Lender: ' + p.lender,
+        p.loan_amount && 'Loan: ' + money(p.loan_amount)].filter(Boolean).join('  ·  ')),
+      p.signals.length ? h('p', { class: 'why' }, p.signals.slice(0, 3).map(s => signalName(s.signal)).join('  ·  ')) : h('p', { class: 'why sub' }, 'No distress signals found.')));
+}
+
+function renderFlags(root) {
+  const S = DATA.summary, hiddenOffice = DATA.properties.filter(p => p.type === 'office').length;
+  root.append(h('h1', {}, 'Flagged properties'),
+    h('p', { class: 'lead' }, 'The tool collects public records, reads each one, links them to a property, and scores how much trouble the owner may be in. A researcher decides what to pursue. Properties are grouped into tiers by evidence score. Everything below is invented sample data, shown as of ' + day(DATA.meta.as_of) + '.'),
+    h('div', { class: 'tiles' },
+      [[S.documents, 'source documents collected'], [S.records_linked, 'records linked into ' + S.properties + ' properties'],
+       [S.hot, 'Tier 1 · Priority review'], [S.watch, 'Tier 2 · Active monitoring'], [money(S.exposure_tier1), 'loan exposure in Tier 1']].map(([n, l]) => h('div', { class: 'tile' }, h('b', {}, n), h('span', {}, l)))));
+  const approved = DATA.properties.filter(p => (state.decisions[p.id] || {}).action === 'approved');
+  const list = h('div'); const count = h('p', { class: 'sub' });
+  const draw = () => {
+    list.replaceChildren(); const rows = visibleProperties();
+    let last = null;
+    rows.forEach((p, i) => { if (p.tier !== last) { last = p.tier; const n = rows.filter(x => x.tier === p.tier).length;
+      list.append(h('h2', { class: 'tierhead ' + p.tier }, tierFull(p.tier), h('span', { class: 'sub' }, '  ' + n + ' propert' + (n === 1 ? 'y' : 'ies') + ((TIER[p.tier] || {}).blurb ? ' · ' + TIER[p.tier].blurb : '')))); }
+      list.append(flagCard(p, i + 1)); });
+    if (!rows.length) list.append(h('div', { class: 'empty' }, 'Nothing matches these filters.'));
+    count.textContent = rows.length + ' of ' + DATA.properties.length + ' properties shown' + (!state.office && hiddenOffice ? ' · ' + hiddenOffice + ' office propert' + (hiddenOffice > 1 ? 'ies' : 'y') + ' hidden (Bloomfield does not buy office)' : '');
+  };
+  root.append(h('div', { class: 'bar' },
+    h('input', { type: 'search', placeholder: 'Search property, city, borrower, lender', 'aria-label': 'Search', oninput: e => { state.q = e.target.value; draw(); } }),
+    h('select', { 'aria-label': 'Tier', onchange: e => { state.tier = e.target.value; draw(); } }, ['all', 'hot', 'watch', 'low'].map(t => h('option', { value: t }, t === 'all' ? 'All tiers' : tierFull(t)))),
+    h('label', { class: 'check' }, h('input', { type: 'checkbox', onchange: e => { state.office = e.target.checked; draw(); } }), 'Show office'),
+    h('label', { class: 'check' }, h('input', { type: 'checkbox', onchange: e => { state.onlyApproved = e.target.checked; draw(); } }), 'Only my weekly list (' + approved.length + ')')), count, list);
+  draw();
+  root.append(h('footer', {}, 'Scores are the sum of evidence points (weights live in a settings file Bloomfield owns). Click a property to see the executive summary, every piece of evidence and the exact source sentence. Fields on this page come from pre-recorded sample readings; real AI answers are on the AI document reader tab (documents turned into fields (sample readings), not live AI output).'));
+}
+
+/* ---------- detail drawer ---------- */
+function sparkline(series) {
+  const w = 240, ht = 56, vals = series.map(s => s.cre_nonaccrual_ratio || 0), max = Math.max(...vals, 0.001);
+  const pts = vals.map((v, i) => [vals.length > 1 ? 6 + i * (w - 12) / (vals.length - 1) : w / 2, ht - 8 - (v / max) * (ht - 16)]);
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', `0 0 ${w} ${ht}`); svg.setAttribute('class', 'spark'); svg.setAttribute('width', w); svg.setAttribute('height', ht);
+  svg.setAttribute('role', 'img'); svg.setAttribute('aria-label', 'CRE nonaccrual ratio by quarter: ' + vals.map(pct).join(', '));
+  const line = document.createElementNS(svg.namespaceURI, 'polyline');
+  line.setAttribute('points', pts.map(p => p.join(',')).join(' ')); line.setAttribute('fill', 'none'); line.setAttribute('stroke', 'var(--hot)'); line.setAttribute('stroke-width', '2.5');
+  svg.append(line);
+  pts.forEach(p => { const c = document.createElementNS(svg.namespaceURI, 'circle'); c.setAttribute('cx', p[0]); c.setAttribute('cy', p[1]); c.setAttribute('r', 3); c.setAttribute('fill', 'var(--hot)'); svg.append(c); });
+  return svg;
+}
+
+function openDoc(docId, quote) {
+  const doc = DATA.documents[docId]; if (!doc) return;
+  const back = state.returnTo;
+  show(h('div', {}, h('button', { class: 'close', onclick: () => back ? openDetail(back) : closeAll() }, back ? '← Back' : 'Close'), h('h2', {}, doc.title), h('p', { class: 'sub' }, [doc.id, doc.where].filter(Boolean).join(' · ')),
+    quote && h('p', { class: 'sub' }, 'The highlighted words are the exact quote the evidence came from.'), h('pre', { class: 'doc' }, highlight(doc.text, [quote]))));
+}
+
+function evidenceCard(s) {
+  return h('div', { class: 'card ev', 'data-signal': s.signal },
+    h('div', { class: 'ev-top' }, h('span', { class: 'ev-title' }, signalName(s.signal)), h('span', { class: 'pill low' }, title(s.family)),
+      h('span', { class: 'pts' }, '+' + s.counted + (s.counted < s.points ? ' (capped from ' + s.points + ')' : ''))),
+    h('div', { class: 'sub' }, s.detail),
+    s.quote && h('blockquote', { class: 'quote' }, '"' + s.quote + '"', ' ', s.quote_found ? h('span', { class: 'pill good' }, 'found in source') : h('span', { class: 'pill warn' }, 'not found in source')),
+    h('div', { class: 'actions' }, s.doc_id && h('button', { class: 'btn', onclick: () => { state.returnTo = state.selected; openDoc(s.doc_id, s.quote); } }, 'View source'),
+      h('span', { class: 'sub' }, 'Source: ' + s.evidence_table.replace('_', ' ') + ' ' + s.evidence_id + (s.evidence_date ? ' · ' + day(s.evidence_date) : ''))));
+}
+
+function openDetail(id) {
+  const p = DATA.properties.find(x => x.id === id); if (!p) return; state.selected = id;
+  const d = state.decisions[id] || {};
+  const set = (action) => { state.decisions[id] = { ...(state.decisions[id] || {}), action: (state.decisions[id] || {}).action === action ? null : action }; saveDecisions(); openDetail(id); render(); };
+  const box = h('div', {},
+    h('button', { class: 'close', onclick: () => closeAll() }, 'Close'),
+    h('div', { class: 'flag-head' }, h('h2', { style: 'margin:0' }, p.name), h('span', { class: 'pill ' + p.tier }, tierFull(p.tier)), p.ready_to_act && h('span', { class: 'pill rta' }, 'Ready to act'), h('span', { class: 'score' }, Math.round(p.score) + '/100')),
+    h('p', { class: 'sub' }, [p.address, p.county].filter(Boolean).join(' · ')),
+    p.exec_summary && h('div', { class: 'card execsum', id: 'd-summary' }, h('div', { class: 'eyebrow' }, 'Executive summary'),
+      h('div', { class: 'kfacts' }, p.exec_summary.facts.map(f => h('div', {}, h('b', {}, f.label === 'Latest evidence' ? day(f.value) : f.value), h('span', {}, f.label)))),
+      p.exec_summary.paragraphs.map(t => h('p', {}, t)), h('p', { class: 'sub' }, 'Generated from the evidence below. Nothing here is added from outside the records.')),
+    h('h3', { id: 'd-why' }, 'Property details'),
+    h('div', { class: 'card' }, h('dl', { class: 'facts' },
+      h('dt', {}, 'Owner (borrower)'), h('dd', {}, p.borrower || 'not found'), h('dt', {}, 'Lender'), h('dd', {}, p.lender || 'not found'),
+      h('dt', {}, 'Largest loan'), h('dd', {}, money(p.loan_amount)), h('dt', {}, 'Property type'), h('dd', {}, title(p.type)),
+      h('dt', {}, 'Parcel'), h('dd', {}, p.parcel || '-'), h('dt', {}, 'Evidence found'), h('dd', {}, (p.signals.length ? p.signals.length + ' pieces' : 'none') + (p.grouped_by === 'part_c' ? ' (records linked by the matcher)' : '')))),
+    h('h3', { id: 'd-evidence' }, 'Supporting evidence (' + p.signals.length + ')'), p.signals.length ? p.signals.map(evidenceCard) : h('p', { class: 'sub' }, 'Nothing suspicious found for this property.'),
+    p.timeline.length > 0 && [h('h3', { id: 'd-timeline' }, 'Timeline'), h('ol', { class: 'timeline' }, [...p.timeline.map(e => h('li', { class: e.kind === 'good' ? 'good' : '' }, h('time', {}, day(e.date) + (ago(e.date) ? ' · ' + ago(e.date) + ' the demo date' : '')), e.label)),
+      h('li', { class: 'today' }, h('time', {}, day(DATA.meta.as_of)), 'Today (demo date)')])],
+    p.loans.length > 0 && [h('h3', { id: 'd-loans' }, 'Loan history'), h('div', { class: 'card scroll' }, h('table', {}, h('thead', {}, h('tr', {}, ['Loan', 'Recorded', 'Amount', 'Modified', 'Paid off by permanent loan?', 'Status'].map(x => h('th', {}, x)))),
+      h('tbody', {}, p.loans.map(l => h('tr', {}, h('td', {}, title(l.loan_kind)), h('td', {}, day(l.recording_date)), h('td', {}, money(l.amount)), h('td', {}, l.modification_count + 'x'),
+        h('td', {}, l.takeout_date ? 'Yes, ' + day(l.takeout_date) : h('b', {}, 'No')), h('td', {}, h('span', { class: 'pill ' + (l.status === 'open' ? 'bad' : 'good') }, l.status), l.months_open ? ' ' + Math.round(l.months_open) + ' months' : ''))))))],
+    p.bank && [h('h3', { id: 'd-lender' }, 'The lender: ' + p.bank.name), h('div', { class: 'card', id: 'd-lender-card' }, sparkline(p.bank.series), h('p', { class: 'sub' }, 'Share of its commercial real estate loans on nonaccrual, by quarter: ' + p.bank.series.map(s => pct(s.cre_nonaccrual_ratio)).join(' → ') + (p.bank.series.some(s => s.rising_two_quarters) ? '. Rising two quarters in a row.' : '.')))],
+    p.entity && [h('h3', { id: 'd-contact' }, 'Who to contact'), h('div', { class: 'card' }, h('dl', { class: 'facts' }, h('dt', {}, 'Company'), h('dd', {}, p.entity.canonical_name),
+      h('dt', {}, 'Other properties'), h('dd', {}, Math.max(0, p.entity.property_count - 1) + ' other in the data'), h('dt', {}, 'State registry lookup'), h('dd', {}, p.contact_lookup ? 'requested (' + p.contact_lookup + '): officers and registered agent come from the state business registry' : 'not requested')))],
+    h('h3', { id: 'd-decision' }, 'Researcher decision'),
+    h('div', { class: 'actions' }, h('button', { class: 'btn approve ' + (d.action === 'approved' ? 'on' : ''), onclick: () => set('approved') }, d.action === 'approved' ? '✓ On the weekly list' : 'Add to weekly list'),
+      h('button', { class: 'btn ' + (d.action === 'digging' ? 'on' : ''), onclick: () => set('digging') }, 'Needs more digging'),
+      h('button', { class: 'btn dismiss ' + (d.action === 'dismissed' ? 'on' : ''), onclick: () => set('dismissed') }, 'Dismiss')),
+    h('textarea', { class: 'note', 'aria-label': 'Notes', placeholder: 'Notes for the team (saved in this browser only)', oninput: e => { state.decisions[id] = { ...(state.decisions[id] || {}), note: e.target.value }; saveDecisions(); } }, d.note || ''),
+    h('p', { class: 'sub' }, 'The tool never contacts anyone. Bloomfield handles all outreach.'));
+  show(box);
+}
+
+function show(node) { const dr = $('#drawer'); dr.replaceChildren(node); dr.classList.add('open'); $('#scrim').classList.add('open'); dr.scrollTop = 0; }
+function closeAll() { $('#drawer').classList.remove('open'); $('#scrim').classList.remove('open'); state.selected = null; state.returnTo = null; }
+
+/* ---------- AI Reader tab ---------- */
+const readerLabel = r => title(r.file_id.replace(/^fake-annarbor-/, '').replace(/-/g, ' '));
+function renderReader(root) {
+  const R = DATA.reader;
+  root.append(h('h1', {}, 'How the AI Reader works'),
+    h('p', { class: 'lead' }, 'The Reader turns a document into the same set of fields every time, and must give the exact quote each field came from. If a quote is not really in the document, the result is sent to a person instead of being trusted. These are real answers from Google\'s Gemini, recorded once, so there is nothing to call and nothing to pay for during a demo.'));
+  if (!R.length) { root.append(h('div', { class: 'empty' }, 'No recorded readings found (demo/recorded_readings.json).')); return; }
+  const ex = R[Math.min(state.reader, R.length - 1)];
+  root.append(h('div', { class: 'pillrow' }, R.map((r, i) => h('button', { class: 'btn ' + (i === state.reader ? 'on' : ''), onclick: () => { state.reader = i; render(); } }, readerLabel(r)))));
+  const quotes = ex.fields.map(f => f.quote);
+  root.append(
+    h('div', { class: 'banner ' + (ex.status === 'ok' ? 'ok' : 'review') }, ex.status === 'ok' ? 'Result: OK. Every value has a quote that really appears in the document, and the sanity checks passed.' : 'Result: NEEDS A PERSON. ' + (ex.reason || ex.parse_error || '')),
+    h('div', { class: 'grid2' },
+      h('div', {}, h('h3', {}, 'The source document'), h('pre', { class: 'doc' }, highlight(ex.document_text, quotes))),
+      h('div', {}, h('h3', {}, 'What the AI pulled out'), h('div', { class: 'card scroll' }, h('table', {}, h('thead', {}, h('tr', {}, ['Field', 'Value', 'Quote'].map(x => h('th', {}, x)))),
+        h('tbody', {}, ex.fields.map(f => h('tr', {}, h('td', {}, title(f.name)), h('td', {}, typeof f.value === 'number' ? money(f.value) : String(f.value)),
+          h('td', {}, f.quote == null ? h('span', { class: 'pill low' }, 'no quote') : f.quote_found ? h('span', { class: 'pill good' }, '✓ in document') : h('span', { class: 'pill bad' }, '✗ not in document'))))))))),
+    h('p', { class: 'sub' }, 'Model: ' + ex.model + (ex.provider ? ' (' + ex.provider + ')' : '') + ' · ' + (ex.input_tokens || '?') + ' tokens in, ' + (ex.output_tokens || '?') + ' out · recorded ' + day(ex.recorded_on) + ' · confidence: ' + (ex.confidence || '-') + ' · document ' + ex.file_id));
+  const bad = R.find(r => r.status !== 'ok');
+  root.append(h('h2', {}, 'The safety checks'), h('div', { class: 'card' }, h('ul', { class: 'tight' },
+    h('li', {}, 'Every value must come with the exact words it was copied from; those words must really be in the document.'),
+    h('li', {}, 'Amounts and dates must be believable; a loan must mature after it was recorded.'),
+    h('li', {}, 'If the document type disagrees with the label from the collector, or the scan is poor, a person reviews it.'),
+    h('li', {}, 'Answers are saved, so reading the same document twice costs nothing, and a weekly spending cap stops the run before it overspends.'),
+    h('li', {}, 'Bloomfield\'s own material and Trepp data are never sent to an AI.'),
+    bad && h('li', {}, h('b', {}, 'Caught in this demo: '), readerLabel(bad) + ' (' + bad.file_id + '): ' + (bad.reason || '')))));
+  if (DATA.review.matches.length) root.append(h('h2', {}, 'Matches waiting for a person'), h('p', { class: 'sub' }, 'When the matcher is not sure two records are the same property, it asks instead of guessing.'),
+    ...DATA.review.matches.map(m => { const dec = state.matches[m.review_id];
+      return h('div', { class: 'card ev' }, h('div', { class: 'ev-title' }, 'Same property?'), h('div', { class: 'sub' }, m.reason + ' (similarity ' + Math.round(m.score) + '%)'),
+        h('p', {}, '1) ' + m.left_label, h('br'), '2) ' + m.right_label),
+        h('div', { class: 'actions' }, ['yes', 'no'].map(a => h('button', { class: 'btn ' + (dec === a ? 'on' : ''), onclick: () => { state.matches[m.review_id] = a; store.set('matches', state.matches); render(); } }, a === 'yes' ? 'Yes, same' : 'No, different'))),
+        dec && h('p', { class: 'sub' }, 'Recorded: ' + (dec === 'yes' ? 'same property (the flags would merge on the next run).' : 'different properties.'))); }));
+}
+
+/* ---------- test results ---------- */
+const WEAK_STATUS = { 'Caught': 'good', 'Fixed': 'good', 'Next': 'warn', 'In progress': 'warn', 'Open': 'bad', 'Need from you': 'bad' };
+function renderResults(root) {
+  const R = C.results || {}, L = R.live_reader || {}, T = R.tests || {}, PL = R.pipeline || {};
+  root.append(h('h1', {}, 'What is working, and what is not'),
+    h('p', { class: 'lead' }, 'Tested on invented but realistic documents. We have not yet seen any real Bloomfield data.'),
+    h('div', { class: 'twocol' },
+      h('div', { class: 'card' }, h('div', { class: 'sub' }, 'A real AI model reading our sample documents'), h('div', { class: 'big' }, L.ok + ' ', h('small', {}, '/ ' + L.documents + ' read cleanly')),
+        h('p', { class: 'sub' }, L.review + ' were sent to a person, and all ' + L.review + ' were right to be. ' + L.failed + ' failed. ' + L.provider + ' (' + L.model + '), ' + day(L.date) + '. ' + L.note)),
+      h('div', {}, h('div', { class: 'card', style: 'margin-bottom:10px' }, h('div', { class: 'big' }, T.passing, ' ', h('small', {}, 'automated tests passing')), h('p', { class: 'sub' }, T.note)),
+        h('div', { class: 'card' }, h('div', { class: 'sub' }, 'Whole chain on sample data'), h('p', { style: 'margin:4px 0 0' }, PL.documents + ' documents in, ' + PL.linked + ' records linked into ' + PL.properties + ' properties, ' + PL.hot + ' Tier 1 and ' + PL.watch + ' Tier 2 properties. The Ann Arbor project ranks first.')))),
+    h('div', { class: 'banner review' }, h('b', {}, 'Accuracy: '), R.accuracy),
+    h('h2', {}, 'What worked'), h('div', { class: 'card' }, h('ul', { class: 'tight' }, (C.worked || []).map(w => h('li', {}, w)))),
+    h('h2', {}, 'Where it struggled, and what we are doing about it'),
+    h('div', { class: 'grid2' }, (C.weak_spots || []).map(w => h('div', { class: 'card' }, h('div', { class: 'ev-top' }, h('b', {}, w.what), h('span', { class: 'pill ' + (WEAK_STATUS[w.status] || 'low'), style: 'margin-left:auto' }, w.status)), h('div', { class: 'sub' }, w.detail)))));
+}
+
+/* ---------- feedback, Nov 17, notes ---------- */
+function renderAsk(root) {
+  const ships = C.ships || {};
+  root.append(h('h1', {}, 'Your feedback, and what ships Nov 17'),
+    h('p', { class: 'lead' }, 'Four questions we need answered to finish well, then what we are promising for the final presentation.'),
+    h('div', { class: 'asks', id: 'asks' }, (C.asks || []).map((a, i) => h('div', { class: 'card' }, h('span', { class: 'n' }, i + 1), h('div', { style: 'flex:1;min-width:0' }, h('b', {}, a.ask), h('div', { class: 'sub' }, a.detail)), h('span', { class: 'pill warn' }, a.by)))),
+    h('h2', { id: 'ships' }, 'What you will see on Nov 17'),
+    h('div', { class: 'grid2' }, h('div', { class: 'card', style: 'border-color:var(--accent)' }, h('b', {}, 'In the final build'), h('ul', { class: 'tight' }, (ships.in || []).map(x => h('li', {}, x)))),
+      h('div', { class: 'card' }, h('b', {}, 'Saved for phase two'), h('ul', { class: 'tight' }, (ships.later || []).map(x => h('li', { class: 'sub' }, x))))),
+    h('h2', {}, 'Next steps'), h('div', { class: 'nextrow' }, (C.next_steps || []).map(s => h('div', { class: 'card' }, h('b', { class: 'when' }, s.when), h('b', {}, s.title), h('div', { class: 'sub' }, s.text)))),
+    h('h2', {}, 'Call notes'), h('p', { class: 'sub' }, 'For whoever takes notes. Saved in this browser only.'),
+    h('textarea', { class: 'note', style: 'min-height:130px', 'aria-label': 'Call notes', placeholder: 'What Bloomfield said, what we agreed to ship on Nov 17...', oninput: e => { state.callNotes = e.target.value; store.set('callnotes', state.callNotes); } }, state.callNotes));
+}
+
+/* ---------- data sources + how it works ---------- */
+const STATUS = { built: ['good', 'built'], manual: ['warn', 'manual inbox'], unverified: ['warn', 'automatic, needs checking'], planned: ['low', 'planned'] };
+function renderSources(root) {
+  root.append(h('h1', {}, 'Where the data comes from'), h('p', { class: 'lead' }, 'Honest status of every source. Nothing logs in, solves a CAPTCHA or goes around a block: a site that does not allow automated access becomes a "manual inbox" where a person drops the files.'),
+    h('div', { class: 'card scroll' }, h('table', {}, h('thead', {}, h('tr', {}, ['Source', 'How we get it', 'Status', 'Note'].map(x => h('th', {}, x)))),
+      h('tbody', {}, DATA.sources.map(s => h('tr', {}, h('td', {}, h('b', {}, s.name)), h('td', {}, s.how), h('td', {}, h('span', { class: 'pill ' + STATUS[s.status][0] }, STATUS[s.status][1])), h('td', { class: 'sub' }, s.note)))))));
+}
+function renderHow(root) {
+  const steps = [['Collect', 'Public records (county filings, liens, recorded loans, permits), SEC and FFIEC data, and the Trepp screen if Bloomfield shares one.', 'A researcher uploads the Trepp screen; nothing pulls on its own.'],
+    ['Read', 'The AI Reader turns each document into the same fields, with the exact source quote.', 'Fields are shown beside the source sentence; anything doubtful goes to a person.'],
+    ['Link', 'Records about the same property, loan, lender and company are joined (parcel, address, fuzzy names).', 'Unsure matches wait in a review queue.'],
+    ['Score', 'Each property gets points for each independent warning sign; signals of the same kind are capped.', 'Bloomfield owns the weights, size, geography and property types.'],
+    ['Rank', 'Flags with evidence and a plain-English summary, strongest first.', 'The researcher approves, dismisses or edits each flag. The tool never contacts anyone.']];
+  const fam = {}; DATA.weights.forEach(w => (fam[w.family] = fam[w.family] || []).push(w));
+  root.append(h('h1', {}, 'Methodology and how it is built'), h('ol', { class: 'steps' }, steps.map(([t, d, c]) => h('li', {}, h('div', {}, h('b', {}, t), h('div', {}, d), h('div', { class: 'sub' }, 'Control point: ' + c))))),
+    h('h2', {}, 'What earns points (all editable)'), h('div', { class: 'grid2' }, Object.entries(fam).map(([f, ws]) => h('div', { class: 'card' }, h('b', {}, title(f)),
+      h('table', {}, h('tbody', {}, ws.map(w => h('tr', {}, h('td', {}, signalName(w.signal)), h('td', { style: 'text-align:right' }, '+' + w.points))))))))
+    , h('h2', {}, 'How each stage is built'), h('div', { class: 'grid2' }, (C.how_built || []).map(b => h('div', { class: 'card' }, h('div', { class: 'eyebrow', style: 'color:var(--accent);font-weight:700;font-size:.78rem;text-transform:uppercase' }, b.step), h('b', {}, b.title),
+      h('div', { class: 'sub' }, 'Built with: ' + b.stack), h('ul', { class: 'tight' }, (b.built || []).map(x => h('li', {}, x))))))
+    , prioritiesPanel(), approachPanel()
+    , h('h2', {}, 'This demo'), h('p', { class: 'sub' }, 'Built on ' + DATA.meta.built_at + ' from the real pipeline run on invented data (scoring ' + DATA.meta.scoring_version + '). Re-run with: python -m demo --open'));
+}
+
+/* ---------- the guided walkthrough ---------- */
+const topId = () => (DATA.properties.find(p => p.tier === 'hot') || DATA.properties[0]).id;
+function goTab(t) { closeAll(); state.tab = t; render(); window.scrollTo(0, 0); }
+function openTop(scrollSel, spotSel) {
+  state.tab = 'flags'; render(); openDetail(topId());
+  if (scrollSel) setTimeout(() => { const el = $(scrollSel, $('#drawer')); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); if (spotSel) { const s = $(spotSel, $('#drawer')); if (s) s.classList.add('spot'); } }, 60);
+}
+const STEPS = [
+  { part: 'Our build', title: 'Bloomfield\'s problem', text: 'Reach struggling borrowers before the broker network does. Bloomfield\'s own example is the Ann Arbor student housing project.', notes: 'Say: $200M deployed last year, $300M target. A bank has strict limits on helping a struggling borrower; Bloomfield has few. The website still said "coming Winter 2026" after the date passed.', go: () => goTab('start') },
+  { part: 'Our build', title: 'Every week, five steps', text: 'Collect, read, link, score, rank. A person approves every flag; the tool never contacts anyone.', notes: 'Point at the control point under each step. Bloomfield owns the weights, size, geography and property types.', go: () => goTab('how') },
+  { part: 'Demo', title: 'Tiered flagged properties', text: 'Documents in, properties out. Tier 1 (Priority review) and Tier 2 (Active monitoring) properties, each with its evidence. Office is hidden because Bloomfield does not buy it.', notes: 'Tick "Show office" to show the filter, then untick. Everything on screen is invented.', go: () => goTab('flags') },
+  { part: 'Demo', title: 'The Ann Arbor project', text: 'An executive summary sits above the evidence: who, how much, and which independent records agree.', notes: 'Read the summary first (score 100, Tier 1), then scroll to the evidence. Then open a Tier 2 property to show the same layout at a lower score.', go: () => openTop('#d-summary', '#d-summary') },
+  { part: 'Demo', title: 'A construction loan that never converted', text: 'Recorded about 3.5 years ago, modified once, and no permanent loan or release ever followed.', notes: 'A healthy project replaces its construction loan. This one is stuck.', go: () => openTop('[data-signal="construction_loan_no_takeout"]', '[data-signal="construction_loan_no_takeout"]') },
+  { part: 'Demo', title: 'Every claim has a source sentence', text: 'The contractor\'s lien, with the exact words highlighted in the county document it was read from.', notes: 'This is how we avoid the AI inventing facts: no quote, no trust.', go: () => { openTop(); setTimeout(() => { const p = DATA.properties.find(x => x.id === topId()); const s = p.signals.find(x => x.signal === 'mechanics_lien'); if (s && s.doc_id) { state.returnTo = p.id; openDoc(s.doc_id, s.quote); } }, 80); } },
+  { part: 'Demo', title: 'The stale opening date', text: 'The site still says "coming soon" after the date passed. This is the signal Bloomfield spotted by hand.', notes: 'Show the quote and the months overdue. Student housing that misses August usually loses a full year of rent.', go: () => openTop('[data-signal="stale_opening"]', '[data-signal="stale_opening"]') },
+  { part: 'Demo', title: 'The lender is struggling too', text: 'The lender\'s commercial real estate loans on nonaccrual have risen quarter after quarter.', notes: 'From public bank call reports. A lender in trouble may be glad to sell the note.', go: () => openTop('#d-lender', '#d-lender-card') },
+  { part: 'Demo', title: 'The researcher decides', text: 'Add to the weekly list, needs digging, or dismiss. Bloomfield handles all outreach.', notes: 'Click "Add to weekly list" to show it is saved, then filter "Only my weekly list".', go: () => openTop('#d-decision') },
+  { part: 'Demo', title: 'How the AI reads a document', text: 'Real Gemini answers on invented documents. Every value has a quote that is checked against the page.', notes: 'Click through the four documents. Point out the one the checks caught.', go: () => goTab('reader') },
+  { part: 'Results', title: 'Where the data comes from', text: 'Honest status of every source: what is automatic, manual or still to be checked.', notes: 'Say plainly that every county site is manual until its terms are checked.', go: () => goTab('sources') },
+  { part: 'Results', title: 'What is working, what is not', text: 'The numbers, and the weak spots we already know about.', notes: 'Read the 15 / 18 and the accuracy line. Walk through two or three struggles.', go: () => goTab('results') },
+  { part: 'Feedback', title: 'Four questions for Bloomfield', text: 'States and counties first, sample deals, which signals matter, and rules for using an AI service.', notes: 'Stop talking here. Write down every answer.', go: () => { goTab('ask'); setTimeout(() => $('#asks') && $('#asks').scrollIntoView({ block: 'start' }), 60); } },
+  { part: 'Ship', title: 'What you will see on Nov 17', text: 'What is in the final build, and what is saved for phase two. Read it back before hanging up.', notes: 'Read the list aloud and ask Bloomfield to confirm it.', go: () => { goTab('ask'); setTimeout(() => $('#ships') && $('#ships').scrollIntoView({ block: 'start' }), 60); } },
+];
+function renderTour() {
+  const bar = $('#tour'), i = state.tour;
+  document.body.classList.toggle('touring', i >= 0); bar.classList.toggle('on', i >= 0);
+  if (i < 0) { bar.replaceChildren(); return; }
+  const s = STEPS[i];
+  bar.replaceChildren(h('div', { class: 'tour-in' },
+    h('div', {}, h('div', { class: 'tour-kicker' }, s.part + ' · step ' + (i + 1) + ' of ' + STEPS.length), h('div', { class: 'tour-title' }, s.title), h('div', { class: 'tour-text' }, s.text)),
+    h('div', { class: 'tour-ctl' }, h('button', { class: 'btn', id: 'tour-back', disabled: i === 0 ? true : null, onclick: () => stepTour(-1) }, '← Back'),
+      h('button', { class: 'btn next', id: 'tour-next', onclick: () => i === STEPS.length - 1 ? endTour() : stepTour(1) }, i === STEPS.length - 1 ? 'Finish' : 'Next →'),
+      h('button', { class: 'btn', id: 'tour-notes', onclick: () => { state.notes = !state.notes; renderTour(); } }, state.notes ? 'Hide notes' : 'Speaker notes'),
+      h('button', { class: 'btn', id: 'tour-exit', onclick: endTour }, 'Exit')),
+    h('div', { class: 'tour-notes' + (state.notes ? ' on' : '') }, s.notes),
+    h('div', { class: 'dots' }, STEPS.map((_, k) => h('i', { class: k < i ? 'done' : k === i ? 'now' : '' })))));
+}
+function goStep(i) { state.tour = Math.max(0, Math.min(STEPS.length - 1, i)); STEPS[state.tour].go(); renderTour(); }
+function stepTour(d) { goStep(state.tour + d); }
+function startTour() { goStep(0); }
+function endTour() { state.tour = -1; renderTour(); closeAll(); }
+$('#tourbtn').addEventListener('click', () => state.tour >= 0 ? endTour() : startTour());
+
+/* ---------- shell ---------- */
+const TABS = [['start', 'Overview'], ['flags', 'Flagged properties'], ['reader', 'AI document reader'], ['results', 'Test results'], ['sources', 'Data sources'], ['how', 'Methodology & build'], ['ask', 'Feedback & Nov 17']];
+function render() {
+  const nav = $('#tabs'); nav.replaceChildren(...TABS.map(([k, label]) => h('button', { role: 'tab', 'aria-selected': state.tab === k, onclick: () => { closeAll(); state.tab = k; render(); window.scrollTo(0, 0); } }, label)));
+  const main = $('#main'); main.replaceChildren();
+  ({ start: renderStart, flags: renderFlags, reader: renderReader, results: renderResults, sources: renderSources, how: renderHow, ask: renderAsk })[state.tab](main);
+}
+$('#scrim').addEventListener('click', closeAll);
+document.addEventListener('keydown', e => {
+  if (e.target.matches && e.target.matches('input, textarea, select')) return;
+  if (e.key === 'Escape') { closeAll(); } else if (state.tour >= 0 && e.key === 'ArrowRight') { stepTour(1); } else if (state.tour >= 0 && e.key === 'ArrowLeft') { stepTour(-1); }
+});
+if (DATA) render(); else $('#main').textContent = 'No data embedded. Build this page with: python -m demo';
+</script>
+</body>
+</html>

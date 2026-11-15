@@ -1,460 +1,470 @@
 """
-signals.py - finds every warning sign on every property.
+signals.py - the warning signs the scorer looks for, one small function per family.
 
-Reads (never writes) the other parts' tables:
-  Part A: recorded_loans, loans, bank_stats
-  Part B: filing_fields, projects
-  Part C: links (property_id, record_table, record_id) - when Part C exists
-
-Until Part C's `links` table exists, records are grouped by a cleaned-up
-street address + state. That is a stand-in: Part C's matcher is what ties a
-project website, its construction loan, its contractor lien and its lender together.
-
-Each signal says WHO is pushing the owner (court_or_tax / lender / contractor / market),
-where it came from, and the exact source sentence, so the researcher can check it.
+In plain English: each function looks at one property's paperwork and returns a list of
+Signals. A Signal is "what we saw, how many points it's worth, and which record proves it".
+The points come from config/scoring.yaml. Nothing here talks to the internet or an AI.
 """
 from __future__ import annotations
 
 import json
 import re
-from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date, datetime
 
-import pandas as pd
+from rapidfuzz import fuzz
 
-from .store import read_table
+from .group import Property
+
+
+@dataclass
+class Signal:
+    name: str
+    family: str
+    points: float
+    detail: str
+    evidence_table: str | None = None
+    evidence_id: str | None = None
+    evidence_date: date | None = None
+    quote: str | None = None
+    ages: bool = False           # True = old evidence gets discounted (events, not states)
+    unconfirmed: bool = False    # True = came from a Reader row marked needs_review
+
 
 # ---------------------------------------------------------------------------
-# Cleaning helpers
+# Small helpers
 # ---------------------------------------------------------------------------
-_STREET_WORDS = {
-    "street": "st", "avenue": "ave", "road": "rd", "boulevard": "blvd", "drive": "dr",
-    "lane": "ln", "court": "ct", "place": "pl", "parkway": "pkwy", "highway": "hwy",
-    "north": "n", "south": "s", "east": "e", "west": "w", "suite": "ste",
-}
-
-
-def clean_address(address: str | None, state: str | None) -> str | None:
-    if not address or not str(address).strip():
+def as_date(v) -> date | None:
+    if v is None:
         return None
-    words = re.sub(r"[^a-z0-9 ]", " ", str(address).lower()).split()
-    words = [_STREET_WORDS.get(w, w) for w in words]
-    return f"{' '.join(words)}|{(state or '').strip().upper()}"
-
-
-_TYPE_RULES = [
-    ("student", "Student housing"), ("senior", "Senior housing"), ("assisted", "Senior housing"),
-    ("nursing", "Senior housing"), ("skilled", "Senior housing"), ("multi", "Multifamily"),
-    ("apartment", "Multifamily"), ("office", "Office"), ("hotel", "Hotel"), ("lodging", "Hotel"),
-    ("industrial", "Industrial"), ("warehouse", "Industrial"), ("storage", "Self storage"),
-    ("retail", "Retail"), ("mixed", "Mixed use"),
-]
-_CMBS_CODES = {"MF": "Multifamily", "OF": "Office", "RT": "Retail", "LO": "Hotel", "IN": "Industrial",
-               "SS": "Self storage", "MU": "Mixed use", "HC": "Senior housing", "WH": "Industrial"}
-
-
-def clean_property_type(raw) -> str | None:
-    if raw is None or (isinstance(raw, float) and pd.isna(raw)) or not str(raw).strip():
-        return None
-    text = str(raw).strip()
-    if text.upper() in _CMBS_CODES:
-        return _CMBS_CODES[text.upper()]
-    low = text.lower()
-    for needle, label in _TYPE_RULES:
-        if needle in low:
-            return label
-    return text.title()
-
-
-def clean_company(name) -> str:
-    if not name or (isinstance(name, float) and pd.isna(name)):
-        return ""
-    s = re.sub(r"[^a-z0-9 ]", " ", str(name).lower())
-    s = re.sub(r"\b(llc|l l c|inc|corp|corporation|co|company|na|n a|lp|ltp|ltd|the)\b", " ", s)
-    return " ".join(s.split())
-
-
-def _val(x):
-    """pandas NaN / NaT -> None."""
-    if x is None:
-        return None
+    if isinstance(v, datetime):
+        return v.date()
+    if isinstance(v, date):
+        return v
     try:
-        if pd.isna(x):
-            return None
+        return date.fromisoformat(str(v)[:10])
+    except ValueError:
+        return None
+
+
+def months_between(start: date, end: date) -> float:
+    return (end - start).days / 30.44
+
+
+def money(x) -> str:
+    if x is None:
+        return "an unknown amount"
+    if x >= 1_000_000:
+        return f"${x / 1_000_000:.1f}M"
+    return f"${x:,.0f}"
+
+
+def as_list(v) -> list:
+    if v is None:
+        return []
+    if isinstance(v, list):
+        return v
+    try:
+        parsed = json.loads(v)
+        return parsed if isinstance(parsed, list) else []
     except (TypeError, ValueError):
-        pass
-    return x
+        return []
 
 
-def _date(x) -> date | None:
-    x = _val(x)
-    if x is None:
-        return None
-    if isinstance(x, datetime):
-        return x.date()
-    if isinstance(x, date):
-        return x
-    if isinstance(x, pd.Timestamp):
-        return x.date()
+def as_dict(v) -> dict:
+    if isinstance(v, dict):
+        return v
     try:
-        return pd.to_datetime(x).date()
-    except Exception:
-        return None
+        parsed = json.loads(v) if v else {}
+        return parsed if isinstance(parsed, dict) else {}
+    except (TypeError, ValueError):
+        return {}
 
 
-def _first_quote(quotes) -> str | None:
-    quotes = _val(quotes)
-    if not quotes:
-        return None
-    if isinstance(quotes, str):
-        try:
-            quotes = json.loads(quotes)
-        except ValueError:
-            return quotes
-    if isinstance(quotes, dict):
-        for v in quotes.values():
-            if v:
-                return str(v)
-    if isinstance(quotes, list) and quotes:
-        return str(quotes[0])
+def quote_for(filing: dict, *fields: str) -> str | None:
+    quotes = as_dict(filing.get("quotes"))
+    for f in fields:
+        if quotes.get(f):
+            return str(quotes[f])
     return None
 
 
-# ---------------------------------------------------------------------------
-# Data shapes
-# ---------------------------------------------------------------------------
-@dataclass
-class Signal:
-    code: str                    # e.g. "mechanics_lien"
-    label: str                   # plain English, shown to the researcher
-    pusher: str | None           # court_or_tax / lender / contractor / market / None
-    detail: str
-    source: str                  # table + id, so the researcher can find the document
-    quote: str | None = None     # exact sentence from the document
-    event_date: date | None = None
-    deadline: date | None = None
-    deadline_what: str | None = None
-    stage: int = 0               # escalation: 1 lien, 2 lawsuit, 3 judgment/foreclosure/sale
-    public: bool = False         # already visible to everyone (auction, public sale)
-    options_used_up: bool = False
-    temporary: bool = False      # a delay / stuck refinance, not a lack of demand
-    permanent: bool = False      # a lack of demand
-
-    def as_dict(self) -> dict:
-        d = self.__dict__.copy()
-        for k in ("event_date", "deadline"):
-            d[k] = d[k].isoformat() if d[k] else None
-        return d
+def filing_kind(f: dict) -> str:
+    """The Reader's filing_type, falling back to Part A's doc_category label."""
+    return (f.get("filing_type") or f.get("doc_category") or "other").lower()
 
 
-@dataclass
-class Property:
-    key: str
-    names: list = field(default_factory=list)
-    address: str | None = None
-    city: str | None = None
-    state: str | None = None
-    types: list = field(default_factory=list)
-    sponsors: list = field(default_factory=list)
-    lenders: list = field(default_factory=list)
-    loan_amounts: list = field(default_factory=list)
-    dscr: float | None = None
-    signals: list = field(default_factory=list)
-    has_co: bool = False
+def filing_date(f: dict) -> date | None:
+    return as_date(f.get("recording_date") or f.get("filing_date"))
 
-    def first(self, items):
-        items = [i for i in items if i]
-        return items[0] if items else None
 
-    @property
-    def name(self):
-        return self.first(self.names) or self.address or self.key
-
-    @property
-    def property_type(self):
-        return self.first(self.types)
-
-    @property
-    def sponsor(self):
-        return self.first(self.sponsors)
-
-    @property
-    def lender(self):
-        return self.first(self.lenders)
-
-    @property
-    def loan_amount(self):
-        amounts = [a for a in self.loan_amounts if a]
-        return max(amounts) if amounts else None
+def _evidence_from_filing(f: dict) -> dict:
+    return {"evidence_table": "filing_fields", "evidence_id": f.get("file_id"),
+            "evidence_date": filing_date(f), "unconfirmed": f.get("status") == "needs_review"}
 
 
 # ---------------------------------------------------------------------------
-# Grouping records into properties
+# 1. Construction loans that never got paid off (Part A recorded_loans)
 # ---------------------------------------------------------------------------
-class Grouper:
-    def __init__(self, links: pd.DataFrame):
-        self.by_record = {}
-        for row in links.itertuples(index=False):
-            if _val(row.record_table) and _val(row.record_id) and _val(row.property_id):
-                self.by_record[(row.record_table, str(row.record_id))] = str(row.property_id)
-        self.props: dict[str, Property] = {}
+def construction_loan_signals(p: Property, cfg: dict, as_of: date) -> list[Signal]:
+    s_cfg = cfg["signals"]
+    loans = sorted(p.recorded_loans, key=lambda r: as_date(r.get("recording_date")) or date.min)
+    constructions = [r for r in loans if (r.get("loan_kind") or "").lower() == "construction"]
+    if not constructions:
+        return []
+    c = constructions[-1]                        # the most recent construction loan
+    c_date = as_date(c.get("recording_date"))
+    if not c_date:
+        return []
+    later = [r for r in loans if (as_date(r.get("recording_date")) or date.min) > c_date]
+    paid_off = any(
+        (r.get("loan_kind") or "").lower() == "permanent"
+        or ((r.get("loan_kind") or "").lower() == "release"
+            and (not r.get("related_instrument") or r.get("related_instrument") == c.get("instrument_number")))
+        for r in later)
 
-    def get(self, table, record_id, address, city, state) -> Property | None:
-        key = self.by_record.get((table, str(record_id)))
-        if not key:
-            key = clean_address(address, state)
-        if not key:
+    out = []
+    age = months_between(c_date, as_of)
+    rule = s_cfg["construction_loan_no_takeout"]
+    if not paid_off and age >= rule["min_age_months"]:
+        out.append(Signal(
+            "construction_loan_no_takeout", rule["family"], rule["points"],
+            f"{money(c.get('amount'))} construction loan from {c.get('grantee') or 'an unknown lender'} "
+            f"recorded {age / 12:.1f} years ago with no permanent loan or payoff since",
+            "recorded_loans", c.get("record_id"), c_date))
+
+    rule = s_cfg.get("construction_loan_five_years")
+    if rule and not paid_off and age >= rule["min_age_months"]:
+        out.append(Signal(
+            "construction_loan_five_years", rule["family"], rule["points"],
+            f"The construction loan is {age / 12:.1f} years old and has never been paid off",
+            "recorded_loans", c.get("record_id"), c_date))
+
+    rule = s_cfg["construction_loan_modified"]
+    mods = [r for r in later if (r.get("loan_kind") or "").lower() in ("modification", "extension")]
+    for r in mods[: rule["max_count"]]:
+        out.append(Signal(
+            "construction_loan_modified", rule["family"], rule["points"],
+            f"Loan {(r.get('loan_kind') or '').lower()} recorded {as_date(r.get('recording_date'))} "
+            f"(instrument {r.get('instrument_number')})",
+            "recorded_loans", r.get("record_id"), as_date(r.get("recording_date"))))
+    return out
+
+
+# ---------------------------------------------------------------------------
+# 2. Permits and certificates of occupancy (Part B filing_fields)
+# ---------------------------------------------------------------------------
+def permit_signals(p: Property, cfg: dict, as_of: date) -> list[Signal]:
+    s_cfg = cfg["signals"]
+    permits = [f for f in p.filings if filing_kind(f) == "building_permit"]
+    has_co = any(filing_kind(f) == "certificate_of_occupancy" for f in p.filings)
+    if not permits or has_co:
+        return []                                # finished buildings have a CO
+    out = []
+
+    rule = s_cfg["permit_extended"]
+    extended = [f for f in permits
+                if "permit_extended" in as_list(f.get("distress_tags"))
+                or "extend" in (f.get("permit_status") or "").lower()]
+    for f in extended[: rule["max_count"]]:
+        out.append(Signal("permit_extended", rule["family"], rule["points"],
+                          f"Building permit {f.get('permit_number') or ''} has been extended "
+                          f"(status: {f.get('permit_status') or 'n/a'})".replace("  ", " "),
+                          quote=quote_for(f, "permit_status", "permit_expiration_date"),
+                          **_evidence_from_filing(f)))
+
+    rule = s_cfg["permit_expired"]
+    for f in permits:
+        exp = as_date(f.get("permit_expiration_date"))
+        if "permit_expired" in as_list(f.get("distress_tags")) or (exp and exp < as_of):
+            out.append(Signal("permit_expired", rule["family"], rule["points"],
+                              f"Building permit {f.get('permit_number') or ''} expired"
+                              + (f" on {exp}" if exp else "") + " with no certificate of occupancy",
+                              quote=quote_for(f, "permit_expiration_date"),
+                              **_evidence_from_filing(f)))
+            break
+
+    rule = s_cfg["permit_without_co"]
+    dated = [(filing_date(f), f) for f in permits if filing_date(f)]
+    if dated:
+        first_date, f = min(dated, key=lambda t: t[0])
+        age = months_between(first_date, as_of)
+        if age >= rule["min_age_months"]:
+            out.append(Signal("permit_without_co", rule["family"], rule["points"],
+                              f"Permit issued {age / 12:.1f} years ago and still no certificate of occupancy",
+                              **_evidence_from_filing(f)))
+    return out
+
+
+# ---------------------------------------------------------------------------
+# 3. Mechanic's liens (Part B filing_fields)
+# ---------------------------------------------------------------------------
+def lien_signals(p: Property, cfg: dict, as_of: date, loan_amount: float | None) -> list[Signal]:
+    rule = cfg["signals"]["mechanics_lien"]
+    out = []
+    for f in p.filings:
+        if filing_kind(f) != "mechanics_lien" and "contractor_unpaid" not in as_list(f.get("distress_tags")):
+            continue
+        d = filing_date(f)
+        points = rule["points"]
+        recent = d is not None and (as_of - d).days <= rule["recent_days"]
+        if not recent:
+            points /= 2
+        amount = f.get("lien_amount")
+        big = bool(amount and loan_amount and amount >= rule["big_lien_share"] * loan_amount)
+        if big:
+            points += rule["big_lien_bonus"]
+        who = f.get("lien_claimant") or "a contractor"
+        detail = f"Mechanic's lien for {money(amount)} by {who}"
+        if f.get("lien_work"):
+            detail += f" ({f['lien_work']})"
+        detail += f", filed {d}" if d else ""
+        if big:
+            detail += f" - {amount / loan_amount:.1%} of the loan"
+        out.append(Signal("mechanics_lien", rule["family"], points, detail,
+                          quote=quote_for(f, "lien_amount", "lien_claimant"),
+                          **_evidence_from_filing(f)))
+    return out
+
+
+# ---------------------------------------------------------------------------
+# 4. The lender's health (Part A bank_stats)
+# ---------------------------------------------------------------------------
+_BANK_NOISE = re.compile(r"\b(the|n\.?a\.?|national association|inc|corp|corporation|co|company|fsb)\b")
+
+
+def norm_bank(name: str) -> str:
+    n = re.sub(r"[^a-z0-9 ]", " ", _BANK_NOISE.sub(" ", name.lower()))
+    return " ".join(n.split())
+
+
+class BankBook:
+    """The latest quarter for every bank, plus a cautious name lookup."""
+
+    def __init__(self, con):
+        self.latest: dict[str, dict] = {}
+        try:
+            cur = con.execute("""
+                SELECT * FROM bank_stats
+                QUALIFY row_number() OVER (PARTITION BY rssd_id ORDER BY report_date DESC) = 1""")
+            cols = [d[0] for d in cur.description]
+            for row in cur.fetchall():
+                r = dict(zip(cols, row))
+                self.latest[r["rssd_id"]] = r
+        except Exception:      # no bank_stats table yet
+            pass
+        self._names = {rssd: norm_bank(r.get("bank_name") or "") for rssd, r in self.latest.items()}
+        # Part C's decisions (lender_links), when it has run: trusted over our own guess,
+        # including "no match" (rssd_id NULL) and a person's manual answers.
+        self.part_c: dict[str, str | None] = {}
+        try:
+            self.part_c = {n.strip(): r for n, r in con.execute(
+                "SELECT lender_name, rssd_id FROM lender_links").fetchall()}
+        except Exception:      # Part C hasn't run
+            pass
+
+    def find(self, lender: str | None, threshold: int) -> dict | None:
+        if not lender:
             return None
-        prop = self.props.setdefault(key, Property(key=key))
-        prop.address = prop.address or _val(address)
-        prop.city = prop.city or _val(city)
-        prop.state = prop.state or (_val(state) or None)
-        return prop
+        if lender.strip() in self.part_c:
+            rssd = self.part_c[lender.strip()]
+            return self.latest.get(rssd) if rssd else None
+        target = norm_bank(lender)
+        best, best_score = None, 0
+        for rssd, name in self._names.items():
+            score = fuzz.token_sort_ratio(target, name)
+            if score > best_score:
+                best, best_score = rssd, score
+        return self.latest[best] if best and best_score >= threshold else None
 
 
-FILING_RULES = {
-    # filing_type: (code, label, pusher, stage, public, deadline field, deadline label)
-    "foreclosure_notice": ("foreclosure", "Foreclosure notice", "court_or_tax", 3, True, "sale_date", "Foreclosure sale"),
-    "receivership": ("receivership", "Receiver appointed", "court_or_tax", 3, False, None, None),
-    "lis_pendens": ("lis_pendens", "Lawsuit filed against the property (lis pendens)", "court_or_tax", 2, False, None, None),
-    "lender_lawsuit": ("lender_lawsuit", "Lender sued the borrower", "court_or_tax", 2, False, None, None),
-    "tax_delinquency": ("tax_delinquency", "Property taxes unpaid", "court_or_tax", 0, False, "sale_date", "Tax sale"),
-    "ucc_sale_notice": ("ucc_sale", "UCC sale of the ownership company", "lender", 3, True, "sale_date", "UCC sale"),
-    "auction_listing": ("auction", "Listed at auction", "lender", 0, True, "auction_date", "Auction"),
-    "mechanics_lien": ("mechanics_lien", "Contractor lien", "contractor", 1, False, None, None),
+def lender_names(p: Property) -> list[str]:
+    names = [r.get("grantee") for r in p.recorded_loans
+             if (r.get("loan_kind") or "").lower() in ("construction", "permanent", "modification", "extension")]
+    names += [f.get("lender_name") for f in p.filings]
+    seen, out = set(), []
+    for n in names:
+        if n and n.lower() not in seen:
+            seen.add(n.lower())
+            out.append(n)
+    return out
+
+
+def lender_signals(p: Property, cfg: dict, banks: BankBook) -> list[Signal]:
+    s_cfg = cfg["signals"]
+    out, done = [], set()
+    for name in lender_names(p):
+        bank = banks.find(name, s_cfg["lender_name_match_threshold"])
+        if not bank or bank["rssd_id"] in done:
+            continue
+        done.add(bank["rssd_id"])
+        ratio = bank.get("cre_nonaccrual_ratio")
+        when = as_date(bank.get("report_date"))
+        if bank.get("rising_two_quarters"):
+            rule = s_cfg["lender_nonaccruals_rising"]
+            out.append(Signal("lender_nonaccruals_rising", rule["family"], rule["points"],
+                              f"Lender {bank['bank_name']}'s CRE nonaccruals have risen two quarters in a row"
+                              + (f" (now {ratio:.1%})" if ratio is not None else ""),
+                              "bank_stats", bank["rssd_id"], when))
+        rule = s_cfg["lender_high_nonaccrual"]
+        if ratio is not None and ratio >= rule["ratio"]:
+            out.append(Signal("lender_high_nonaccrual", rule["family"], rule["points"],
+                              f"Lender {bank['bank_name']} has {ratio:.1%} of CRE loans on nonaccrual",
+                              "bank_stats", bank["rssd_id"], when))
+    return out
+
+
+# ---------------------------------------------------------------------------
+# 5. CMBS loan data (Part A loans: EDGAR and Trepp)
+# ---------------------------------------------------------------------------
+_DELINQUENT = re.compile(r"(30|60|90|120)\s*\+?\s*(day|dpd)|delinq|default|foreclos|\breo\b|non-?perform|late|bankrupt|matured", re.I)
+
+
+def cmbs_signals(p: Property, cfg: dict, as_of: date) -> list[Signal]:
+    s = cfg["signals"]
+    out = []
+    # One loan reported by two sources (Part C's loan_group_id) counts once: newest report
+    # first, and each warning sign is kept only the first time we see it for that loan.
+    loans = sorted(p.cmbs_loans, key=lambda ln: str(ln.get("report_period") or ""), reverse=True)
+    seen: set[tuple[str, str]] = set()
+    for ln in loans:
+        group = ln.get("loan_group_id") or ln.get("loan_key")
+        for x in _one_cmbs_loan(ln, s, as_of):
+            if (group, x.name) not in seen:
+                seen.add((group, x.name))
+                out.append(x)
+    return out
+
+
+def _one_cmbs_loan(ln: dict, s: dict, as_of: date) -> list[Signal]:
+    out = []
+    ev = {"evidence_table": "loans", "evidence_id": ln.get("loan_key"),
+          "evidence_date": as_date(ln.get("report_period"))}
+    label = ln.get("deal_name") or "CMBS deal"
+    dscr, occ = ln.get("dscr"), ln.get("occupancy")
+    if dscr is not None and dscr < 1:
+        r = s["cmbs_dscr_below_1"]
+        out.append(Signal("cmbs_dscr_below_1", r["family"], r["points"],
+                          f"DSCR is {dscr:.2f} in {label}: the property doesn't cover its debt payments", **ev))
+    if occ is not None:
+        occ_frac = occ / 100 if occ > 1 else occ
+        r = s["cmbs_low_occupancy"]
+        if occ_frac < r["below"]:
+            out.append(Signal("cmbs_low_occupancy", r["family"], r["points"],
+                              f"Occupancy is {occ_frac:.0%} in {label}", **ev))
+    if ln.get("watchlist_flag"):
+        r = s["cmbs_watchlist"]
+        out.append(Signal("cmbs_watchlist", r["family"], r["points"],
+                          f"On the servicer's watchlist in {label}", **ev,
+                          quote=ln.get("servicer_commentary")))
+    status = ln.get("payment_status") or ""
+    if status and _DELINQUENT.search(status):
+        r = s["cmbs_delinquent"]
+        out.append(Signal("cmbs_delinquent", r["family"], r["points"],
+                          f"Payment status '{status}' in {label}", **ev))
+    mat = as_date(ln.get("maturity_date"))
+    if mat:
+        balance = ln.get("current_balance")
+        if mat < as_of and (balance is None or balance > 0):
+            r = s["cmbs_past_maturity"]
+            out.append(Signal("cmbs_past_maturity", r["family"], r["points"],
+                              f"Loan matured {mat} and still shows {money(balance)} outstanding", **ev))
+        elif mat >= as_of and months_between(as_of, mat) <= s["cmbs_maturity_near"]["within_months"]:
+            r = s["cmbs_maturity_near"]
+            out.append(Signal("cmbs_maturity_near", r["family"], r["points"],
+                              f"Loan of {money(balance)} matures {mat}: refinancing risk", **ev))
+    return out
+
+
+# ---------------------------------------------------------------------------
+# 6. Legal and distress events (Part B filing_fields)
+# ---------------------------------------------------------------------------
+TAG_FROM_FILING_TYPE = {
+    "foreclosure_notice": "foreclosure_scheduled",
+    "receivership": "receiver_appointed",
+    "lis_pendens": "lis_pendens",
+    "lender_lawsuit": "lender_lawsuit",
+    "ucc_sale_notice": "ucc_sale_scheduled",
+    "auction_listing": "listed_for_auction",
+    "tax_delinquency": "tax_delinquent",
+}
+
+TAG_WORDS = {
+    "foreclosure_scheduled": "Foreclosure notice", "receiver_appointed": "Receiver appointed",
+    "lis_pendens": "Lis pendens filed", "lender_lawsuit": "Lender lawsuit",
+    "ucc_sale_scheduled": "UCC sale of the ownership interests scheduled",
+    "listed_for_auction": "Listed for auction", "maturity_default": "Maturity default",
+    "payment_default": "Payment default", "special_servicing_transfer": "Sent to special servicing",
+    "tax_delinquent": "Property taxes delinquent", "license_suspended": "Operating license suspended",
+    "license_violation": "License violation", "cash_management_triggered": "Cash management triggered",
+    "major_tenant_leaving": "Major tenant leaving", "occupancy_decline": "Occupancy falling",
+    "construction_stalled": "Construction stalled",
 }
 
 
-def find_signals(con, settings: dict, today: date | None = None) -> list[Property]:
-    today = today or date.today()
-    rules = settings["signals"]
-    grouper = Grouper(read_table(con, "links", ["property_id", "record_table", "record_id"]))
+def legal_signals(p: Property, cfg: dict) -> list[Signal]:
+    rule = cfg["signals"]["legal_event"]
+    table = rule["points_by_tag"]
+    # One document = one event: a lis pendens that the Reader also tagged "lender_lawsuit"
+    # counts once, at its strongest tag. Then one signal per tag, keeping the newest document.
+    best: dict[str, tuple[dict, date | None]] = {}
+    for f in p.filings:
+        tags = set(as_list(f.get("distress_tags")))
+        if (t := TAG_FROM_FILING_TYPE.get(filing_kind(f))):
+            tags.add(t)
+        tags &= set(table)
+        if not tags:
+            continue
+        tag = max(sorted(tags), key=lambda t: table[t])
+        d = filing_date(f)
+        if tag not in best or (d and (best[tag][1] or date.min) < d):
+            best[tag] = (f, d)
+    out = []
+    for tag, (f, d) in best.items():
+        detail = TAG_WORDS.get(tag, tag.replace("_", " ").capitalize())
+        when = as_date(f.get("auction_date") or f.get("sale_date"))
+        if when:
+            detail += f", sale/auction date {when}"
+        if f.get("case_number"):
+            detail += f" (case {f['case_number']})"
+        if d:
+            detail += f", filed {d}"
+        out.append(Signal(tag, rule["family"], table[tag], detail, ages=True,
+                          quote=quote_for(f, "filing_type", "auction_date", "sale_date", "case_number"),
+                          **_evidence_from_filing(f)))
+    return out
 
-    # --- Part B: filings the reader has turned into fields -------------------
-    ff = read_table(con, "filing_fields", [
-        "file_id", "filing_type", "borrower_name", "developer_name", "project_name", "property_address",
-        "property_city", "property_state", "property_type", "lender_name", "loan_amount", "amount_owed",
-        "maturity_date", "filing_date", "sale_date", "auction_date", "lien_claimant", "lien_amount",
-        "lien_work", "case_number", "quotes", "status", "permit_status",
-    ])
-    maturity_by_file = {}
-    auctions_by_prop = defaultdict(int)
-    for r in ff.itertuples(index=False):
-        if _val(r.status) == "failed":
-            continue
-        if _val(r.maturity_date):
-            maturity_by_file[str(r.file_id)] = _date(r.maturity_date)
-        prop = grouper.get("filing_fields", r.file_id, r.property_address, r.property_city, r.property_state)
-        if not prop:
-            continue
-        prop.names.append(_val(r.project_name))
-        prop.types.append(clean_property_type(r.property_type))
-        prop.sponsors.extend([_val(r.developer_name), _val(r.borrower_name)])
-        prop.lenders.append(_val(r.lender_name))
-        prop.loan_amounts.append(_val(r.loan_amount))
-        ftype = _val(r.filing_type)
-        if ftype == "certificate_of_occupancy" or (ftype == "building_permit" and "occupancy" in str(_val(r.permit_status) or "").lower()):
-            prop.has_co = True
-            continue
-        if ftype not in FILING_RULES:
-            continue
-        code, label, pusher, stage, public, dl_field, dl_label = FILING_RULES[ftype]
-        deadline = _date(getattr(r, dl_field)) if dl_field else None
-        if deadline and deadline < today:
-            deadline = None  # already happened
-        if code == "mechanics_lien":
-            amt = _val(r.lien_amount)
-            detail = f"{_val(r.lien_claimant) or 'A contractor'} filed a lien" + (f" for ${amt:,.0f}" if amt else "")
-            if _val(r.lien_work):
-                detail += f" ({r.lien_work})"
-        elif code == "auction":
-            auctions_by_prop[prop.key] += 1
-            detail = "Listed for sale at auction" + (f", auction on {deadline:%b %d, %Y}" if deadline else "")
-        else:
-            owed = _val(r.amount_owed)
-            detail = label + (f", ${owed:,.0f} owed" if owed else "") + (f", {dl_label.lower()} on {deadline:%b %d, %Y}" if deadline else "")
-        prop.signals.append(Signal(
-            code=code, label=label, pusher=pusher, detail=detail, source=f"filing_fields:{r.file_id}",
-            quote=_first_quote(r.quotes), event_date=_date(r.filing_date), deadline=deadline,
-            deadline_what=dl_label if deadline else None, stage=stage, public=public,
-        ))
-    for key, n in auctions_by_prop.items():
-        if n > 1:
-            for s in grouper.props[key].signals:
-                if s.code == "auction":
-                    s.options_used_up = True
-                    s.detail += f" (listed {n} times: did not sell before)"
-                    break
 
-    # --- Part B: projects the scout tracks (stale opening dates) -------------
-    pj = read_table(con, "projects", [
-        "project_id", "project_name", "developer_name", "property_address", "city", "state", "property_type",
-        "stated_opening_phrase", "opening_deadline", "stale_candidate", "months_overdue", "missed_lease_up",
-        "date_change_count", "first_stated_phrase", "main_url",
-    ])
-    move_m, move_d = (int(x) for x in rules["student_move_in"].split("-"))
-    for r in pj.itertuples(index=False):
-        prop = grouper.get("projects", r.project_id, r.property_address, r.city, r.state)
-        if not prop:
-            continue
-        prop.names.insert(0, _val(r.project_name))
-        prop.types.insert(0, clean_property_type(r.property_type))
-        prop.sponsors.append(_val(r.developer_name))
-        if not _val(r.stale_candidate):
-            continue
-        phrase = _val(r.stated_opening_phrase) or "an opening date"
-        months = _val(r.months_overdue)
-        slips = int(_val(r.date_change_count) or 0)
-        detail = f"Website still says “{phrase}”"
-        if months:
-            detail += f", {months:.0f} months past the latest reasonable opening date"
-        if slips:
-            detail += f"; the date changed {slips} time{'s' if slips > 1 else ''}"
-            if _val(r.first_stated_phrase):
-                detail += f" (first promised “{r.first_stated_phrase}”)"
-        sig = Signal(
-            code="stale_opening", label="Stale opening date", pusher="market", detail=detail,
-            source=f"projects:{r.project_id}", quote=_val(r.main_url), event_date=_date(r.opening_deadline),
-            options_used_up=slips >= 2, temporary=True,
-        )
-        if _val(r.missed_lease_up):
-            nxt = date(today.year, move_m, move_d)
-            if nxt <= today:
-                nxt = date(today.year + 1, move_m, move_d)
-            sig.deadline, sig.deadline_what = nxt, "Next student move-in"
-            sig.detail += ". Student housing that missed the August move-in: little rent until next August"
-        prop.signals.append(sig)
-
-    # --- Part A: recorded loans (stuck construction loans) --------------------
-    rl = read_table(con, "recorded_loans", [
-        "record_id", "file_id", "state", "county", "document_type", "loan_kind", "recording_date",
-        "grantor", "grantee", "amount", "property_address", "instrument_number",
-    ])
-    chains = defaultdict(list)
-    for r in rl.itertuples(index=False):
-        prop = grouper.get("recorded_loans", r.record_id, r.property_address, None, r.state)
-        if prop:
-            chains[prop.key].append(r)
-    for key, rows in chains.items():
-        prop = grouper.props[key]
-        rows = sorted(rows, key=lambda x: _date(x.recording_date) or date.min)
-        constructions = [x for x in rows if _val(x.loan_kind) == "construction"]
-        if not constructions:
-            continue
-        c = constructions[-1]
-        c_date = _date(c.recording_date)
-        prop.sponsors.append(_val(c.grantor))   # on a mortgage, the borrower grants it...
-        prop.lenders.insert(0, _val(c.grantee))  # ...to the lender
-        prop.loan_amounts.append(_val(c.amount))
-        later = [x for x in rows if (_date(x.recording_date) or date.min) >= (c_date or date.min) and x is not c]
-        if any(_val(x.loan_kind) in ("permanent", "release") for x in later):
-            continue  # healthy: refinanced out
-        ext = [x for x in later if _val(x.loan_kind) in ("extension", "modification")]
-        maturity = maturity_by_file.get(str(_val(c.file_id)))
-        assumed = False
-        if not maturity and c_date:
-            maturity = date(c_date.year + int(rules["construction_loan_years"]), c_date.month, min(c_date.day, 28))
-            assumed = True
-        amt = _val(c.amount)
-        base = f"Construction loan{f' of ${amt:,.0f}' if amt else ''} from {_val(c.grantee) or 'the lender'}" \
-               f"{f' recorded {c_date:%b %Y}' if c_date else ''}"
-        if maturity and maturity < today:
-            detail = f"{base}, due {'about ' if assumed else ''}{maturity:%b %Y}, with no permanent loan or release recorded"
-            if ext:
-                detail += f"; {len(ext)} extension{'s' if len(ext) > 1 else ''} or modification{'s' if len(ext) > 1 else ''} recorded"
-            prop.signals.append(Signal(
-                code="stuck_construction_loan", label="Construction loan never converted", pusher="lender",
-                detail=detail, source=f"recorded_loans:{c.record_id}", event_date=maturity,
-                options_used_up=len(ext) >= int(rules["extensions_for_options_used_up"]), temporary=True,
-            ))
-        elif ext:
-            prop.signals.append(Signal(
-                code="loan_extended", label="Construction loan extended", pusher="lender",
-                detail=f"{base}; {len(ext)} extension(s) or modification(s) recorded and no permanent loan yet",
-                source=f"recorded_loans:{ext[-1].record_id}", event_date=_date(ext[-1].recording_date),
-                deadline=maturity if maturity and maturity >= today else None,
-                deadline_what="Construction loan due" if maturity and maturity >= today else None,
-                options_used_up=len(ext) >= int(rules["extensions_for_options_used_up"]), temporary=True,
-            ))
-
-    # --- Part A: CMBS / Trepp loans (DSCR, watchlist, delinquency) -----------
-    ln = read_table(con, "loans", [
-        "loan_key", "source", "property_name", "property_address", "property_city", "property_state",
-        "property_type", "current_balance", "maturity_date", "dscr", "occupancy", "payment_status",
-        "servicer_name", "watchlist_flag", "servicer_commentary",
-    ])
-    for r in ln.itertuples(index=False):
-        prop = grouper.get("loans", r.loan_key, r.property_address, r.property_city, r.property_state)
-        if not prop:
-            continue
-        prop.names.append(_val(r.property_name))
-        prop.types.append(clean_property_type(r.property_type))
-        prop.loan_amounts.append(_val(r.current_balance))
-        dscr = _val(r.dscr)
-        if dscr is not None:
-            prop.dscr = float(dscr)
-        src = f"loans:{r.loan_key}"
-        quote = _val(r.servicer_commentary)
-        maturity = _date(r.maturity_date)
-        upcoming = maturity if maturity and maturity >= today else None
-        if dscr is not None and dscr < float(rules["dscr_below"]):
-            prop.signals.append(Signal(
-                code="low_dscr", label=f"DSCR below {rules['dscr_below']}x", pusher="lender",
-                detail=f"Income covers only {dscr:.2f}x the loan payments ({_val(r.source) or 'loan data'})",
-                source=src, quote=quote, deadline=upcoming, deadline_what="Loan maturity" if upcoming else None,
-            ))
-        status = str(_val(r.payment_status) or "").lower()
-        if any(w in status for w in ("delinq", "default", "foreclos", "reo", "90", "60", "30", "matured", "non-perform")):
-            prop.signals.append(Signal(
-                code="delinquent", label="Loan delinquent", pusher="lender",
-                detail=f"Payment status: {r.payment_status}", source=src, quote=quote,
-            ))
-        if _val(r.watchlist_flag):
-            prop.signals.append(Signal(
-                code="watchlist", label="On the servicer's watchlist", pusher="lender",
-                detail="The loan servicer put this loan on its watchlist", source=src, quote=quote,
-            ))
-        occ = _val(r.occupancy)
-        if occ is not None and float(occ) > 1:
-            occ = float(occ) / 100
-        if occ is not None and occ < 0.7:
-            prop.signals.append(Signal(
-                code="low_occupancy", label="Low occupancy", pusher=None,
-                detail=f"Only {occ:.0%} occupied", source=src, permanent=True,
-            ))
-
-    # --- Part A: banks under pressure (FFIEC), matched to each property's lender
-    bs = read_table(con, "bank_stats", [
-        "rssd_id", "bank_name", "report_date", "cre_nonaccrual_ratio", "nonaccrual_change_qoq", "rising_two_quarters",
-    ])
-    latest_bank = {}
-    for r in bs.sort_values("report_date").itertuples(index=False) if len(bs) else []:
-        latest_bank[clean_company(r.bank_name)] = r
-    alert = float(rules["bank_nonaccrual_ratio_alert"])
-    for prop in grouper.props.values():
-        for lender in [lender for lender in prop.lenders if lender]:
-            b = latest_bank.get(clean_company(lender))
-            if not b:
-                continue
-            ratio = _val(b.cre_nonaccrual_ratio)
-            rising = bool(_val(b.rising_two_quarters))
-            if (ratio is not None and ratio > alert) or rising:
-                bits = []
-                if ratio is not None:
-                    bits.append(f"{ratio:.1%} of its commercial real estate loans are nonaccrual")
-                if rising:
-                    bits.append("rising two quarters in a row")
-                prop.signals.append(Signal(
-                    code="bank_stress", label="Lender's bank is under pressure", pusher=None,
-                    detail=f"{b.bank_name}: {', '.join(bits)}. It may sell this loan at a discount.",
-                    source=f"bank_stats:{b.rssd_id}",
-                ))
-            break
-
-    # A certificate of occupancy means the "stale" website is just out of date.
-    for prop in grouper.props.values():
-        if prop.has_co:
-            prop.signals = [s for s in prop.signals if s.code != "stale_opening"]
-
-    return [p for p in grouper.props.values() if p.signals]
+# ---------------------------------------------------------------------------
+# 7. The Scout's opening-date tracking (Part B projects)
+# ---------------------------------------------------------------------------
+def opening_signals(p: Property, cfg: dict) -> list[Signal]:
+    s = cfg["signals"]
+    out = []
+    for pr in p.projects:
+        ev = {"evidence_table": "projects", "evidence_id": pr.get("project_id"),
+              "evidence_date": as_date(pr.get("last_checked_at"))}
+        name = pr.get("project_name") or "The project"
+        if pr.get("stale_candidate"):
+            r = s["stale_opening"]
+            months = pr.get("months_overdue") or 0
+            extra = min(r["max_extra"], r["per_month_overdue"] * months)
+            grace, half = r.get("grace_months", 0), r.get("half_until_months", 0)
+            factor = 0.0 if months < grace else 0.5 if months < half else 1.0
+            if factor:
+                out.append(Signal("stale_opening", r["family"], (r["points"] + extra) * factor,
+                              f"{name} said it would open '{pr.get('stated_opening_phrase')}' but the site "
+                              f"still says coming soon ({months:.0f} months overdue)",
+                              quote=pr.get("stated_opening_phrase"), **ev))
+        if pr.get("missed_lease_up"):
+            r = s["missed_lease_up"]
+            out.append(Signal("missed_lease_up", r["family"], r["points"],
+                              f"{name} missed its student move-in season", **ev))
+        changes = pr.get("date_change_count") or 0
+        if changes:
+            r = s["opening_date_moved"]
+            n = min(changes, r["max_count"])
+            out.append(Signal("opening_date_moved", r["family"], r["points"] * n,
+                              f"Opening date changed {changes} time(s) (first said "
+                              f"'{pr.get('first_stated_phrase')}')", **ev))
+    return out

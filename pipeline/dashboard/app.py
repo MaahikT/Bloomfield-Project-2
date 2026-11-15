@@ -2,17 +2,20 @@
 app.py - the researcher's dashboard (Part D).
 
     cd pipeline
+    python -m scorer.weekly                     # this week's run on the real database
     streamlit run dashboard/app.py
-    # demo data:  python -m scorer.demo_data  then
+    # made-up demo:
+    python -m scorer.demo_week
     BLOOMFIELD_DB=data/demo.duckdb streamlit run dashboard/app.py
 
-Pages: Ranked flags · Flag details · What changed this week · Research log
-Reads the flags written by `python -m scorer.rank`; writes only research_log.
+Pages: Ranked flags · Flag details · What changed this week · Research log · How the score works
+Reads weekly_flags / weekly_runs (scorer/weekly.py). Writes only research_log.
 """
 from __future__ import annotations
 
 import html
 import json
+import os
 import sys
 import uuid
 from datetime import datetime, timezone
@@ -21,109 +24,126 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # so `scorer` imports work from any folder
+PIPELINE = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PIPELINE))
 
-from scorer import rank  # noqa: E402
-from scorer.store import RESEARCH_STATUSES, STATUS_LABELS, connect, default_db_path  # noqa: E402
+from scorer import equation as eq  # noqa: E402
+from scorer import weekly  # noqa: E402
+from scorer.schema import open_db  # noqa: E402
 
 st.set_page_config(page_title="Bloomfield Flags", page_icon="🏚️", layout="wide")
 
-PUSHER_LABEL = {"court_or_tax": "Court / tax", "lender": "Lender", "contractor": "Contractor", "market": "Market", None: "Context"}
+TERMS = [("l_loan_clock", "L", "Loan clock", "loan_clock"), ("o_opening", "O", "Opening delay", "opening_delay"),
+         ("c_creative", "C", "Creative signals", "creative")]
+EX_KEY = {"L": "L_loan_clock", "O": "O_opening", "C": "C_creative"}
+TIER_ICON = {"hot": "🔴 Hot", "watch": "🟠 Watch", "low": "⚪ Low"}
 
 
 # ---------------------------------------------------------------------------
 # Data
 # ---------------------------------------------------------------------------
+def db_path():
+    return os.environ.get("BLOOMFIELD_DB") or None
+
+
 def get_con():
     if "con" not in st.session_state:
-        st.session_state.con = connect(default_db_path())
+        con = open_db(db_path())
+        weekly.create_tables(con)
+        st.session_state.con = con
     return st.session_state.con
 
 
-def runs(con) -> list[str]:
-    return [r[0] for r in con.execute("SELECT run_id FROM score_runs ORDER BY run_date DESC").fetchall()]
+def runs(con):
+    return [r[0] for r in con.execute("SELECT run_id FROM weekly_runs ORDER BY as_of DESC").fetchall()]
 
 
-def flags(con, run_id: str) -> pd.DataFrame:
-    return con.execute("SELECT * FROM flags WHERE run_id = ? ORDER BY rank NULLS LAST, desperation DESC", [run_id]).df()
+def flags(con, run_id):
+    return con.execute("SELECT * FROM weekly_flags WHERE run_id = ? ORDER BY rank NULLS LAST, score DESC",
+                       [run_id]).df()
 
 
-def log_df(con, key: str | None = None) -> pd.DataFrame:
-    if key:
-        return con.execute("SELECT * FROM research_log WHERE property_key = ? ORDER BY logged_at DESC", [key]).df()
-    return con.execute("SELECT * FROM research_log ORDER BY logged_at DESC").df()
+def run_cfg(con, run_id):
+    return json.loads(con.execute("SELECT settings_json FROM weekly_runs WHERE run_id = ?", [run_id]).fetchone()[0])
 
 
-def latest_status(con) -> dict:
-    rows = con.execute("""
-        SELECT property_key, status FROM (
-          SELECT property_key, status, row_number() OVER (PARTITION BY property_key ORDER BY logged_at DESC) AS n
-          FROM research_log) WHERE n = 1""").fetchall()
-    return dict(rows)
+def latest_status(con):
+    return dict(con.execute("""
+        SELECT property_id, status FROM (SELECT property_id, status,
+          row_number() OVER (PARTITION BY property_id ORDER BY logged_at DESC) n FROM research_log) WHERE n = 1
+    """).fetchall())
 
 
-def money(x) -> str:
+def money(x):
     if x is None or pd.isna(x):
         return "size unknown"
     return f"${x / 1e6:.1f}M" if x >= 1e6 else f"${x:,.0f}"
 
 
-def esc(x) -> str:
-    """Escape text that came from documents before showing it."""
-    return html.escape(str(x)) if x is not None and not (isinstance(x, float) and pd.isna(x)) else ""
+def esc(x):
+    """Records come from outside documents: escape before showing."""
+    return "" if x is None or (isinstance(x, float) and pd.isna(x)) else html.escape(str(x))
 
 
-def open_flag(key: str):
-    st.session_state.selected = key
+def open_flag(pid):
+    st.session_state.selected = pid
     st.session_state.page = "Flag details"
+
+
+def tags(r):
+    out = []
+    if "STANDOUT" in (r["flags"] or ""):
+        out.append(":violet-badge[⭐ STANDOUT]")
+    if "COUNTER-SIGNAL" in (r["flags"] or ""):
+        out.append(":blue-badge[↩ COUNTER-SIGNAL]")
+    out.append(":red-badge[✅ READY TO ACT]" if r["stage"] == "ready_to_act" else ":green-badge[Early warning]")
+    return " ".join(out)
 
 
 # ---------------------------------------------------------------------------
 # Pages
 # ---------------------------------------------------------------------------
 def page_ranked(con, run_id):
-    df = flags(con, run_id)
+    df, cfg = flags(con, run_id), run_cfg(con, run_id)
+    f = cfg["filters"]
     status = latest_status(con)
-    settings = json.loads(con.execute("SELECT settings_json FROM score_runs WHERE run_id = ?", [run_id]).fetchone()[0])
-    f = settings["filters"]
-
     st.title("This week's flags")
-    st.caption(
-        f"Scored {run_id.replace('run-', '')}. Filters from settings.yaml: "
-        f"{', '.join(f['property_types_excluded']) or 'no'} hidden · loans {money(f['min_loan_size'])}–{money(f['max_loan_size'])} · "
-        f"{'states ' + ', '.join(f['states']) if f['states'] else 'all U.S.'}"
-    )
-    shown = df[df["shown"]]
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Flags shown", len(shown))
-    c2.metric("Desperation 70+", int((shown["desperation"] >= 70).sum()))
-    c3.metric("Hard date within 30 days",
-              int((pd.to_datetime(shown["next_deadline"]) - pd.Timestamp(run_id.replace("run-", ""))).dt.days.le(30).sum()))
-    c4.metric("Filtered out", int((~df["shown"]).sum()))
+    st.caption(f"Bloomfield Opportunity Score {cfg['version']} · {run_id.replace('week-', 'week of ')} · "
+               f"{', '.join(f['property_types_excluded'])} hidden · loans {money(f['min_loan_size'])}–"
+               f"{money(f['max_loan_size'])} · {'states ' + ', '.join(f['states']) if f['states'] else 'all U.S.'}")
+    ranked = df[df["rank"].notna()]
+    c = st.columns(5)
+    c[0].metric("Ranked", len(ranked))
+    c[1].metric("Hot (call this week)", int((ranked["tier"] == "hot").sum()))
+    c[2].metric("Watch", int((ranked["tier"] == "watch").sum()))
+    c[3].metric("Early warning (no filing yet)", int((ranked["stage"] == "early").sum()))
+    c[4].metric("Filtered out", int((~df["shown"]).sum()))
 
-    show_hidden = st.toggle("Show filtered-out flags (office, size, location)", value=False)
-    view = df if show_hidden else shown
+    left, right = st.columns([2, 1])
+    tier_pick = left.multiselect("Tiers", ["hot", "watch", "low"], default=["hot", "watch", "low"],
+                                 format_func=lambda t: TIER_ICON[t])
+    show_hidden = right.toggle("Show filtered-out (office, size, location)")
+    view = df if show_hidden else ranked
+    view = view[view["tier"].isin(tier_pick)]
     for r in view.to_dict("records"):
         with st.container(border=True):
-            left, mid, right = st.columns([0.9, 5, 1.6])
-            left.markdown(f"### {int(r['rank']) if pd.notna(r['rank']) else '—'}")
-            signals = json.loads(r["signals_json"])
-            labels = " · ".join(dict.fromkeys(s["label"] for s in signals))
+            a, b, c3 = st.columns([0.7, 5, 1.8])
+            a.markdown(f"### {int(r['rank']) if pd.notna(r['rank']) else '—'}")
             place = ", ".join(x for x in [r["city"], r["state"]] if x and not pd.isna(x))
-            mid.markdown(f"**{esc(r['property_name'])}** — {esc(r['property_type'] or 'Type unknown')} · {esc(place)} · {money(r['loan_amount'])}")
-            mid.caption(labels)
-            if pd.notna(r["next_deadline"]):
-                mid.markdown(f":red[**{esc(r['next_deadline_what'])}: {pd.Timestamp(r['next_deadline']):%b %d, %Y}**]")
+            b.markdown(f"**{esc(r['property_name'])}** — {esc(r['property_type'] or 'type unknown')} · "
+                       f"{esc(place)} · {money(r['loan_amount'])}")
+            b.markdown(tags(r))
+            parts = [f"{code} {r[col]:.0%}" for col, code, _, _ in TERMS if r.get(col) and r[col] > 0]
+            b.caption(("Early signals: " + " · ".join(parts)) if parts else "No early signals (late filings only)")
             if not r["shown"]:
-                mid.markdown(f":gray[Hidden: {esc(r['filter_reason'])}]")
-            if r["property_key"] in status:
-                mid.markdown(f":green[Research: {STATUS_LABELS.get(status[r['property_key']], status[r['property_key']])}]")
-            right.markdown(f"Desperation **{r['desperation']}**")
-            right.progress(int(r["desperation"]) / 100)
-            right.markdown(f"Deal quality **{r['deal_quality']}**")
-            right.progress(int(r["deal_quality"]) / 100)
-            right.button("Open", key=f"open-{r['property_key']}", on_click=open_flag, args=(r["property_key"],),
-                         use_container_width=True)
+                b.markdown(f":gray[Hidden: {esc(r['filter_reason'])}]")
+            if r["property_id"] in status:
+                b.markdown(f":green[Research: {weekly.STATUS_LABELS[status[r['property_id']]]}]")
+            c3.markdown(f"**{r['score']:.0f}** / 100 · {TIER_ICON[r['tier']]}")
+            c3.progress(min(1.0, r["score"] / 100))
+            c3.caption(f"Deal quality {r['deal_quality']}")
+            c3.button("Open", key=f"open-{r['property_id']}", on_click=open_flag, args=(r["property_id"],),
+                      use_container_width=True)
 
 
 def page_detail(con, run_id):
@@ -131,163 +151,232 @@ def page_detail(con, run_id):
     if df.empty:
         st.info("No flags in this run.")
         return
-    options = df["property_key"].tolist()
-    names = dict(zip(df["property_key"], df["property_name"]))
+    ids = df["property_id"].tolist()
+    names = dict(zip(df["property_id"], df["property_name"]))
     sel = st.session_state.get("selected")
-    idx = options.index(sel) if sel in options else 0
-    key = st.selectbox("Flag", options, index=idx, format_func=lambda k: names[k])
-    st.session_state.selected = key
-    r = df[df["property_key"] == key].iloc[0].to_dict()
-    signals = json.loads(r["signals_json"])
-    parts = json.loads(r["score_parts_json"])
-    angles = json.loads(r["angles_json"])
+    pid = st.selectbox("Flag", ids, index=ids.index(sel) if sel in ids else 0, format_func=lambda k: names[k])
+    st.session_state.selected = pid
+    r = df[df["property_id"] == pid].iloc[0].to_dict()
+    ex = json.loads(r["explanation"])
+    cfg = run_cfg(con, run_id)
+    w = cfg["weights"]
 
     st.title(r["property_name"])
-    place = ", ".join(x for x in [r["address"], r["city"], r["state"]] if x and not pd.isna(x))
-    st.caption(f"{esc(r['property_type'] or 'Type unknown')} · {esc(place)}")
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Desperation", r["desperation"])
-    c2.metric("Deal quality", r["deal_quality"])
-    c3.metric("Loan", money(r["loan_amount"]))
-    c4.metric("Next hard date", f"{pd.Timestamp(r['next_deadline']):%b %d}" if pd.notna(r["next_deadline"]) else "None")
+    st.caption(f"{esc(r['property_type'] or 'type unknown')} · {esc(r['address'] or '')} · "
+               f"borrower {esc(r['borrower']) or 'unknown'} · lender {esc(r['lender']) or 'unknown'}")
+    st.markdown(tags(r))
+    c = st.columns(4)
+    c[0].metric("Opportunity score", f"{r['score']:.1f}")
+    c[1].metric("Tier", TIER_ICON[r["tier"]])
+    c[2].metric("Deal quality", r["deal_quality"])
+    c[3].metric("Loan", money(r["loan_amount"]))
+    if r.get("est_value") and not pd.isna(r["est_value"]):
+        st.caption(f"Estimated stabilized value {money(r['est_value'])} (revenue at stabilized occupancy − latest "
+                   f"12-month expenses, ÷ the {r['property_type']} cap rate, − cost to stabilize) · owed / value {r['ltv']:.0%}")
     if not r["shown"]:
         st.warning(f"Filtered out by settings: {r['filter_reason']}")
     st.info(r["summary"])
 
-    st.subheader("Evidence")
-    for s in signals:
-        with st.container(border=True):
-            st.markdown(f"**{esc(s['label'])}** · :gray[{PUSHER_LABEL.get(s['pusher'], s['pusher'])}]")
-            st.write(s["detail"])
-            if s.get("quote"):
-                st.markdown(f"> {esc(s['quote'])}")
-            st.caption(f"Source: {s['source']}" + (f" · {s['event_date']}" if s.get("event_date") else ""))
+    st.subheader("The equation for this property")
+    rows = []
+    for col, code, label, key in TERMS:
+        t = ex[EX_KEY[code]]
+        rows.append({"Term": f"{code} · {label}", "Strength": t["strength"], "Weight": w[key],
+                     "Points before anti-fluke": round(w[key] * t["strength"], 1), "Why": t["why"]})
+    st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True,
+                 column_config={"Strength": st.column_config.ProgressColumn(min_value=0, max_value=1, format="%.2f")})
+    cs_rows = ex.get("creative_signals", [])
+    if cs_rows:
+        st.markdown("**Inside C: each creative signal** — C = 1 − Π(1 − reliability × strength)")
+        st.dataframe(pd.DataFrame([{"Signal": f"{x['code']} · {x['name']}", "Strength": x["strength"],
+                                    "Reliability": x["reliability"], "Counts as": x["effective"],
+                                    "Why": x["why"] if x["known"] else "no data yet"} for x in cs_rows]),
+                     hide_index=True, use_container_width=True,
+                     column_config={"Strength": st.column_config.ProgressColumn(min_value=0, max_value=1, format="%.2f")})
+    a, b = st.columns(2)
+    with a:
+        st.markdown(f"**Anti-fluke:** {ex['anti_fluke']}")
+        for s in ex.get("standouts", []):
+            st.markdown(f"⭐ **Standout** (counts ×max({cfg['standout']['boost']}, rescale), skips anti-fluke): {esc(s)}")
+        for s in ex.get("counter_signals", []):
+            st.markdown(f"↩ **Counter-signal** (×{cfg['counter_signal']['factor']}): {esc(s)}")
+        st.markdown(f"**Early points:** {ex['early_points']}")
+    with b:
+        st.markdown(f"**Ready-to-act confirmation (court/lien filings, max {cfg['late']['max_points']}):** {ex['late_points']}")
+        for s in ex.get("late_why", []):
+            st.markdown(f"- {esc(s)}")
+        st.markdown(f"**Score = min(100, {ex['early_points']} + {ex['late_points']}) = {ex['score']}**")
 
-    left, right = st.columns(2)
-    with left:
-        st.subheader("Why this desperation score")
-        st.dataframe(pd.DataFrame(parts["desperation"]), hide_index=True, use_container_width=True)
-    with right:
-        st.subheader("Why this deal quality score")
-        st.dataframe(pd.DataFrame(parts["deal_quality"]), hide_index=True, use_container_width=True)
+    ctx = json.loads(r["context"])
+    if ctx:
+        st.subheader("Context (shown, not scored)")
+        st.caption("Bloomfield: auctions and Trepp/CMBS data are public or everyone has them.")
+        for s in ctx:
+            st.markdown(f"- {esc(s)}")
 
-    st.subheader("Deal angle for Bloomfield")
-    for a in angles or ["No clear angle yet: keep watching."]:
-        st.markdown(f"- {a}")
-    st.markdown(f"**Sponsor:** {esc(r['sponsor']) or 'unknown'} · **Lender:** {esc(r['lender']) or 'unknown'}")
-    st.caption("Principals and registered agent will appear here once Part C's contacts matcher runs.")
+    a, b = st.columns(2)
+    with a:
+        st.subheader("Why this deal quality")
+        st.dataframe(pd.DataFrame(json.loads(r["deal_parts"])), hide_index=True, use_container_width=True)
+    with b:
+        st.subheader("Deal angle for Bloomfield")
+        for s in json.loads(r["angles"]) or ["No clear angle yet: keep watching."]:
+            st.markdown(f"- {s}")
 
     st.subheader("Research log")
-    with st.form(f"log-{key}", clear_on_submit=True):
-        a, b = st.columns([2, 1])
-        status = a.selectbox("What happened", RESEARCH_STATUSES, format_func=lambda s: STATUS_LABELS[s])
-        who = b.text_input("Researcher", value=st.session_state.get("researcher", ""))
+    with st.form(f"log-{pid}", clear_on_submit=True):
+        x, y = st.columns([2, 1])
+        status = x.selectbox("What happened", weekly.RESEARCH_STATUSES, format_func=lambda s: weekly.STATUS_LABELS[s])
+        who = y.text_input("Researcher", value=st.session_state.get("researcher", ""))
         note = st.text_area("Note", placeholder="e.g. Called the principal; open to a bridge loan.")
         amount = st.number_input("Deal amount ($, only for Deal closed)", min_value=0, step=100_000)
         if st.form_submit_button("Save to research log"):
             st.session_state.researcher = who
-            con.execute(
-                "INSERT INTO research_log VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                [uuid.uuid4().hex, key, r["property_name"], status, note,
-                 float(amount) if status == "deal_closed" and amount else None, who or None,
-                 datetime.now(timezone.utc).replace(tzinfo=None)],
-            )
+            con.execute("INSERT INTO research_log VALUES (?, ?, ?, ?, ?, ?, ?, ?)", [
+                uuid.uuid4().hex, pid, r["property_name"], status, note,
+                float(amount) if status == "deal_closed" and amount else None, who or None,
+                datetime.now(timezone.utc).replace(tzinfo=None)])
             st.success("Saved.")
-    hist = log_df(con, key)
+    hist = con.execute("SELECT * FROM research_log WHERE property_id = ? ORDER BY logged_at DESC", [pid]).df()
     if hist.empty:
         st.caption("Nothing logged for this flag yet.")
     for h in hist.to_dict("records"):
         amt = f" · {money(h['deal_amount'])}" if pd.notna(h["deal_amount"]) else ""
-        st.markdown(f"- **{STATUS_LABELS.get(h['status'], h['status'])}**{amt} — {esc(h['note'])} "
+        st.markdown(f"- **{weekly.STATUS_LABELS.get(h['status'], h['status'])}**{amt} — {esc(h['note'])} "
                     f":gray[({pd.Timestamp(h['logged_at']):%b %d, %Y}{', ' + esc(h['researcher']) if h['researcher'] else ''})]")
 
 
-def _flag_list(rows, prefix, extra=None):
+def _list(rows, prefix, extra=None):
     if not rows:
         st.caption("None.")
-        return
     for r in rows:
-        c1, c2 = st.columns([5, 1])
-        line = f"**{esc(r['property_name'])}** — desperation {r['desperation']}"
+        a, b = st.columns([5, 1])
+        line = f"**{esc(r['property_name'])}** — score {r['score']:.0f} ({TIER_ICON[r['tier']]})"
         if extra:
             line += f" · {extra(r)}"
-        c1.markdown(line)
-        c1.caption(esc(r.get("summary", "")))
-        c2.button("Open", key=f"{prefix}-{r['property_key']}", on_click=open_flag, args=(r["property_key"],))
+        a.markdown(line)
+        a.caption(esc(r["summary"]))
+        b.button("Open", key=f"{prefix}-{r['property_id']}", on_click=open_flag, args=(r["property_id"],))
 
 
 def page_changes(con, run_id):
     st.title("What changed this week")
-    ch = rank.changes(con, run_id)
+    ch = weekly.changes(con, run_id, run_cfg(con, run_id))
     if not ch["previous"]:
-        st.info("This is the first scoring run, so there is nothing to compare yet. Run the scorer again next week.")
+        st.info("This is the first weekly run, so there's nothing to compare yet.")
         return
-    st.caption(f"Comparing {run_id.replace('run-', '')} with {ch['previous'].replace('run-', '')}.")
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("New flags", len(ch["new"]))
-    c2.metric("Got worse", len(ch["worse"]))
-    c3.metric("Got better", len(ch["better"]))
-    c4.metric("Dropped off", len(ch["dropped"]))
-
+    st.caption(f"{ch['current'].replace('week-', 'Week of ')} compared with {ch['previous'].replace('week-', 'week of ')}.")
+    c = st.columns(5)
+    for col, (label, key) in zip(c, [("New", "new"), ("Got worse", "worse"), ("New standouts", "new_standouts"),
+                                     ("New filings", "new_late"), ("Dropped off", "dropped")]):
+        col.metric(label, len(ch[key]))
     st.subheader("🆕 New flags")
-    _flag_list(ch["new"], "new")
+    _list(ch["new"], "new")
     st.subheader("🔺 Got worse")
-    _flag_list(ch["worse"], "worse", lambda r: f"up {r['delta']} from {r['previous_desperation']}")
-    st.subheader("➕ New warning signs on flags we already had")
-    _flag_list(ch["new_signals"], "sig", lambda r: "new: " + ", ".join(esc(a["label"]) for a in r["added"]))
+    _list(ch["worse"], "worse", lambda r: f"up {r['delta']} from {r['previous_score']:.0f}")
+    st.subheader("⭐ Became a standout")
+    _list(ch["new_standouts"], "so")
+    st.subheader("✅ Became ready to act (new court filing or lien)")
+    _list(ch["new_late"], "late", lambda r: "now READY TO ACT")
     st.subheader("🔻 Got better")
-    _flag_list(ch["better"], "better", lambda r: f"down {-r['delta']} from {r['previous_desperation']}")
+    _list(ch["better"], "better", lambda r: f"down {-r['delta']} from {r['previous_score']:.0f}")
     st.subheader("✔️ Dropped off")
     if not ch["dropped"]:
         st.caption("None.")
     for r in ch["dropped"]:
-        st.markdown(f"- **{esc(r['property_name'])}** — no longer has any warning signs this week "
-                    "(for example, the city issued a certificate of occupancy).")
+        st.markdown(f"- **{esc(r['property_name'])}** — no longer flagged (e.g. it opened or refinanced).")
 
 
 def page_log(con, run_id):
     st.title("Research log")
-    settings = rank.load_settings()
-    goal, last = settings["goal"]["annual_deal_volume"], settings["goal"]["last_year_volume"]
-    log = log_df(con)
-    closed = log[log["status"] == "deal_closed"]
-    closed_total = float(closed["deal_amount"].fillna(0).sum())
-    status = latest_status(con)
-
+    cfg = run_cfg(con, run_id)
+    goal, last = cfg["goal"]["annual_deal_volume"], cfg["goal"]["last_year_volume"]
+    log = con.execute("SELECT * FROM research_log ORDER BY logged_at DESC").df()
+    closed = float(log.loc[log["status"] == "deal_closed", "deal_amount"].fillna(0).sum()) if len(log) else 0.0
     st.subheader("Progress toward the $300M goal")
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Closed from flags", money(closed_total))
-    c2.metric("Growth needed this year", money(goal - last))
-    c3.metric("Share of growth from flags", f"{closed_total / (goal - last):.0%}" if goal > last else "—")
-    st.progress(min(1.0, closed_total / (goal - last)) if goal > last else 0.0)
-
-    st.subheader("Funnel")
+    c = st.columns(3)
+    c[0].metric("Closed from flags", money(closed))
+    c[1].metric("Growth needed this year", money(goal - last))
+    c[2].metric("Share of growth from flags", f"{closed / (goal - last):.0%}")
+    st.progress(min(1.0, closed / (goal - last)))
+    status = latest_status(con)
     counts = pd.Series(list(status.values())).value_counts() if status else pd.Series(dtype=int)
-    funnel = pd.DataFrame({"Stage": [STATUS_LABELS[s] for s in RESEARCH_STATUSES],
-                           "Flags": [int(counts.get(s, 0)) for s in RESEARCH_STATUSES]})
-    st.bar_chart(funnel, x="Stage", y="Flags", horizontal=True, sort=False)
-    st.caption("Each flag counts once, at its most recent stage.")
-
+    st.subheader("Funnel")
+    st.bar_chart(pd.DataFrame({"Stage": [weekly.STATUS_LABELS[s] for s in weekly.RESEARCH_STATUSES],
+                               "Flags": [int(counts.get(s, 0)) for s in weekly.RESEARCH_STATUSES]}),
+                 x="Stage", y="Flags", horizontal=True, sort=False)
+    st.caption("Each flag counts once, at its latest stage.")
     st.subheader("Every entry")
     if log.empty:
-        st.caption("Nothing logged yet. Open a flag and use the research log form.")
+        st.caption("Nothing logged yet.")
         return
-    view = log.assign(
-        When=pd.to_datetime(log["logged_at"]).dt.strftime("%b %d, %Y"),
-        Stage=log["status"].map(STATUS_LABELS),
-        Amount=log["deal_amount"].map(lambda x: money(x) if pd.notna(x) else ""),
-    )[["When", "property_name", "Stage", "Amount", "note", "researcher"]].rename(
-        columns={"property_name": "Flag", "note": "Note", "researcher": "Researcher"})
+    view = pd.DataFrame({
+        "When": pd.to_datetime(log["logged_at"]).dt.strftime("%b %d, %Y"), "Flag": log["property_name"],
+        "Stage": log["status"].map(weekly.STATUS_LABELS),
+        "Amount": log["deal_amount"].map(lambda x: money(x) if pd.notna(x) else ""),
+        "Note": log["note"], "Researcher": log["researcher"]})
     st.dataframe(view, hide_index=True, use_container_width=True)
     st.download_button("Download as CSV", view.to_csv(index=False), "research_log.csv", "text/csv")
 
 
-PAGES = {
-    "Ranked flags": page_ranked,
-    "Flag details": page_detail,
-    "What changed this week": page_changes,
-    "Research log": page_log,
-}
+def page_how(con, run_id):
+    cfg = run_cfg(con, run_id)
+    w, so, cs, late = cfg["weights"], cfg["standout"], cfg["counter_signal"], cfg["late"]
+    st.title("How the score works")
+    with st.expander("What we heard from Bloomfield, and what we changed", expanded=True):
+        st.markdown("""
+**What we heard**
+- Construction loan still on the clock is the **strongest** signal. A project that opened with its construction loan still outstanding, or a loan from five years ago never paid off, is distress.
+- Opening date watch is good but **weaker**. A 3–6 month delay is normal.
+- Creative signals (rent vs. the city, a site gone quiet) are very promising once we can detect them reliably.
+- Court and lien filings come **late**: the situation is already actionable, not an early warning.
+- Forced and public sales are not really a signal, and Trepp gives little edge because everyone has it.
+
+**What we changed**
+- The construction-loan clock (50) and opening date watch (20) outweigh every other signal; a building that opened with its loan still outstanding gets an extra boost.
+- Court and lien filings add at most a few points and tag the flag **✅ READY TO ACT**.
+- Auctions and Trepp/CMBS are shown as context only, never scored.
+- County records are found through **NETR Online** (`python -m collectors.discover`), recorders first because they feed the loan clock.
+""")
+    st.latex(r"C = 1-\prod_{j\in\{R,I,Q,V,X,K,L_q\}}\left(1-q_j\,s_j\right)")
+    st.latex(r"\text{Early}=\sum_{L,O,C} w_i\, s_i \times \begin{cases}\max(%s,\ \text{rescale}) & s_i\ge %s\ (\text{STANDOUT})\\ C(k)\times\text{rescale} & \text{otherwise}\end{cases}"
+             % (so["boost"], so["at_strength"]))
+    st.latex(r"\text{rescale}=\min\!\left(%s,\ \frac{100}{\text{weights of terms that can apply}}\right)" % cfg["applicability"]["max_rescale"])
+    st.latex(r"\text{Score}=\min\!\left(100,\ \text{Early}\times %s^{\,\#\text{counter-signals}}+\text{Late}\right)" % cs["factor"])
+    lc, od, rd, ig = cfg["loan_clock"], cfg["opening_delay"], cfg["rent_decline"], cfg["inspection_gap"]
+    c = cfg["creative"]
+    qo, iv, xs, kc, lq = (c["occupancy_slide"], c["income_erosion"], c["cost_squeeze"], c["concession_creep"],
+                          c["licensing_quality"])
+    st.dataframe(pd.DataFrame([
+        {"Term": "L · Loan clock (construction, or any short-term loan that needed an extension)", "Weight": w["loan_clock"], "0 → 1": f"{lc['start_months']} → {lc['full_months']} months unpaid, +{lc['per_extension']} per extension, +{lc.get('opened_still_unpaid_bonus', 0)} if the building opened with the loan still outstanding", "From": "Part A recorded_loans"},
+        {"Term": "O · Opening delay", "Weight": w["opening_delay"], "0 → 1": f"{od['start_months']} → {od['full_months']} months late (under {od['start_months']} is normal)", "From": "Part B projects"},
+        {"Term": "C · Creative signals (combined)", "Weight": w["creative"], "0 → 1": "1 − Π(1 − q·s) over the signals below", "From": "see below"},
+    ]), hide_index=True, use_container_width=True)
+    st.markdown(f"**Creative signals** (weight {w['creative']} combined; each counts as reliability q × strength s; together at most {c['max_confirmations']} anti-fluke confirmations)")
+    st.dataframe(pd.DataFrame([
+        {"Signal": "R · Rent vs. city", "s = 0 → 1": f"(city rent change − property rent change) ÷ {rd['full_gap']:.0%}", "q": rd["reliability"], "From": "B rent_observations + A market_rents"},
+        {"Signal": "I · Site inactivity", "s = 0 → 1": f"{ig['start_days']} → {ig['full_days']} days since a city inspection", "q": ig["reliability"], "From": "A permit_inspections"},
+        {"Signal": "Q · Occupancy slide", "s = 0 → 1": f"(peak occ. last {qo['lookback_months']} mo − occ. now − market drop) ÷ {qo['full_gap']:.0%}", "q": qo["reliability"], "From": "operating_metrics + market_occupancy"},
+        {"Signal": "V · Income erosion", "s = 0 → 1": f"NOI drop from its best year (last {iv['lookback_months']} mo) ÷ {iv['full_noi_drop']:.0%}", "q": iv["reliability"], "From": "operating_metrics (public disclosures; no DSCR / Trepp)"},
+        {"Signal": "X · Cost squeeze", "s = 0 → 1": f"(expense growth − revenue growth since best year) ÷ {xs['full_gap']:.0%}", "q": xs["reliability"], "From": "operating_metrics"},
+        {"Signal": "K · Concession creep", "s = 0 → 1": f"(free months per lease-year now − 6+ months ago) ÷ {kc['full_per_year']}", "q": kc["reliability"], "From": "B rent_observations (free rent + lease term)"},
+        {"Signal": "Lq · Licensing / care", "s = 0 → 1": "CMS 1-star 0.8 · 2-star 0.5 · abuse +0.2 · state distress 0.8", "q": lq["reliability"], "From": "A licensing_records"},
+    ]), hide_index=True, use_container_width=True)
+    cor = {int(k): v for k, v in cfg["corroboration"].items()}   # JSON turns the keys into text
+    st.markdown(f"""
+- **Anti-fluke C(k):** k = early signals at ≥ {cfg['shows_at']:.0%}. 1 → {cor[1]:.0%}, 2 → {cor[2]:.0%}, 3+ → {cor[3]:.0%}.
+- **⭐ STANDOUT:** a signal at ≥ {so['at_strength']:.0%} counts ×max({so['boost']}, rescale) and skips the anti-fluke discount (the boost and the rescale don't stack).
+- **↩ COUNTER-SIGNAL:** strong evidence the other way (rent beating its city by {cs['rent_beats_city_by']:.0%}+, or a city inspection in the last {cs['inspected_within_days']} days) multiplies early points by {cs['factor']} each.
+- **Ready to act (max {late['max_points']}):** court/legal filing {late['court_points']}, contractor liens {late['lien_points']} each up to {late['max_lien_points']}. Older than {late['recent_days']} days count half.
+- **Not scored:** Ten-X auctions and Trepp/CMBS data are shown as context only.
+- **Tiers:** Hot ≥ {cfg['tiers']['hot']}, Watch ≥ {cfg['tiers']['watch']}.
+
+Edit every number in `pipeline/config/equation.yaml`, then rerun `python -m scorer.weekly`.
+""")
+
+
+PAGES = {"Ranked flags": page_ranked, "Flag details": page_detail, "What changed this week": page_changes,
+         "Research log": page_log, "How the score works": page_how}
 
 
 def main():
@@ -295,17 +384,14 @@ def main():
     all_runs = runs(con)
     with st.sidebar:
         st.markdown("## 🏚️ Bloomfield Flags")
-        if "page" not in st.session_state:
-            st.session_state.page = "Ranked flags"
+        st.session_state.setdefault("page", "Ranked flags")
         st.radio("Page", list(PAGES), key="page")
-        if not all_runs:
-            st.warning("No scoring runs yet.")
-        run_id = st.selectbox("Week", all_runs, format_func=lambda x: x.replace("run-", "Week of ")) if all_runs else None
-        st.caption(f"Database: {Path(default_db_path()).name}")
-        st.caption("Sample data only. Outreach is done by Bloomfield's team; this tool only reads and flags.")
+        run_id = st.selectbox("Week", all_runs, format_func=lambda x: x.replace("week-", "Week of ")) if all_runs else None
+        st.caption(f"Database: {Path(db_path() or 'data/bloomfield.duckdb').name}")
+        st.caption("Sample data only. The tool reads and flags; Bloomfield's team does all outreach.")
     if not run_id:
-        st.title("No flags yet")
-        st.write("Run the weekly scorer first: `python -m scorer.rank` (or `python -m scorer.demo_data` for made-up demo data).")
+        st.title("No weekly run yet")
+        st.write("Run `python -m scorer.weekly` (real data) or `python -m scorer.demo_week` (made-up demo).")
         return
     PAGES[st.session_state.page](con, run_id)
 

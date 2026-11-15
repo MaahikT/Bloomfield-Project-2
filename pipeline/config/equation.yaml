@@ -1,0 +1,215 @@
+# ---------------------------------------------------------------------------
+# equation.yaml - the Bloomfield Opportunity Score (0-100), built from Bloomfield's feedback.
+# Every number lives here. Bump `version` whenever you change one.
+# The full equation, in plain English, is in scorer/EQUATION.md.
+#
+#   Score = min(100,  C(k) x (50 L + 20 O + 30 C)  +  Late )
+#   C (creative) = 1 - PRODUCT(1 - q_j x s_j) over R, I, Q, V, X, K, Lq   (see scorer/creative.py)
+#
+# L, O, C and every creative s_j are strengths from 0 to 1. Late is at most 10.
+# ---------------------------------------------------------------------------
+version: "eq-2.0"
+
+# ---- WHAT BLOOMFIELD TOLD US (Nov 2026) -> HOW THIS FILE USES IT ----------------
+# * Construction loan still on the clock is the STRONGEST signal: a project that opened with its
+#   construction loan still outstanding, or a 5-year-old loan never paid off, is distress.
+#     -> loan_clock has the biggest weight (50), full strength at 60 months, plus an
+#        "opened but still unpaid" boost below.
+# * Opening date watch is good but weaker; a 3-6 month delay is normal.
+#     -> opening_delay is the 2nd-biggest weight (20) and scores 0 under 6 months.
+# * Creative signals are promising once we can detect them reliably.
+#     -> rent_decline and inspection_gap (15 each), plus the anti-fluke check.
+# * Court and lien filings come late: the situation is already actionable, not an early warning.
+#     -> "late" adds at most 10 points and tags the flag READY TO ACT.
+# * Forced / public sales are not really a signal; Trepp gives little edge (everyone has it).
+#     -> auctions and Trepp/CMBS are shown as context only, never scored.
+# * Records are found through NETR Online (config/discovery.yaml), recorders first.
+max_score: 100
+
+# ---- EARLY SIGNALS: these drive the rank (90+ of the 100 points) ----------
+weights:
+  loan_clock: 50          # L  construction loan still not paid off ("on the clock") - strongest
+  opening_delay: 20       # O  opening date watch
+  creative: 30            # C  all creative signals combined (rent vs city, site inactivity, occupancy slide,
+                          #    income coverage, cost squeeze, concession creep, licensing / care quality)
+
+loan_clock:               # L: 0 before 30 months, rises in a straight line to 1 at 60 months
+                          # Counts a construction loan, or any other mortgage that has needed an extension or
+                          # modification since it was recorded (bridge / value-add loans "on the clock").
+  start_months: 30
+  full_months: 60
+  per_extension: 0.10     # each recorded extension/modification adds this...
+  max_extension_bonus: 0.20   # ...up to this much (L never goes above 1)
+  # Bloomfield: "if a project OPENS and its construction loan is still outstanding, that is distress."
+  # Opened = certificate of occupancy issued, or the website no longer says coming soon.
+  opened_still_unpaid_bonus: 0.25
+  opened_min_months: 24       # only once the loan is at least this old
+
+opening_delay:            # O: delays under 6 months are normal (Bloomfield), so they score 0
+  start_months: 6
+  full_months: 18
+  missed_lease_up_bonus: 0.10   # student housing that missed its August move-in (only if already late)
+  per_slip: 0.05                # each time the stated opening date moved (only if already late)
+  max_slip_bonus: 0.10
+
+rent_decline:             # R: (market rent change) - (property rent change), over the same window
+  full_gap: 0.15          # property doing 15 points worse than its city = full strength
+  window_days: 365        # compare the latest rent with rents seen in the past year
+  min_days_between: 90    # need two readings at least this far apart, or R is "unknown"
+  min_observations: 2
+  reliability: 0.90       # q: compared with the city, medians of several readings
+
+inspection_gap:           # I: days since the last city inspection on a permit with no certificate of occupancy
+  start_days: 60
+  full_days: 180
+  reliability: 0.80       # q: slow inspectors / winter shutdowns can mimic a stall
+
+# ---- CREATIVE SIGNALS (formulas in scorer/creative.py) -----------------------
+creative:
+  shows_at: 0.25                # a creative signal "shows" when q x s >= this
+  max_confirmations: 2          # related creative signals count as at most 2 confirmations in the anti-fluke check
+  occupancy_slide:              # Q = (peak occupancy in lookback - occupancy now - market drop) / full_gap
+    lookback_months: 36
+    full_gap: 0.15              # 15 points worse than the market = 1
+    reliability: 0.90
+    no_market_penalty: 0.70     # no market data: compare with its own peak only, trusted 70% as much
+    counter_rise: 0.05          # occupancy UP 5+ points = counter-signal
+  income_erosion:               # V = (best-year NOI in lookback - NOI now) / best-year NOI / full_noi_drop
+                                # (no DSCR: debt service needs Trepp, which we don't have)
+    lookback_months: 48
+    full_noi_drop: 0.50         # NOI down 50% from its best year = 1
+    reliability: 1.00           # disclosed / audited numbers
+  cost_squeeze:                 # X = (expense growth - revenue growth since the best year) / full_gap
+    full_gap: 0.15
+    reliability: 0.60           # often explained by one-off costs
+  concession_creep:             # K = (free months per lease-YEAR now - 6+ months ago) / full_per_year
+    full_per_year: 1.0          # +1 free month per year of lease term = 1
+    default_term_months: 12     # when the lease term is unknown (typical apartment lease)
+    min_days_between: 180
+    reliability: 0.70
+  licensing_quality:            # Lq from CMS stars / state licensing (Part A licensing_records)
+    star_strength: {1: 0.8, 2: 0.5, 3: 0.0, 4: 0.0, 5: 0.0}
+    abuse_bonus: 0.2
+    state_distress: 0.8
+    reliability: 0.60           # care quality hurts referrals, but it's a slow-moving signal
+
+# ---- ANTI-FLUKE: early signals must back each other up ------------------------
+# A signal "shows" when its strength is at least this much of its maximum.
+shows_at: 0.25
+# Share of the early points a property keeps, by how many early signals show.
+# A lone signal - however extreme - keeps only half, so one bad data point can't top the list.
+corroboration:
+  0: 0.0
+  1: 0.50
+  2: 0.80
+  3: 1.00
+  4: 1.00
+
+# ---- EXTREMES ----------------------------------------------------------------
+# Upside: an early signal this strong is a STANDOUT. It skips the anti-fluke discount
+# and counts extra, so e.g. a 5-year-old unpaid construction loan ranks on its own.
+standout:
+  at_strength: 0.90
+  boost: 1.20
+# Downside: strong evidence the other way is a COUNTER-SIGNAL. Each one cuts the early points.
+counter_signal:
+  factor: 0.85                 # each counter-signal keeps 85% of the early points
+  rent_beats_city_by: 0.15     # property rent doing 15+ points BETTER than its city
+  inspected_within_days: 14    # a city inspection in the last 2 weeks = the site is busy
+
+# ---- APPLICABILITY (any industry) -------------------------------------------------
+# A term that CANNOT apply (not the same as "no data yet") is taken out, and the remaining weights are
+# scaled up to fill 100 - but by at most max_rescale, so creative signals alone can't max out a score.
+#   loan clock applies if: a construction loan is recorded, the project is pre-opening/late, or a building
+#                          permit / certificate of occupancy is within recent_construction_months
+#   opening delay applies if: the project is pre-opening/late, its opening date is within recent_opening_months,
+#                          or something is being built (construction loan / recent permit)
+#   Early = (sum over applicable terms) x min(max_rescale, 100 / applicable weights)
+applicability:
+  recent_construction_months: 60
+  recent_opening_months: 36
+  max_rescale: 2.0
+
+# ---- LATE SIGNALS: already happened, so they barely move the rank -----------
+late:
+  max_points: 10
+  court_points: 6         # foreclosure, receiver, lis pendens, lender lawsuit, UCC sale, tax sale,
+                          # or a lender / bond-trustee default notice (technical, payment, covenant, forbearance)
+  lien_points: 2          # per contractor (mechanic's) lien...
+  max_lien_points: 4      # ...up to this many points
+  big_lien_share: 0.02    # a lien >= 2% of the loan counts as two liens
+  recent_days: 180        # late events older than this count at half
+
+# ---- NOT SCORED (Bloomfield: public / forced, or everyone already has it) ----
+# Auctions (Ten-X), Trepp / CMBS DSCR and watchlists are shown as context only.
+
+# ---- TIERS ------------------------------------------------------------------
+tiers:
+  hot: 50     # call this week
+  watch: 25   # keep an eye on it
+
+# =============================================================================
+# WEEKLY RUN + DASHBOARD (scorer/weekly.py, dashboard/app.py)
+# =============================================================================
+
+# ---- FILTERS: which flags show on the ranked list (team decision) -----------
+filters:
+  property_types_excluded: [Office]   # Bloomfield buys everything except office
+  min_loan_size: 5000000              # flags with no known loan size are kept, marked "size unknown"
+  max_loan_size: 50000000
+  states: []                          # empty = the whole U.S.
+
+# ---- HOW GOOD THE DEAL COULD BE (0-100), shown next to the score ---------------
+deal_quality:
+  starting_points: 40
+  property_type_fit: 15      # a type Bloomfield buys
+  loan_size_fit: 15          # inside the size range above
+  fixable_problem: 15        # loan clock / opening delay: a delay or stuck refinance, not a lack of demand
+  demand_problem: -15        # rent falling faster than the city: may be weak demand
+  off_market: 10             # no public sale or auction yet
+  public_sale: -10           # already at a public sale or auction, so others can see it
+  # Equity cushion: what's owed / estimated value (valuation below). Applies to any property type with operating data.
+  ltv_cushion: 15            # LTV <= 75%: real cushion
+  ltv_thin: 5                # LTV 75-100%
+  ltv_underwater: -10        # LTV > 100%: owed more than it's worth
+
+# ---- WEEK-OVER-WEEK -----------------------------------------------------------------
+changes:
+  score_jump: 10             # "got worse" if the score rose by at least this much
+
+# ---- GOAL ----------------------------------------------------------------------------
+goal:
+  annual_deal_volume: 300000000
+  last_year_volume: 200000000
+
+# ---- VALUATION (any property type) - scorer/valuation.py ---------------------------
+# Stabilized NOI (Bloomfield's method) = best full-year revenue in the lookback - latest 12-month expenses
+# Value = NOI / cap rate for the property type.  Stress cases: run-rate expenses at cap + 1%; today's NOI at cap + 2%.
+# Recovery to a debt buyer = value x (1 - closing) - legal/month x months + reserves held for lenders
+# Bid for the target IRR = recovery / (1 + target) ^ (months / 12)
+valuation:
+  lookback_months: 48
+  cap_rates:               # PLACEHOLDERS to confirm with Bloomfield (Senior housing 8.0% is Bloomfield's own)
+    Multifamily: 0.055
+    Student housing: 0.060
+    Senior housing: 0.080
+    Hotel: 0.090
+    Industrial: 0.060
+    Self storage: 0.060
+    Retail: 0.075
+    Office: 0.100          # Bloomfield underwriting (Feb 2024)
+    Mixed use: 0.070
+    default: 0.075
+  # Cost to stabilize = max(0, stabilized occ. - occupancy now) x space x (build_out_per_unit + commission_pct x rent x lease_years)
+  # Units follow the space measure: $/SF for office/retail/industrial, $/unit for apartments, $/bed for senior housing.
+  stabilization:
+    Office:          {build_out_per_unit: 40, commission_pct: 0.06, lease_years: 5}    # Bloomfield underwriting
+    Retail:          {build_out_per_unit: 30, commission_pct: 0.06, lease_years: 5}    # PLACEHOLDER
+    Industrial:      {build_out_per_unit: 5,  commission_pct: 0.05, lease_years: 5}    # PLACEHOLDER
+    default:         {build_out_per_unit: 0,  commission_pct: 0.0,  lease_years: 1}   # housing / senior / hotel: no lease-up cost (Bloomfield underwriting)
+  run_rate_cap_add: 0.010
+  downside_cap_add: 0.020
+  months_to_exit: 24
+  legal_per_month: 25000
+  closing_pct: 0.03
+  target_irr: 0.15

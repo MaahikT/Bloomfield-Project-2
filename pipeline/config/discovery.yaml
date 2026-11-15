@@ -1,0 +1,45 @@
+# ---------------------------------------------------------------------------
+# discovery.yaml - where collectors/discover.py looks for county record websites to add to our list.
+#
+# The tool reads a public DIRECTORY of county websites (such as NETR Online), collects the links to each
+# county's recorder / court / public-notice / assessor pages, screens every link (robots.txt, login or
+# CAPTCHA wall, wording about automated access in its terms), and saves the results as CANDIDATES.
+# It never turns a candidate into a scraper by itself: a person confirms the terms and adds selectors.
+#
+# NOTHING touches a directory until a person has read that directory's terms of use and set
+# terms_checked: true below. Until then the tool prints what to do and stops.
+# ---------------------------------------------------------------------------
+
+directories:
+  netr_online:
+    enabled: true
+    terms_checked: true           # Confirmed by the team lead (Nov 2026): Bloomfield contacted NETR Online and they agreed.
+    terms_note: "Approved in writing by NETR Online after Bloomfield asked them. Keep their reply on file. robots.txt and the polite rate limit still apply."
+    # {state} = 2-letter code, {county_slug} = county name lower-cased, "County" removed, spaces -> "_".
+    # These two address patterns are a best guess. If either is wrong the tool does NOT stop: it starts from
+    # home_url and follows the directory's own links (state, then county) to find the right page.
+    home_url: "https://publicrecords.netronline.com/"
+    state_url: "https://publicrecords.netronline.com/state/{state}"
+    county_url: "https://publicrecords.netronline.com/state/{state}/county/{county_slug}"
+    # Links on a county page that go to another website are the county's own sites.
+    skip_domains: ["netronline.com", "facebook.com", "twitter.com", "linkedin.com", "google.com"]
+
+# Words in a link's text or address that tell us what kind of site it is (first match wins).
+classify:
+  recorder:      ["recorder", "register of deeds", "land records", "deeds", "clerk of the circuit", "county clerk", "official records"]
+  court:         ["court", "case search", "docket", "judiciary", "judicial"]
+  public_notice: ["public notice", "legal notice", "foreclosure", "sheriff sale", "sheriff's sale", "tax sale"]
+  building:      ["building department", "building permit", "permits", "inspection", "code enforcement", "certificate of occupancy", "development services"]
+  assessor:      ["assessor", "appraisal", "property appraiser", "parcel", "tax collector", "treasurer"]
+
+# If a site's terms page contains any of these, a person must read it before we go near the site.
+terms_red_flags: ["automated", "scrap", "robot", "spider", "crawl", "harvest", "bots", "data mining", "machine"]
+
+# Which site to look at first, and which part of the Opportunity Score (config/equation.yaml) it feeds.
+# Bloomfield: the construction-loan clock is the strongest signal, so recorders come first.
+signal_priority:
+  recorder:      {rank: 1, feeds: "L loan clock (construction loans, extensions, permanent loans, releases)"}
+  building:      {rank: 2, feeds: "I site inactivity + certificate of occupancy (opened but still unpaid)"}
+  assessor:      {rank: 3, feeds: "parcel numbers so Part C can link records to one property"}
+  court:         {rank: 4, feeds: "READY TO ACT confirmation (foreclosure, lis pendens, lawsuits)"}
+  public_notice: {rank: 4, feeds: "READY TO ACT confirmation (sheriff and tax sales, lien notices)"}
