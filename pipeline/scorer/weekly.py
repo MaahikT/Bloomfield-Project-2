@@ -4,7 +4,7 @@ weekly.py - the weekly run behind the dashboard (Part D).
     Part A collectors -> Part B scout/reader -> Part C matcher -> THIS -> dashboard/app.py
 
 1. Scores every property with the Bloomfield Opportunity Score (scorer/equation.py).
-2. Applies Bloomfield's filters (office off, $2.5M minimum with no upper limit, states) and ranks what's left.
+2. Applies Bloomfield's filters (office is shown by default and can be hidden, $2.5M minimum with no upper limit, states) and ranks what's left.
 3. Adds "how good the deal could be" and a suggested deal angle for each flag.
 4. Saves the run, so the dashboard can show what changed since last week.
 5. Owns research_log: what the researcher did with each flag.
@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from datetime import date
 
 from collectors.common import db
@@ -115,9 +116,16 @@ def clean_type(raw) -> str | None:
     if text.upper() in _CMBS_CODES:
         return _CMBS_CODES[text.upper()]
     low = text.lower().replace("_", " ")
-    for needle, label in _TYPE_RULES:
-        if needle in low:
-            return label
+    matches = [label for needle, label in _TYPE_RULES if needle in low]
+    if "mixed" in low:
+        return "Mixed use"                         # "Mixed-use (retail/office)" is mixed use, not office
+    # Office is only excluded when the property really is office: a hotel, apartment building or industrial
+    # flex space with some office space in it must not be hidden.
+    others = [m for m in matches if m != "Office"]
+    if others:
+        return others[0]
+    if matches:
+        return matches[0]
     return text.replace("_", " ").title()
 
 
@@ -174,7 +182,8 @@ def is_public(p) -> bool:
 def deal_quality(r: eq.Result, ptype, amount, public, cfg, ltv=None) -> tuple[int, list[dict]]:
     q, f = cfg["deal_quality"], cfg["filters"]
     parts = [{"part": "Start", "points": q["starting_points"], "why": "Every flag starts here"}]
-    if ptype and ptype not in f["property_types_excluded"]:
+    if ptype and ptype not in f.get("property_types_not_preferred", f["property_types_excluded"]) \
+            and ptype not in f["property_types_excluded"]:
         parts.append({"part": "Property type", "points": q["property_type_fit"], "why": f"{ptype} is a type Bloomfield buys"})
     if amount and in_size_range(amount, f):
         parts.append({"part": "Size", "points": q["loan_size_fit"], "why": f"${amount / 1e6:.1f}M fits the size range"})
@@ -336,6 +345,15 @@ def changes(con, run_id: str | None = None, cfg: dict | None = None) -> dict:
     return out
 
 
+def filter_summary(con, run_id: str) -> dict:
+    """How many flags were hidden by the filters, and why. Makes 'everything is filtered out' easy to diagnose."""
+    rows = con.execute("SELECT coalesce(filter_reason, 'shown'), count(*) FROM weekly_flags WHERE run_id = ? "
+                       "GROUP BY 1 ORDER BY 2 DESC", [run_id]).fetchall()
+    return {"shown": sum(n for r, n in rows if r == "shown"),
+            "hidden": sum(n for r, n in rows if r != "shown"),
+            "reasons": {re.sub(r"^\$[\d.]+M loan ", "loan ", r): n for r, n in rows if r != "shown"}}
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Weekly scoring run for the dashboard.")
     ap.add_argument("--as-of", help="YYYY-MM-DD (default today)")
@@ -349,6 +367,12 @@ def main(argv=None):
     print(f"{run_id}: {len(top)} ranked (top 10):")
     for rank, name, score, tier, flags in top:
         print(f"  {rank:>2}. {score:>5.1f} {tier:<5} {name}" + (f"  [{flags}]" if flags else ""))
+    fs = filter_summary(con, run_id)
+    if fs["hidden"]:
+        print(f"Filters hid {fs['hidden']} of {fs['hidden'] + fs['shown']} flags: " +
+              "; ".join(f"{n} x {r}" for r, n in fs["reasons"].items()))
+    if not top and fs["hidden"]:
+        print("Nothing is ranked because every flag was filtered out. Check `filters:` in config/equation.yaml.")
     ch = changes(con, run_id)
     if ch["previous"]:
         print(f"Since {ch['previous']}: {len(ch['new'])} new, {len(ch['worse'])} worse, "

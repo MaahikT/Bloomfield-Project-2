@@ -8,7 +8,7 @@
   },
   "problem": {
     "headline": "Find owners in financial trouble before the broker network does.",
-    "body": "Bloomfield lends on and buys commercial property anywhere in the U.S. (not office). A bank has strict limits on how it can help a struggling borrower; Bloomfield has few. Reaching the borrower first means offering a loan that actually fixes the problem.",
+    "body": "Bloomfield lends on and buys commercial property anywhere in the U.S. Office properties are shown by default and can be filtered out. A bank has strict limits on how it can help a struggling borrower; Bloomfield has few. Reaching the borrower first means offering a loan that actually fixes the problem.",
     "stats": [
       {
         "n": "$200M",
@@ -83,7 +83,7 @@
   ],
   "results": {
     "tests": {
-      "passing": 365,
+      "passing": 368,
       "note": "They all pass, and none needs the internet or an API key."
     },
     "live_reader": {
@@ -169,7 +169,7 @@
     "in": [
       "A weekly run that turns public records into ranked flags with evidence and exact quotes",
       "The Ann Arbor-style signals working end to end, plus at least one real county",
-      "Researcher view: approve, dismiss, notes; office hidden by default; filters for state, type and size",
+      "Researcher view: approve, dismiss, notes; office shown by default with a switch to hide it; filters for state, type and size",
       "AI reading tested on a labeled set, with the accuracy number shown"
     ],
     "later": [

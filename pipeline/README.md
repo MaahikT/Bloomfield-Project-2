@@ -91,8 +91,8 @@ offline, needs no server and no API key, and every name and number in it is inve
 http://localhost:8000 (a phone on the same wifi can open it with your computer's address).
 
 Tabs: **Ranked flags** (click a flag for the evidence, the source document with the exact quote highlighted, the timeline,
-loan history, the lender's health and the researcher's approve/dismiss buttons; "Show office" is off by default because
-Bloomfield does not buy office) · **AI Reader** (real Gemini answers recorded earlier, shown next to the source text with
+loan history, the lender's health and the researcher's approve/dismiss buttons; office properties are shown by default and a
+"Hide office" switch filters them out) · **AI Reader** (real Gemini answers recorded earlier, shown next to the source text with
 the quote checks run on them, including one the checks caught) · **Data sources** (what is automatic, manual or unverified) ·
 **How it works**. Approve/dismiss choices and notes are saved in your browser only.
 

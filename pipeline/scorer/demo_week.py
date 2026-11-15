@@ -101,7 +101,7 @@ def week1(con):
     ins(con, "permit_inspections", permit_number="BP-FK-12", state="OH", city="Columbus",
         inspection_date=date(2026, 10, 28), inspection_type="final framing", result="pass")
 
-    # Filtered out: office (Bloomfield doesn't buy it) and a loan below the $2.5M minimum.
+    # An office property (shown by default; the dashboard has a switch to hide it) and a loan below the $2.5M minimum (filtered out).
     a = "200 FAKE Central Ave, St. Petersburg, FL"
     loan(con, "fk-mo-1", "construction", date(2021, 1, 15), a, "FL", "Pinellas", "FAKE Midtown Office LLC",
          "FAKE Gulf Coast Bank", 33e6)

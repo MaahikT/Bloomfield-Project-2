@@ -183,7 +183,7 @@ const tierName = t => (TIER[t] || {}).name || '';
 const tierFull = t => tierShort(t) + (tierName(t) ? ' · ' + tierName(t) : '');
 const signalName = s => SIGNAL_NAMES[s] || title(s);
 
-const state = { tab: 'start', q: '', tier: 'all', office: false, onlyApproved: false, selected: null, reader: 0, tour: -1, notes: false,
+const state = { tab: 'start', q: '', tier: 'all', hideOffice: false, onlyApproved: false, selected: null, reader: 0, tour: -1, notes: false,
                 decisions: store.get('decisions', {}), matches: store.get('matches', {}), callNotes: store.get('callnotes', '') };
 const saveDecisions = () => store.set('decisions', state.decisions);
 
@@ -248,7 +248,7 @@ function renderStart(root) {
 function visibleProperties() {
   const q = state.q.trim().toLowerCase();
   return DATA.properties.filter(p => {
-    if (!state.office && p.type === 'office') return false;
+    if (state.hideOffice && p.type === 'office') return false;
     if (state.tier !== 'all' && p.tier !== state.tier) return false;
     if (state.onlyApproved && (state.decisions[p.id] || {}).action !== 'approved') return false;
     if (q && ![p.name, p.address, p.city, p.state, p.borrower, p.lender].join(' ').toLowerCase().includes(q)) return false;
@@ -285,12 +285,12 @@ function renderFlags(root) {
       list.append(h('h2', { class: 'tierhead ' + p.tier }, tierFull(p.tier), h('span', { class: 'sub' }, '  ' + n + ' propert' + (n === 1 ? 'y' : 'ies') + ((TIER[p.tier] || {}).blurb ? ' · ' + TIER[p.tier].blurb : '')))); }
       list.append(flagCard(p, i + 1)); });
     if (!rows.length) list.append(h('div', { class: 'empty' }, 'Nothing matches these filters.'));
-    count.textContent = rows.length + ' of ' + DATA.properties.length + ' properties shown' + (!state.office && hiddenOffice ? ' · ' + hiddenOffice + ' office propert' + (hiddenOffice > 1 ? 'ies' : 'y') + ' hidden (Bloomfield does not buy office)' : '');
+    count.textContent = rows.length + ' of ' + DATA.properties.length + ' properties shown' + (state.hideOffice && hiddenOffice ? ' · ' + hiddenOffice + ' office propert' + (hiddenOffice > 1 ? 'ies' : 'y') + ' hidden' : '');
   };
   root.append(h('div', { class: 'bar' },
     h('input', { type: 'search', placeholder: 'Search property, city, borrower, lender', 'aria-label': 'Search', oninput: e => { state.q = e.target.value; draw(); } }),
     h('select', { 'aria-label': 'Tier', onchange: e => { state.tier = e.target.value; draw(); } }, ['all', 'hot', 'watch', 'low'].map(t => h('option', { value: t }, t === 'all' ? 'All tiers' : tierFull(t)))),
-    h('label', { class: 'check' }, h('input', { type: 'checkbox', onchange: e => { state.office = e.target.checked; draw(); } }), 'Show office'),
+    h('label', { class: 'check' }, h('input', { type: 'checkbox', onchange: e => { state.hideOffice = e.target.checked; draw(); } }), 'Hide office'),
     h('label', { class: 'check' }, h('input', { type: 'checkbox', onchange: e => { state.onlyApproved = e.target.checked; draw(); } }), 'Only my weekly list (' + approved.length + ')')), count, list);
   draw();
   root.append(h('footer', {}, 'Scores are the sum of evidence points (weights live in a settings file Bloomfield owns). Click a property to see the executive summary, every piece of evidence and the exact source sentence. Fields on this page come from pre-recorded sample readings; real AI answers are on the AI document reader tab (documents turned into fields (sample readings), not live AI output).'));
@@ -462,7 +462,7 @@ function openTop(scrollSel, spotSel) {
 const STEPS = [
   { part: 'Our build', title: 'Bloomfield\'s problem', text: 'Reach struggling borrowers before the broker network does. Bloomfield\'s own example is the Ann Arbor student housing project.', notes: 'Say: $200M deployed last year, $300M target. A bank has strict limits on helping a struggling borrower; Bloomfield has few. The website still said "coming Winter 2026" after the date passed.', go: () => goTab('start') },
   { part: 'Our build', title: 'Every week, five steps', text: 'Collect, read, link, score, rank. A person approves every flag; the tool never contacts anyone.', notes: 'Point at the control point under each step. Bloomfield owns the weights, size, geography and property types.', go: () => goTab('how') },
-  { part: 'Demo', title: 'Tiered flagged properties', text: 'Documents in, properties out. Tier 1 (Priority review) and Tier 2 (Active monitoring) properties, each with its evidence. Office is hidden because Bloomfield does not buy it.', notes: 'Tick "Show office" to show the filter, then untick. Everything on screen is invented.', go: () => goTab('flags') },
+  { part: 'Demo', title: 'Tiered flagged properties', text: 'Documents in, properties out. Tier 1 (Priority review) and Tier 2 (Active monitoring) properties, each with its evidence. Office properties are shown by default and can be hidden with one switch.', notes: 'Tick "Hide office" to show the filter, then untick. Everything on screen is invented.', go: () => goTab('flags') },
   { part: 'Demo', title: 'The Ann Arbor project', text: 'An executive summary sits above the evidence: who, how much, and which independent records agree.', notes: 'Read the summary first (score 100, Tier 1), then scroll to the evidence. Then open a Tier 2 property to show the same layout at a lower score.', go: () => openTop('#d-summary', '#d-summary') },
   { part: 'Demo', title: 'A construction loan that never converted', text: 'Recorded about 3.5 years ago, modified once, and no permanent loan or release ever followed.', notes: 'A healthy project replaces its construction loan. This one is stuck.', go: () => openTop('[data-signal="construction_loan_no_takeout"]', '[data-signal="construction_loan_no_takeout"]') },
   { part: 'Demo', title: 'Every claim has a source sentence', text: 'The contractor\'s lien, with the exact words highlighted in the county document it was read from.', notes: 'This is how we avoid the AI inventing facts: no quote, no trust.', go: () => { openTop(); setTimeout(() => { const p = DATA.properties.find(x => x.id === topId()); const s = p.signals.find(x => x.signal === 'mechanics_lien'); if (s && s.doc_id) { state.returnTo = p.id; openDoc(s.doc_id, s.quote); } }, 80); } },
