@@ -183,3 +183,64 @@ def test_properties_known_only_from_public_loan_data_are_listed_not_hidden(tmp_p
     assert {"FAKE Promenade 0", "FAKE Promenade 1", "FAKE Promenade 3"} <= names     # $60M is no longer "too big"
     hidden = [r for r in rows if not r[1]]
     assert [r[0] for r in hidden] == ["FAKE Promenade 2"] and "below the $2.5M" in hidden[0][4]   # only the $2.4M loan is hidden
+
+
+def test_interrupted_publish_preserves_last_completed_run(tmp_path, monkeypatch):
+    """A failure inside the publish transaction (e.g. deploy kill surfaced as an error) must
+    roll back: the last completed run stays fully visible in weekly_runs and weekly_flags."""
+    con = open_db(tmp_path / "t.duckdb")
+    weekly.create_tables(con)
+    _add(con, "recorded_loans", record_id="a", loan_kind="construction", recording_date=date(2021, 1, 1),
+         property_address="1 A St", state="MI", amount=20e6, grantee="Bank", grantor="Owner LLC")
+    _add(con, "projects", project_id="pa", project_name="FAKE A", property_address="1 A St",
+         state="MI", property_type="multifamily", months_overdue=0.0, stale_candidate=False)
+    run1 = weekly.run(con, eq.load_equation_config(), date(2026, 11, 2))
+    before = con.execute("SELECT * FROM weekly_flags WHERE run_id = ?", [run1]).fetchall()
+
+    from collectors.common import db as _db
+    def boom():
+        raise RuntimeError("deploy killed the container here")
+    monkeypatch.setattr(_db, "utc_now", boom)          # fails inside the publish transaction
+    with pytest.raises(RuntimeError):
+        weekly.run(con, eq.load_equation_config(), date(2026, 11, 9))
+
+    assert con.execute("SELECT run_id FROM weekly_runs").fetchall() == [(run1,)]
+    assert con.execute("SELECT * FROM weekly_flags WHERE run_id = ?", [run1]).fetchall() == before
+    assert con.execute("SELECT count(*) FROM weekly_flags WHERE run_id = 'week-2026-11-09'").fetchone()[0] == 0
+    assert weekly.changes(con, run1)["current"] == run1          # app-facing view unaffected
+
+
+def test_process_kill_mid_swap_preserves_last_completed_run(tmp_path):
+    """A real process kill INSIDE the publish transaction (deploy swap) must leave the last
+    completed run visible: DuckDB rolls the uncommitted swap back on next open."""
+    import subprocess, sys, textwrap
+    con = open_db(tmp_path / "t.duckdb")
+    weekly.create_tables(con)
+    _add(con, "recorded_loans", record_id="a", loan_kind="construction", recording_date=date(2021, 1, 1),
+         property_address="1 A St", state="MI", amount=20e6, grantee="Bank", grantor="Owner LLC")
+    _add(con, "projects", project_id="pa", project_name="FAKE A", property_address="1 A St",
+         state="MI", property_type="multifamily", months_overdue=0.0, stale_candidate=False)
+    run1 = weekly.run(con, eq.load_equation_config(), date(2026, 11, 2))
+    n1 = con.execute("SELECT count(*) FROM weekly_flags WHERE run_id = ?", [run1]).fetchone()[0]
+    con.close()
+
+    killer = textwrap.dedent("""
+        import sys, os
+        from datetime import date
+        from collectors.common import db as _db
+        from scorer.schema import open_db
+        from scorer import weekly, equation as eq
+        _db.utc_now = lambda: os._exit(9)          # die inside the publish transaction
+        con = open_db(sys.argv[1])
+        weekly.create_tables(con)
+        weekly.run(con, eq.load_equation_config(), date(2026, 11, 9))
+    """)
+    r = subprocess.run([sys.executable, "-c", killer, str(tmp_path / "t.duckdb")],
+                       capture_output=True, text=True)
+    assert r.returncode != 0, f"killer process should have died: {r.stdout}{r.stderr}"
+
+    con = open_db(tmp_path / "t.duckdb")
+    assert con.execute("SELECT run_id FROM weekly_runs").fetchall() == [(run1,)]
+    assert con.execute("SELECT count(*) FROM weekly_flags WHERE run_id = ?", [run1]).fetchone()[0] == n1
+    assert con.execute("SELECT count(*) FROM weekly_flags WHERE run_id = 'week-2026-11-09'").fetchone()[0] == 0
+    assert weekly.changes(con, run1)["current"] == run1
