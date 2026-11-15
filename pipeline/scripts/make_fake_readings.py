@@ -13,7 +13,7 @@ It:
   * adds the Scout's project row for the troubled Ann Arbor project (stale opening date);
   * adds two FAKE "middle of the pack" properties so the ranking has a watch tier:
       - a Phoenix office whose CMBS loan is on the watchlist, DSCR under 1, maturing soon
-      - a Chicago hotel with a lis pendens filed against it
+      - a St. Petersburg (Pinellas County) hotel with a lis pendens filed against it
 Everything is invented; every ID contains "fake". Re-running replaces these rows.
 """
 import argparse
@@ -151,37 +151,24 @@ def fake_middle_properties(con) -> None:
         "report_period": TODAY.replace(day=1) - timedelta(days=1), "file_id": "fake-edgar-trust-xml",
         "collected_at": NOW,
     }, replace=True)
-    # ...and the same loan again as Trepp reports it (different key, address spelled differently).
-    # Part C should see these are one loan; Part D should not count its problems twice.
-    db.insert_row(con, "loans", {
-        "loan_key": "trepp:FAKE Trust 2019-C77:77", "source": "trepp",
-        "deal_name": "FAKE TRUST 2019-C77", "property_name": "Camelback Office Plaza FAKE",
-        "property_address": "4400 Sample Ave.", "property_city": "Phoenix",
-        "property_state": "AZ", "property_zip": None, "property_type": "OF",
-        "current_balance": 27_350_000, "original_balance": 29_000_000,
-        "maturity_date": TODAY + timedelta(days=240), "dscr": 0.86, "occupancy": 0.70,
-        "payment_status": "Current", "servicer_name": "Example Servicing FAKE", "watchlist_flag": True,
-        "servicer_commentary": None, "report_period": TODAY.replace(day=1) - timedelta(days=31),
-        "file_id": None, "collected_at": NOW,
-    }, replace=True)
 
-    # 2) Chicago hotel: lis pendens filed by its lender.
-    fid = "fake-chicago-lis-pendens"
+    # 2) St. Petersburg hotel: lis pendens filed by its lender.
+    fid = "fake-stpete-lis-pendens"
     con.execute("DELETE FROM raw_files WHERE file_id = ?", [fid])
     filed = TODAY - timedelta(days=60)
     store_file(con, (
         "*** FAKE DOCUMENT - NOT A REAL RECORD ***\nNOTICE OF LIS PENDENS\n"
         f"Case No. FAKE-2026-CH-01234\nFiled: {filed}\nPlaintiff: Placeholder Trust Bank\n"
         "Defendant: Example Lakeside Hotel FAKE LLC\n"
-        "Property: FAKE Lakeside Hotel, 77 Example Drive, Chicago, IL 60601\n").encode(),
+        "Property: FAKE Lakeside Hotel, 77 Example Drive, St. Petersburg, FL 33701\n").encode(),
         source="county_court", doc_category="lis_pendens", collector_name=COLLECTOR,
-        state="IL", county="Cook County", city="Chicago", url=None,
+        state="FL", county="Pinellas County", city="St. Petersburg", url=None,
         source_record_id="FAKE-2026-CH-01234", notes="FAKE DATA for development", ext="txt", file_id=fid)
     row = base_row(fid, "lis_pendens")
     row.update({
         "borrower_name": "Example Lakeside Hotel FAKE LLC", "project_name": "FAKE Lakeside Hotel",
-        "property_address": "77 Example Drive, Chicago, IL 60601", "property_city": "Chicago",
-        "property_state": "IL", "lender_name": "Placeholder Trust Bank", "property_type": "hotel",
+        "property_address": "77 Example Drive, St. Petersburg, FL 33701", "property_city": "St. Petersburg",
+        "property_state": "FL", "lender_name": "Placeholder Trust Bank", "property_type": "hotel",
         "case_number": "FAKE-2026-CH-01234", "filing_date": filed,
         "distress_tags": json.dumps(["lender_lawsuit"]),
         "quotes": json.dumps({"filing_type": "NOTICE OF LIS PENDENS", "case_number": "Case No. FAKE-2026-CH-01234"}),
@@ -190,18 +177,18 @@ def fake_middle_properties(con) -> None:
 
     # 3) A tax notice with a typo in the hotel's street name ("Exmaple"). Too uncertain to link
     #    automatically: Part C should put it in match_review for a person to decide.
-    fid = "fake-chicago-tax-typo"
+    fid = "fake-stpete-tax-typo"
     con.execute("DELETE FROM raw_files WHERE file_id = ?", [fid])
     store_file(con, (
         "*** FAKE DOCUMENT - NOT A REAL RECORD ***\nDELINQUENT PROPERTY TAX LIST (excerpt)\n"
-        "Owner: Example Lakeside Hotel FAKE LLC  77 Exmaple Drive, Chicago, IL  2025 taxes unpaid\n").encode(),
+        "Owner: Example Lakeside Hotel FAKE LLC  77 Exmaple Drive, St. Petersburg, FL  2025 taxes unpaid\n").encode(),
         source="public_notice", doc_category="tax_delinquency", collector_name=COLLECTOR,
-        state="IL", county="Cook County", city="Chicago", url=None, source_record_id=None,
+        state="FL", county="Pinellas County", city="St. Petersburg", url=None, source_record_id=None,
         notes="FAKE DATA for development", ext="txt", file_id=fid)
     row = base_row(fid, "tax_delinquency")
     row.update({
-        "borrower_name": "Example Lakeside Hotel, FAKE L.L.C.", "property_address": "77 Exmaple Drive, Chicago, IL",
-        "property_city": "Chicago", "property_state": "IL", "filing_date": TODAY - timedelta(days=30),
+        "borrower_name": "Example Lakeside Hotel, FAKE L.L.C.", "property_address": "77 Exmaple Drive, St. Petersburg, FL",
+        "property_city": "St. Petersburg", "property_state": "FL", "filing_date": TODAY - timedelta(days=30),
         "distress_tags": json.dumps(["tax_delinquent"]),
         "quotes": json.dumps({"filing_type": "DELINQUENT PROPERTY TAX LIST"}),
     })

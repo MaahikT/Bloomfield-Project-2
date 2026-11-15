@@ -5,7 +5,7 @@ It fails (exit code 1) if any file about to be committed is:
   * a database (.duckdb) or spreadsheet (.xlsx / .xls)
   * anything under pipeline/data/ (raw files, the inbox, logs)
   * a .env file (only .env.example is allowed)
-  * anything with "trepp" in its path (except our own Trepp code and settings)
+  * anything with "trepp" in its path (licensed screen exports must never be committed)
   * anything under pipeline/samples/ or pipeline/bloomfield_samples/
 
 Install it as a git pre-commit hook with:   python pipeline/scripts/install_hooks.py
@@ -15,12 +15,7 @@ import re
 import subprocess
 import sys
 
-# Our own Trepp code and settings contain no data, so they are allowed.
-ALLOWED = {
-    "pipeline/collectors/trepp.py",
-    "pipeline/config/trepp_columns.yaml",
-    "pipeline/tests/test_trepp.py",
-}
+ALLOWED: set[str] = set()
 
 
 def problem_with(path: str) -> str | None:

@@ -4,7 +4,7 @@ weekly.py - the weekly run behind the dashboard (Part D).
     Part A collectors -> Part B scout/reader -> Part C matcher -> THIS -> dashboard/app.py
 
 1. Scores every property with the Bloomfield Opportunity Score (scorer/equation.py).
-2. Applies Bloomfield's filters (office off, $5M-$50M, states) and ranks what's left.
+2. Applies Bloomfield's filters (office is shown by default and can be hidden, $2.5M minimum with no upper limit, states) and ranks what's left.
 3. Adds "how good the deal could be" and a suggested deal angle for each flag.
 4. Saves the run, so the dashboard can show what changed since last week.
 5. Owns research_log: what the researcher did with each flag.
@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import re
 from datetime import date
 
 from collectors.common import db
@@ -68,7 +70,7 @@ CREATE TABLE IF NOT EXISTS weekly_flags (
     explanation     TEXT,       -- JSON: every term of the equation and why
     deal_parts      TEXT,       -- JSON: how deal quality was built
     angles          TEXT,       -- JSON: suggested deal angles
-    context         TEXT,       -- JSON: facts shown but not scored (auctions, Trepp/CMBS)
+    context         TEXT,       -- JSON: facts shown but not scored (auctions, CMBS)
     summary         TEXT,
     PRIMARY KEY (run_id, property_id)
 );
@@ -115,9 +117,16 @@ def clean_type(raw) -> str | None:
     if text.upper() in _CMBS_CODES:
         return _CMBS_CODES[text.upper()]
     low = text.lower().replace("_", " ")
-    for needle, label in _TYPE_RULES:
-        if needle in low:
-            return label
+    matches = [label for needle, label in _TYPE_RULES if needle in low]
+    if "mixed" in low:
+        return "Mixed use"                         # "Mixed-use (retail/office)" is mixed use, not office
+    # Office is only excluded when the property really is office: a hotel, apartment building or industrial
+    # flex space with some office space in it must not be hidden.
+    others = [m for m in matches if m != "Office"]
+    if others:
+        return others[0]
+    if matches:
+        return matches[0]
     return text.replace("_", " ").title()
 
 
@@ -130,13 +139,19 @@ def property_type(p) -> str | None:
     return clean_type(name) if clean_type(name) in {v for _, v in _TYPE_RULES} else None
 
 
+def in_size_range(amount, f) -> bool:
+    """At or above the minimum; there is no upper limit unless max_loan_size is set."""
+    top = f.get("max_loan_size")
+    return f["min_loan_size"] <= amount and (top is None or amount <= top)
+
+
 def passes_filters(ptype, state, amount, f) -> tuple[bool, str | None]:
     if ptype in f["property_types_excluded"]:
         return False, f"{ptype} is filtered out"
     if f["states"] and (state or "").upper() not in [s.upper() for s in f["states"]]:
         return False, f"{state or 'Unknown state'} is outside the chosen states"
-    if amount and not (f["min_loan_size"] <= amount <= f["max_loan_size"]):
-        return False, f"${amount / 1e6:.1f}M loan is outside ${f['min_loan_size'] / 1e6:.0f}M-${f['max_loan_size'] / 1e6:.0f}M"
+    if amount and not in_size_range(amount, f):
+        return False, f"${amount / 1e6:.1f}M loan is below the ${f['min_loan_size'] / 1e6:.1f}M minimum"
     return True, None
 
 
@@ -156,7 +171,7 @@ def context_facts(p) -> list[str]:
             bits.append(str(ln["payment_status"]))
         if bits:
             src = (ln.get("source") or "CMBS").lower()
-            note = "everyone has this" if src in ("trepp", "sec_edgar", "cmbs") else "public disclosure"
+            note = "everyone has this" if src in ("sec_edgar", "cmbs") else "public disclosure"
             out.append(f"{ln.get('source') or 'CMBS'} loan data: " + ", ".join(bits) + f" ({note})")
     return out
 
@@ -168,9 +183,10 @@ def is_public(p) -> bool:
 def deal_quality(r: eq.Result, ptype, amount, public, cfg, ltv=None) -> tuple[int, list[dict]]:
     q, f = cfg["deal_quality"], cfg["filters"]
     parts = [{"part": "Start", "points": q["starting_points"], "why": "Every flag starts here"}]
-    if ptype and ptype not in f["property_types_excluded"]:
+    if ptype and ptype not in f.get("property_types_not_preferred", f["property_types_excluded"]) \
+            and ptype not in f["property_types_excluded"]:
         parts.append({"part": "Property type", "points": q["property_type_fit"], "why": f"{ptype} is a type Bloomfield buys"})
-    if amount and f["min_loan_size"] <= amount <= f["max_loan_size"]:
+    if amount and in_size_range(amount, f):
         parts.append({"part": "Size", "points": q["loan_size_fit"], "why": f"${amount / 1e6:.1f}M fits the size range"})
     if r.L.value > 0 or r.O.value > 0:
         parts.append({"part": "Fixable problem", "points": q["fixable_problem"],
@@ -236,8 +252,24 @@ def summary(r: eq.Result, name) -> str:
     return text + "."
 
 
-def run(con, cfg: dict | None = None, as_of: date | None = None) -> str:
+def is_demo_property(p) -> bool:
+    """Made-up sample data (ids start with fake / fk-, or the name says FAKE). Real lists never include it."""
+    ids = ([r.get("record_id") for r in p.recorded_loans] + [r.get("file_id") for r in p.filings]
+           + [r.get("project_id") for r in p.projects] + [r.get("loan_key") for r in p.cmbs_loans])
+    if any(str(i or "").lower().startswith(("fake", "fk-", "edgar:fake", "trepp:fake")) for i in ids):
+        return True
+    name = " ".join(str(r.get("project_name") or r.get("property_name") or "") for r in p.projects + p.cmbs_loans + p.filings)
+    return "FAKE" in name
+
+
+def include_demo_data() -> bool:
+    """Sample properties are left out unless BLOOMFIELD_INCLUDE_DEMO=1 (the demo and the tests turn it on)."""
+    return os.environ.get("BLOOMFIELD_INCLUDE_DEMO", "").strip().lower() in ("1", "true", "yes")
+
+
+def run(con, cfg: dict | None = None, as_of: date | None = None, include_demo: bool | None = None) -> str:
     cfg = cfg or eq.load_equation_config()
+    include_demo = include_demo_data() if include_demo is None else include_demo
     as_of = as_of or date.today()
     create_tables(con)
     rents, market, inspections, extra = eq.load_inputs(con)
@@ -246,6 +278,8 @@ def run(con, cfg: dict | None = None, as_of: date | None = None) -> str:
     run_id = f"week-{as_of.isoformat()}"
     rows = []
     for p in props:
+        if not include_demo and is_demo_property(p):
+            continue                                  # sample data never appears in a real list
         r = eq.score_property(p, cfg, as_of, rents, market, inspections, extra)
         if r.score <= 0 and not context_facts(p):
             continue                              # nothing to show
@@ -274,7 +308,9 @@ def run(con, cfg: dict | None = None, as_of: date | None = None) -> str:
             "angles": json.dumps(deal_angles(r, p, ptype)), "context": json.dumps(context_facts(p)),
             "summary": summary(r, name),
         })
-    ranked = sorted([x for x in rows if x["shown"] and x["score"] > 0],
+    # Every property that passes the filters is on the list. Ones with warning signs come first (highest score first);
+    # properties we only know from public loan data (score 0) follow, best deal quality first, so they are not hidden.
+    ranked = sorted([x for x in rows if x["shown"]],
                     key=lambda x: (-x["score"], -x["deal_quality"], x["property_id"]))
     for i, x in enumerate(ranked, 1):
         x["rank"] = i
@@ -330,6 +366,15 @@ def changes(con, run_id: str | None = None, cfg: dict | None = None) -> dict:
     return out
 
 
+def filter_summary(con, run_id: str) -> dict:
+    """How many flags were hidden by the filters, and why. Makes 'everything is filtered out' easy to diagnose."""
+    rows = con.execute("SELECT coalesce(filter_reason, 'shown'), count(*) FROM weekly_flags WHERE run_id = ? "
+                       "GROUP BY 1 ORDER BY 2 DESC", [run_id]).fetchall()
+    return {"shown": sum(n for r, n in rows if r == "shown"),
+            "hidden": sum(n for r, n in rows if r != "shown"),
+            "reasons": {re.sub(r"^\$[\d.]+M loan ", "loan ", r): n for r, n in rows if r != "shown"}}
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Weekly scoring run for the dashboard.")
     ap.add_argument("--as-of", help="YYYY-MM-DD (default today)")
@@ -343,6 +388,12 @@ def main(argv=None):
     print(f"{run_id}: {len(top)} ranked (top 10):")
     for rank, name, score, tier, flags in top:
         print(f"  {rank:>2}. {score:>5.1f} {tier:<5} {name}" + (f"  [{flags}]" if flags else ""))
+    fs = filter_summary(con, run_id)
+    if fs["hidden"]:
+        print(f"Filters hid {fs['hidden']} of {fs['hidden'] + fs['shown']} flags: " +
+              "; ".join(f"{n} x {r}" for r, n in fs["reasons"].items()))
+    if not top and fs["hidden"]:
+        print("Nothing is ranked because every flag was filtered out. Check `filters:` in config/equation.yaml.")
     ch = changes(con, run_id)
     if ch["previous"]:
         print(f"Since {ch['previous']}: {len(ch['new'])} new, {len(ch['worse'])} worse, "

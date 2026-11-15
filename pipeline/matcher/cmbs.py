@@ -1,7 +1,7 @@
 """
 cmbs.py - the same CMBS loan reported by more than one source.
 
-In plain English: SEC EDGAR and Trepp both report CMBS loans, each with its own ID. Two loan rows
+In plain English: The same CMBS loan can be reported by more than one source, each with its own ID. Two loan rows
 are the same loan when they are on the same property, come from different sources, and either
 share the deal name or have (almost) the same original balance. Rows from the same source are
 never merged (a property can have two real loans, e.g. a senior loan and a mezzanine piece).

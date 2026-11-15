@@ -1,0 +1,53 @@
+# ---------------------------------------------------------------------------
+# bot.yaml - settings for the web bot (python -m bot). One searcher per signal.
+#
+# Every page the bot opens goes through collectors/common/fetch.py: robots.txt is obeyed, requests are
+# spaced out, and the bot stops at any login, CAPTCHA or "access denied". It never gets around a block.
+# Searching the open web needs a search service key (see search: below). Without one the bot still checks
+# the project sites and news feeds you list here, and runs the county, bank and SEC collectors.
+# ---------------------------------------------------------------------------
+
+enabled_signals: [opening_date, distress_news, county_records, lenders, cmbs]
+
+limits:
+  max_pages_per_run: 60          # the bot never opens more web pages than this in one run
+  max_search_queries: 20         # ...or sends more search queries than this
+
+search:
+  provider: none                 # none | brave   (set to brave once BRAVE_SEARCH_API_KEY is in .env)
+  brave:
+    api_key_env: BRAVE_SEARCH_API_KEY
+    results_per_query: 5
+  # Third-party listing sites forbid automated reading, so the bot never opens them.
+  skip_domains: [zillow.com, apartments.com, trulia.com, realtor.com, redfin.com, facebook.com, instagram.com,
+                 linkedin.com, yelp.com, twitter.com, x.com, reddit.com]
+
+# --- Opening-date watch (signal 2: weighted high, but weaker; a 3-6 month slip is normal) ---
+opening_date:
+  # Projects to watch. Anything already in the projects table with a website is watched too.
+  watchlist: []
+  #  - {project_name: "Example Lofts", url: "https://example.org/lofts", city: "Ann Arbor", state: "MI", property_type: student_housing}
+  # Used only when a search service is on, for projects that have no website yet. {name} {city} {state} are filled in.
+  queries:
+    - '"{name}" {city} {state} apartments opening'
+  opened_markers: ["now open", "open now", "move in today", "immediate move-in", "available now", "grand opening held"]
+  unopened_markers: ["coming soon", "pre-leasing", "preleasing", "opening soon", "join the waitlist", "register your interest",
+                     "opening in", "now pre-leasing", "scheduled to open", "projected opening"]
+
+# --- Distress news, public notices and auctions (court and lien filings come late: confirmation only) ---
+distress_news:
+  rss_feeds: []                  # [{name: "Example Business Journal", url: "https://example.org/feed.xml"}]
+  queries:
+    - '{city} {state} apartment OR hotel OR retail foreclosure OR receiver OR "lis pendens"'
+  cities: []                     # cities to search news for when a search service is on, e.g. [{city: Ann Arbor, state: MI}]
+  commercial_words: [apartment, apartments, multifamily, hotel, retail, shopping center, industrial, warehouse,
+                     student housing, mixed-use, senior living, self storage, medical office, development, tower, lofts]
+  residential_words: [single-family, single family, condo unit, mobile home, homeowner, residential foreclosure]
+  # first match wins: [words that must appear] -> (filing_type, tag the scorer already knows)
+  rules:
+    - {words: ["lis pendens"], filing_type: lis_pendens, tag: lis_pendens}
+    - {words: ["receiver"], filing_type: receivership, tag: receiver_appointed}
+    - {words: ["ucc sale", "uniform commercial code sale", "membership interests"], filing_type: ucc_sale_notice, tag: ucc_sale_scheduled}
+    - {words: ["foreclosure", "trustee sale", "sheriff sale", "sheriff's sale"], filing_type: foreclosure_notice, tag: foreclosure_scheduled}
+    - {words: ["auction"], filing_type: auction_listing, tag: listed_for_auction}
+    - {words: ["lawsuit", "sues", "complaint"], needs: ["loan", "lender", "bank"], filing_type: lender_lawsuit, tag: lender_lawsuit}

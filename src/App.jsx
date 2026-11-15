@@ -37,7 +37,7 @@ export default function App() {
   const [projects, setProjects] = useState(saved?.projects ?? SAMPLE_PROJECTS)
   const [decisions, setDecisions] = useState(saved?.decisions ?? {})
   const [selectedId, setSelectedId] = useState(saved?.projects?.[0]?.id ?? SAMPLE_PROJECTS[0].id)
-  const [showOffice, setShowOffice] = useState(false)
+  const [showOffice, setShowOffice] = useState(true)
   const detailRef = useRef(null)
   const [today] = useState(() => new Date())
 

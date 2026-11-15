@@ -1,4 +1,4 @@
-> Using a U-M GPT Toolkit key? Follow [UMICH-WORKFLOW.md](UMICH-WORKFLOW.md). A U-M key is not an OpenAI Codex key.
+> U-M Toolkit setup: [UMICH-WORKFLOW.md](UMICH-WORKFLOW.md).
 
 # Bloomfield Sourcing Tool: Part A, Public Records Collectors
 
@@ -7,7 +7,7 @@ They do not interpret documents (Part B), match records (Part C) or score anythi
 Everything runs from the `pipeline/` folder.
 
 > This folder lives inside a repo that is **public**. Never commit `.env`, the database,
-> downloaded files, the inbox, or anything from Trepp or Bloomfield. `.gitignore` and a
+> downloaded files, the inbox, or anything from Bloomfield. `.gitignore` and a
 > pre-commit check protect you (see "Safety" below).
 
 ## One-time setup
@@ -54,8 +54,7 @@ sec_edgar, ffiec, manual_upload`. Add a category folder one level deeper
 (`.../washtenaw/mechanics_lien/lien1.pdf`) or a sidecar file `lien1.pdf.json` with
 `{"url": "...", "source_record_id": "...", "doc_category": "...", "city": "...", "doc_type": "..."}`
 to give details. Loading moves each file into `data/raw/`, fingerprints it, and logs it in
-`raw_files`. Duplicates go to `data/inbox/_duplicates/`. (Trepp files have their own folder,
-`data/inbox/trepp/`, handled by `trepp.py`.)
+`raw_files`. Duplicates go to `data/inbox/_duplicates/`.
 
 ## Safety rules built into the code
 
@@ -69,7 +68,7 @@ to give details. Loading moves each file into `data/raw/`, fingerprints it, and 
 ## Safety (public repo)
 
 `pipeline/.gitignore` keeps `.env`, `data/`, databases, spreadsheets and anything with "trepp"
-in its name out of git (except our own Trepp code). `scripts/check_no_data_staged.py` (installed
+in its name out of git. `scripts/check_no_data_staged.py` (installed
 by `install_hooks.py`) refuses commits containing them, and `tests/test_repo_safety.py` fails if
 anything private is tracked.
 
@@ -94,8 +93,8 @@ offline, needs no server and no API key, and every name and number in it is inve
 http://localhost:8000 (a phone on the same wifi can open it with your computer's address).
 
 Tabs: **Ranked flags** (click a flag for the evidence, the source document with the exact quote highlighted, the timeline,
-loan history, the lender's health and the researcher's approve/dismiss buttons; "Show office" is off by default because
-Bloomfield does not buy office) · **AI Reader** (real Gemini answers recorded earlier, shown next to the source text with
+loan history, the lender's health and the researcher's approve/dismiss buttons; office properties are shown by default and a
+"Hide office" switch filters them out) · **AI Reader** (real Gemini answers recorded earlier, shown next to the source text with
 the quote checks run on them, including one the checks caught) · **Data sources** (what is automatic, manual or unverified) ·
 **How it works**. Approve/dismiss choices and notes are saved in your browser only.
 
@@ -174,7 +173,7 @@ python -m reader.batch --limit 5
 * **Busy models:** some Gemini models are slow or return "high demand" (503) errors at times. The wrapper retries up to 5
   times with waits (and obeys Google's "retry in N seconds" hint); the timeout is 180 s.
 * **Free keys:** Google may use prompts sent through free (unbilled) keys to improve its products. Our reader only sends
-  public records (never Trepp or Bloomfield material), but use a paid, billing-enabled key if that matters to Bloomfield.
+  public records (never Bloomfield material), but use a paid, billing-enabled key if that matters to Bloomfield.
 * Gemini through its OpenAI-compatible address also works: `LLM_PROVIDER=openai_compatible`,
   `LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai`, `LLM_API_KEY=<key>`, plus Gemini model names under
   `models.openai_compatible`.
@@ -190,7 +189,7 @@ Columns: calls made, input/output tokens, and estimated dollars (tokens x the pr
 
 ## Privacy
 
-* Trepp data is never sent to the AI (`trepp_ai_allowed: false`).
+* Bloomfield's own material is never sent to the AI (`bloomfield_material_ai_allowed: false`).
 * Files marked `"confidential": true`, or dropped in `manual_upload/bloomfield/`, are never sent (`bloomfield_material_ai_allowed: false`). Only Bloomfield decides whether these switches change.
 * The AI only reads text we hand it; it never browses or uses tools.
 
@@ -216,7 +215,7 @@ Each document becomes one row in `filing_fields` with a status:
 
 Good to know:
 * **Quote check:** every quote must appear in the document; a made-up quote always means `needs_review`.
-* **It skips** SEC EDGAR, FFIEC, CMS and Trepp files (Part A already turns those into tables) and anything confidential.
+* **It skips** SEC EDGAR, FFIEC and CMS files (Part A already turns those into tables) and anything confidential.
 * **Confidential material:** files from `data/inbox/manual_upload/bloomfield/` (you can still put `MI/washtenaw/` folders inside), or with a sidecar saying `"confidential": true`, are loaded into `raw_files` with `[CONFIDENTIAL]` at the start of `notes` and are never sent to the AI.
 * **Safe to stop and restart.** Finished files are saved immediately; answers already paid for come from the cache.
 * **Scans:** need Tesseract (`brew install tesseract poppler`). Without it, scanned files are left unread (not marked failed) and picked up next time.
@@ -228,7 +227,7 @@ Good to know:
 # Part C: the Matcher (Maahik)
 
 The **Matcher** works out which records are about the same thing. County clerks, the SEC,
-Trepp, the AI Reader and the Scout all spell names and addresses differently and use different
+County clerks, the AI Reader and the Scout all spell names and addresses differently and use different
 IDs. Part C links them so Part D (and people) see one property, one loan, one bank and one
 company instead of five half-stories. No AI, no internet, no cost.
 
@@ -248,7 +247,7 @@ python -m scorer                        # Part D then scores using Part C's link
 
 Expected on the fake data: 24 properties; the Ann Arbor project's 5 records linked into one,
 with one construction loan still OPEN after ~42 months and 1 modification; the Phoenix loan that
-EDGAR and Trepp both report recognized as one loan; all 6 lender names linked to their FFIEC
+The same CMBS loan reported twice recognized as one loan; all 6 lender names linked to their FFIEC
 bank; and **one** maybe-match for a person (a tax notice that misspells the hotel's street as
 "Exmaple Drive"). Answer it `yes` and re-run: 23 properties, and the hotel's score rises.
 
@@ -259,7 +258,7 @@ bank; and **one** maybe-match for a person (a tax notice that misspells the hote
 | **Same property** | 1. same parcel number in the same state; 2. same street address in the same state ("12 North Main Street, Suite 2" = "12 N. Main St"); 3. same house number + nearly the same street name (92+/100), same city/ZIP; 4. records with no address: same property name (92+) in the same state/city | `properties`, `property_links` |
 | **Never auto-linked** | street type differs (Main **St** vs Main **Ave**), direction differs (**N** Elm vs **S** Elm), different ZIP/city, scores 80-92: these go to `match_review` | `match_review` |
 | **Loan histories** | each construction/permanent mortgage with its follow-ups: modifications and extensions, assignments, the permanent loan that took out a construction loan, and the release. Follow-ups use the instrument number they cite; otherwise the newest open loan (releases: the oldest) | `loan_histories` (status `open` / `refinanced` / `released`, `months_open`) |
-| **Same CMBS loan, two sources** | same property, different source (EDGAR vs Trepp), and same deal name or original balance within 2%. Two loans from one source are never merged | `loan_links` (`loan_group_id`) |
+| **Same CMBS loan, two sources** | same property, different source, and same deal name or original balance within 2%. Two loans from one source are never merged | `loan_links` (`loan_group_id`) |
 | **Lender -> bank** | lender name vs `bank_stats.bank_name` after cleanup ("N.A.", "Inc."...): exact or 92+ = linked; 80-92 = a person decides; otherwise no link (a wrong bank is worse than none) | `lender_links` (`rssd_id`) |
 | **Companies and people** | every borrower, developer, lender, servicer, lien claimant and other party; spellings merged when they clean up the same ("Maize Row Holdings, L.L.C." = "MAIZE ROW HOLDINGS LLC") or are 95+ alike **and** start with the same word **and** don't differ by a number or phase ("Example Property 01" stays apart from "02") | `entities`, `entity_links` |
 | **State registry lookups** | LLCs, corporations and partnerships that are borrowers or developers are added to Part A's `entity_lookup_requests` (once per name and state) | `entity_lookup_requests` |
@@ -273,7 +272,7 @@ All thresholds live in `config/matching.yaml`.
 ## For the other parts
 
 * **Part D** reads `property_links` (grouping), `lender_links` (which bank) and `loan_links`
-  (count an EDGAR + Trepp loan once). It still runs without Part C, using a cautious fallback.
+  (count a loan reported by two sources once). It still runs without Part C, using a cautious fallback.
 * **Part A** gets lookup requests in `entity_lookup_requests` (`requested_by = part_c_matcher`).
 * `property_links.record_table` is `recorded_loans`, `filing_fields`, `loans` or `projects`;
   `record_id` is that table's key (`record_id`, `file_id`, `loan_key`, `project_id`).
@@ -348,7 +347,7 @@ Each run replaces both tables, so they always show the latest picture.
   `recorded_loans`, `filing_fields`, `loans` or `projects` and `record_id` is that table's key
   (`record_id`, `file_id`, `loan_key`, `project_id`). Extra columns are fine.
 * It also uses Part C's `lender_links` (which bank a lender name is, including a person's
-  answers) and `loan_links` (the same CMBS loan from EDGAR and Trepp is counted once).
+  answers) and `loan_links` (the same CMBS loan from two sources is counted once).
 * **Until Part C has run (or for records it didn't link)**, a cautious fallback: records belong together
   when they share a parcel number, or the same street address in the same state
   ("12 North Main Street" = "12 N. Main St"). No fuzzy name matching: that's Part C's job.
@@ -374,7 +373,6 @@ python -m collectors.run_all --state MI                       # one state: inbox
 
 | Collector | What it does | Where its input comes from |
 |---|---|---|
-| `trepp.py` | Loads the Trepp screen (DSCR under 1.0x) into `loans` (source `trepp`). Stays local; never sent anywhere. | Drop the CSV/Excel in `data/inbox/trepp/`. Columns: `config/trepp_columns.yaml`. |
 | `edgar.py` | CMBS loans from SEC ABS-EE filings into `loans` (source `sec_edgar`), newest report per loan; every XML kept in `raw_files`. At most 20 trusts per run. | Automatic (SEC, 4 requests/sec). Manual fallback: `data/inbox/sec_edgar/` plus a `.json` sidecar `{"notes": "deal=<trust name>"}`. |
 | `ffiec.py` | Bank CRE balances, past dues, nonaccruals and trends into `bank_stats`. | Download by hand (below) into `data/inbox/ffiec/`. |
 | `county.py` | County/statewide court, recorder and public-notice records into `raw_files`, driven by `config/counties/*.yaml`. | Per-county YAML. Today every sample county is `manual_inbox`. |
@@ -432,30 +430,36 @@ If the network blocks NETR, save the county page from a browser and use
 `--from-html saved_page.html --state MI --county "Washtenaw County"`. Screened sites are only candidates:
 a person confirms each site's terms and adds its search settings before it becomes automatic.
 
-## The weekly run inside the dashboard (optional scheduler)
 
-The dashboard can run the whole weekly workflow by itself: collectors, then the AI reader, then the
-matcher, then the scoring run - the same as typing `python -m collectors.run_all`, `python -m reader.batch`,
-`python -m matcher` and `python -m scorer.weekly` in order.
+## The web bot (`python -m bot`)
 
-It runs as a background thread INSIDE the dashboard's process, not as a second service or a cron job.
-DuckDB allows exactly one process to have the database open for reading and writing (many threads inside
-that process are fine - appends never conflict), so a second process would lose the database file lock
-and fail. See `dashboard/scheduler.py`.
+One searcher per signal, run weekly. Settings are in `config/bot.yaml`.
 
-OFF by default. Turn it on only after the team has settled source permissions (keep the NETR approval
-reply on file) and the rules for showing real records in the app.
-
-| Variable | Default | Meaning |
+| Signal | What it does | Code |
 |---|---|---|
-| `BLOOMFIELD_SCHEDULER` | off | `1` starts the weekly collector thread |
-| `BLOOMFIELD_SCHEDULER_INTERVAL_HOURS` | `168` | time between runs (168 h = weekly) |
-| `BLOOMFIELD_SCHEDULER_FIRST_DELAY_SECONDS` | `3600` | boot grace before the first run |
-| `BLOOMFIELD_SCHEDULER_ONLY` | all | optional collector subset, e.g. `inbox,edgar` |
+| `opening_date` | Opens project websites you list, finds "Opening Fall 2026" or "coming soon", turns it into a deadline and flags late projects and dates that keep moving | `bot/opening.py` |
+| `distress_news` | Reads approved news feeds for foreclosures, receiverships, lis pendens, UCC sales, auctions and lender lawsuits on commercial property. Each lead is saved as `needs_review` with a word-for-word quote | `bot/news.py` |
+| `county_records` | Runs the county collectors for the sites that are set up | `collectors/county.py` |
+| `lenders` | Bank call reports (rising nonaccruals) | `collectors/ffiec.py` |
+| `cmbs` | SEC CMBS filings | `collectors/edgar.py` |
 
-The reader step uses the configured LLM key and the repo's spending caps; with no key it is skipped
-with a warning and the rest of the cycle still runs. Results land in `collector_runs` and
-`weekly_runs`, same as a manual run, and the dashboard shows the new week on its next page load.
+```
+python -m bot --list                          # what each signal does
+python -m bot --full                          # the whole week: crawl, AI reads, link, score
+python -m bot --full --no-ai                  # the same without the AI (keyword reading only)
+python -m bot                                 # crawl only
+python -m bot --signals opening_date          # just one signal
+```
 
-Reminder: NETR Online's robots.txt sets `Crawl-delay: 10`, and `config/sources.yaml` now honors it
-(`domains: publicrecords.netronline.com`).
+`python -m bot --full` is the one command for a real week. The bot's crawlers collect pages and records (project sites, news,
+county, bank and SEC data). The **AI reader (OpenAI)** then reads each page or document into fields with an exact, checked
+quote and spots the signals in it. The matcher links records about the same property, and the Opportunity Score equation
+ranks them. The score is plain arithmetic on the evidence, so a researcher can always see why a property ranked where it did:
+the AI reads and identifies, it never invents a score. Without a key it says so and still runs with keyword reading.
+Sample (FAKE) properties are left out of every real list; the demo database opts in explicitly.
+
+Rules it follows: every page goes through `collectors/common/fetch.py` (robots.txt obeyed, polite pace, stops at any
+login, CAPTCHA or "access denied", never gets around a block); third-party listing sites such as Zillow are never opened;
+one run opens at most `max_pages_per_run` pages. Searching the open web needs a licensed search service: set
+`search.provider: brave` in `config/bot.yaml` and `BRAVE_SEARCH_API_KEY` in `.env`. Without one the bot still checks the
+project sites and feeds you list. Court and lien news arrives late, so it confirms a deal is ready to act rather than warning early.

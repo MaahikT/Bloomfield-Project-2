@@ -1,0 +1,43 @@
+# Pinellas County, FL. Links from NETR Online (pulled Nov 14, 2026). Status: manual_inbox until a person checks
+# each site's terms of use / robots.txt (NETR itself is approved; every county site is still screened).
+county: Pinellas County
+state: FL
+fips: "12103"
+status: manual_inbox
+priority: 2
+netr_page: "https://publicrecords.netronline.com/state/FL/county/pinellas"
+notes: "St. Petersburg / Clearwater. Florida records a Notice of Commencement when construction starts, which dates the start of a construction loan."
+
+sources:
+  recorder:                       # PRIORITY 1 -> L loan clock (+ O: notice of commencement dates construction)
+    access: manual_inbox
+    url: "https://officialrecords.mypinellasclerk.org/"
+    phone: "(727) 464-4876"
+    notes: >-
+      Pinellas County Clerk, official records. Pull: construction mortgages and notices of commencement; modifications
+      and extensions (any short-term loan); assignments; satisfactions and new permanent mortgages (stop the clock);
+      claims of lien and lis pendens (READY TO ACT). Until checked, drop documents into data/inbox/recorder/FL/<county>/.
+  court:
+    access: manual_inbox
+    notes: "Pinellas County Clerk of the Circuit Court case search (not on NETR). Drop filings into data/inbox/county_court/FL/<county>/."
+  public_notice:
+    access: manual_inbox
+    notes: "Florida Press Association public notice site (floridapublicnotices.com). Drop notices into data/inbox/public_notice/FL/<county>/."
+  permits:                        # PRIORITY 2 -> I site inactivity + certificates of occupancy (NOT on NETR)
+    access: manual_inbox          # CANDIDATE for open_data_api: St. Petersburg permit service (ArcGIS)
+    url: "https://www.stpete.org/business/building_permitting/building_permits.php"
+    notes: >-
+      City of St. Petersburg permit applications are on an ArcGIS service
+      (https://egis.stpete.org/arcgis/rest/services/ServicesDSD/AllPermitApplicaitons/MapServer); certificate-of-
+      occupancy history is in the city's property cards (look up by hand). Clearwater has its own building
+      department. Drop exports into data/inbox/permit/FL/<county>/ (building_permit / permit_inspection /
+      certificate_of_occupancy). permits.py loads them.
+
+reference_sites:
+  - {office: "Property Appraiser", phone: "(727) 464-3207", url: "https://www.pcpao.gov/",
+     feeds: "Part C: parcel numbers and owner names; a new building's value appearing = it was finished"}
+  - {office: "Tax Collector", phone: "(727) 464-7777", url: "https://pinellas.county-taxes.com/public/search/property_tax",
+     feeds: "READY TO ACT: delinquent property taxes / tax certificates"}
+  - {office: "PCPAO map (GIS)", url: "https://www.pcpao.gov/gis.html", feeds: "Part C: parcels for matching"}
+  - {office: "NETR Mapping and GIS", url: "https://map.netronline.com/florida-pinellas/12103", feeds: "Part C: parcel lookups"}
+  - {office: "Historic Aerials", url: "https://www.historicaerials.com/", feeds: "Checking construction progress by hand"}

@@ -5,12 +5,12 @@
 - Opening date watch is good but **weaker**. A 3–6 month delay is normal, so it's weighted accordingly.
 - Creative signals are very promising once we find a reliable way to detect them.
 - Court and lien filings come **late**: they show a situation that's already actionable, not an early warning.
-- Forced and public sales are not really a signal, and Trepp gives little edge because everyone has it.
+- Forced and public sales are not really a signal, and CMBS data gives little edge because everyone has it.
 
 ## What we changed
 - The construction-loan clock (weight 50) and opening date watch (20) outweigh the other signals (15 each). A building that **opened with its construction loan still outstanding** gets +0.25 on L.
 - Court and lien filings are a **READY TO ACT** confirmation: at most 10 points, plus the tag.
-- Auctions and Trepp/CMBS are shown as context only.
+- Auctions and CMBS are shown as context only.
 - County records are found through **NETR Online** (`python -m collectors.discover`). Sites are screened in signal order: recorders (loan clock) → building departments (inspections, certificates of occupancy) → assessors (parcel IDs for Part C) → courts and public notices (ready to act). See `signal_priority` in `config/discovery.yaml`.
 
 Built from Bloomfield's feedback: **early signals find the opportunity; court filings and liens only confirm it.**
@@ -39,16 +39,16 @@ Score = min(100, Early + Late)
 | Signal | s = 0 → 1 | Reliability q | Data from |
 |---|---|---|---|
 | **R** rent vs. city | (city rent change − property rent change) ÷ 15 pts | 0.9 | B `rent_observations` + A `market_rents` |
-| **I** site inactivity | 60 → 180 days since a city inspection on an open permit | 0.8 | A `permit_inspections` |
+| **I** site inactivity | 60 → 180 days since a city inspection on an open permit | 0.8 | A `permit_inspections` (filled by `collectors/permits.py` from city building departments; NETR does not list them) |
 | **Q** occupancy slide | (peak occupancy in the last 36 months − occupancy now − market drop) ÷ 15 pts | 0.9 (×0.7 with no market data) | `operating_metrics` + `market_occupancy` |
-| **V** income erosion | (best-year NOI in the last 48 months − NOI now) ÷ best-year NOI ÷ 50%. **No DSCR** (debt service needs Trepp, which we don't have) | 1.0 | `operating_metrics` (public disclosures) |
+| **V** income erosion | (best-year NOI in the last 48 months − NOI now) ÷ best-year NOI ÷ 50%. **No DSCR** (debt service is not available) | 1.0 | `operating_metrics` (public disclosures) |
 | **X** cost squeeze | (expense growth − revenue growth since the best year) ÷ 15 pts | 0.6 | `operating_metrics` |
 | **K** concession creep | (free months **per year of lease term** now − 6+ months earlier) ÷ 1 month. Unknown term = 12 months | 0.7 | B `rent_observations` (free rent + lease term) |
 | **Lq** licensing / care | CMS 1-star 0.8, 2-star 0.5; abuse flag +0.2; state license distress 0.8 | 0.6 | A `licensing_records` |
 
 Related creative signals (e.g. falling occupancy and falling income) count as at most **2** anti-fluke confirmations, so one story can't confirm itself.
 
-**Not scored** (Bloomfield: public, forced, or everyone already has it): Ten-X auctions, Trepp / CMBS DSCR and watchlists.
+**Not scored** (Bloomfield: public, forced, or everyone already has it): Ten-X auctions, CMBS DSCR and watchlists.
 
 **Tiers:** Hot ≥ 50 (call this week) · Watch ≥ 25 · Low below that.
 **Stage:** *Early* = no late filings yet (Bloomfield gets there first). *Ready to act* = a court filing or lien already exists.
@@ -131,7 +131,7 @@ On real data, after Parts A, B and C have run: `python -m scorer.weekly`, then `
 | Piece | File |
 |---|---|
 | The equation | `scorer/equation.py` |
-| Weekly run: filters (office off, $5M–$50M, all U.S.), ranking, deal quality, deal angles, history, research log | `scorer/weekly.py` |
+| Weekly run: filters (office shown by default with a switch to hide it, $2.5M minimum and no upper limit, all U.S.), ranking, deal quality, deal angles, history, research log | `scorer/weekly.py` |
 | Every number | `config/equation.yaml` |
 | Pages: Ranked flags · Flag details · What changed this week · Research log · How the score works | `dashboard/app.py` |
 | Demo data (uses the team's fake-data scripts and matcher, plus extra FAKE properties) | `scorer/demo_week.py` |
@@ -140,3 +140,13 @@ The older scorer (`python -m scorer`, `config/scoring.yaml`) still runs and writ
 
 ## Backtesting a real deal
 `python -m scorer.case_study data/cases/<deal>.yaml` loads a deal into a throwaway database, scores it on several past dates (only data disclosed by each date), and runs valuation scenarios (`scorer/valuation.py`). Real deal files stay in `data/` (git-ignored): this repository is public.
+
+## Where permits, inspections and certificates of occupancy come from
+NETR Online lists recorders, assessors and tax offices only, not building departments. Each county file has a
+`permits:` source pointing at the main city's building department (Ann Arbor A2Trak, Phoenix permit export,
+Austin open data, Miami-Dade open data hub, St. Petersburg permit service). Exports dropped in
+`data/inbox/permit/<ST>/<county>/{building_permit,permit_inspection,certificate_of_occupancy}/` (or fed by an
+open-data source) are loaded by `python -m collectors.permits` (part of `collectors.run_all`) into
+`permit_inspections` and `filing_fields`. That turns on **I** (site inactivity), the certificate-of-occupancy
+check behind "opened but construction loan still outstanding", and the stale-opening check. Column names follow
+the BLDS open permit-data standard, with aliases and per-county overrides. Residential permits are skipped.

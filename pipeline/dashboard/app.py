@@ -108,7 +108,12 @@ def tags(r):
         out.append(":violet-badge[⭐ STANDOUT]")
     if "COUNTER-SIGNAL" in (r["flags"] or ""):
         out.append(":blue-badge[↩ COUNTER-SIGNAL]")
-    out.append(":red-badge[✅ READY TO ACT]" if r["stage"] == "ready_to_act" else ":green-badge[Early warning]")
+    if r["stage"] == "ready_to_act":
+        out.append(":red-badge[✅ READY TO ACT]")
+    elif r["score"] and r["score"] > 0:
+        out.append(":green-badge[Early warning]")
+    else:
+        out.append(":gray-badge[No warning signs yet]")
     return " ".join(out)
 
 
@@ -121,15 +126,33 @@ def page_ranked(con, run_id):
     status = latest_status(con)
     st.title("This week's flags")
     st.caption(f"Bloomfield Opportunity Score {cfg['version']} · {run_id.replace('week-', 'week of ')} · "
-               f"{', '.join(f['property_types_excluded'])} hidden · loans {money(f['min_loan_size'])}–"
-               f"{money(f['max_loan_size'])} · {'states ' + ', '.join(f['states']) if f['states'] else 'all U.S.'}")
+               f"{(', '.join(f['property_types_excluded']) + ' hidden') if f['property_types_excluded'] else 'all property types shown'} · loans from {money(f['min_loan_size'])}"
+               f"{' to ' + money(f['max_loan_size']) if f.get('max_loan_size') else ' (no upper limit)'} · {'states ' + ', '.join(f['states']) if f['states'] else 'all U.S.'}")
+    hide_office = st.toggle("Hide office properties", value=False,
+                            help="Office is shown by default. Turn this on to filter it out of the list and the counts.")
+    if hide_office:
+        df = df[df["property_type"].fillna("") != "Office"]
     ranked = df[df["rank"].notna()]
+    live = eq.load_equation_config()["filters"]
+    if {k: f.get(k) for k in ("min_loan_size", "max_loan_size", "property_types_excluded")} != \
+            {k: live.get(k) for k in ("min_loan_size", "max_loan_size", "property_types_excluded")}:
+        st.warning("This run was made with older filter settings than the ones now in config/equation.yaml "
+                   f"(it used loans {money(f['min_loan_size'])}–{money(f['max_loan_size']) if f.get('max_loan_size') else 'no limit'}, "
+                   f"hiding {', '.join(f['property_types_excluded']) or 'nothing'}). "
+                   "Pull the latest code and run `python -m scorer.weekly` again to apply the current settings.")
+    if len(ranked) and not (ranked["score"] > 0).any():
+        st.info("None of these properties has an early warning sign yet. They are listed because they pass the filters; "
+                "they are known only from public loan data. Add county records or run the web bot to find signals.")
     c = st.columns(5)
-    c[0].metric("Ranked", len(ranked))
+    c[0].metric("Listed", len(ranked))
     c[1].metric("Hot (call this week)", int((ranked["tier"] == "hot").sum()))
     c[2].metric("Watch", int((ranked["tier"] == "watch").sum()))
-    c[3].metric("Early warning (no filing yet)", int((ranked["stage"] == "early").sum()))
+    c[3].metric("Early warning (no filing yet)", int(((ranked["stage"] == "early") & (ranked["score"] > 0)).sum()))
     c[4].metric("Filtered out", int((~df["shown"]).sum()))
+    if len(ranked) == 0 and len(df) and not df["shown"].any():
+        why = df["filter_reason"].fillna("unknown").value_counts()
+        st.warning("Every flag is hidden by the filters. Reasons: " + "; ".join(f"{n} × {r}" for r, n in why.items())
+                   + ". Turn on 'Show filtered-out' to see them, or change `filters:` in config/equation.yaml.")
 
     left, right = st.columns([2, 1])
     tier_pick = left.multiselect("Tiers", ["hot", "watch", "low"], default=["hot", "watch", "low"],
@@ -146,7 +169,7 @@ def page_ranked(con, run_id):
                        f"{esc(place)} · {money(r['loan_amount'])}")
             b.markdown(tags(r))
             parts = [f"{code} {r[col]:.0%}" for col, code, _, _ in TERMS if r.get(col) and r[col] > 0]
-            b.caption(("Early signals: " + " · ".join(parts)) if parts else "No early signals (late filings only)")
+            b.caption(("Early signals: " + " · ".join(parts)) if parts else ("No early signals (late filings only)" if r["score"] and r["score"] > 0 else "No warning signs found yet"))
             if not r["shown"]:
                 b.markdown(f":gray[Hidden: {esc(r['filter_reason'])}]")
             if r["property_id"] in status:
@@ -222,7 +245,7 @@ def page_detail(con, run_id):
     ctx = json.loads(r["context"])
     if ctx:
         st.subheader("Context (shown, not scored)")
-        st.caption("Bloomfield: auctions and Trepp/CMBS data are public or everyone has them.")
+        st.caption("Bloomfield: auctions and CMBS data are public or everyone has them.")
         for s in ctx:
             st.markdown(f"- {esc(s)}")
 
@@ -342,12 +365,12 @@ def page_how(con, run_id):
 - Opening date watch is good but **weaker**. A 3–6 month delay is normal.
 - Creative signals (rent vs. the city, a site gone quiet) are very promising once we can detect them reliably.
 - Court and lien filings come **late**: the situation is already actionable, not an early warning.
-- Forced and public sales are not really a signal, and Trepp gives little edge because everyone has it.
+- Forced and public sales are not really a signal, and CMBS data gives little edge because everyone has it.
 
 **What we changed**
 - The construction-loan clock (50) and opening date watch (20) outweigh every other signal; a building that opened with its loan still outstanding gets an extra boost.
 - Court and lien filings add at most a few points and tag the flag **✅ READY TO ACT**.
-- Auctions and Trepp/CMBS are shown as context only, never scored.
+- Auctions and CMBS are shown as context only, never scored.
 - County records are found through **NETR Online** (`python -m collectors.discover`), recorders first because they feed the loan clock.
 """)
     st.latex(r"C = 1-\prod_{j\in\{R,I,Q,V,X,K,L_q\}}\left(1-q_j\,s_j\right)")
@@ -369,7 +392,7 @@ def page_how(con, run_id):
         {"Signal": "R · Rent vs. city", "s = 0 → 1": f"(city rent change − property rent change) ÷ {rd['full_gap']:.0%}", "q": rd["reliability"], "From": "B rent_observations + A market_rents"},
         {"Signal": "I · Site inactivity", "s = 0 → 1": f"{ig['start_days']} → {ig['full_days']} days since a city inspection", "q": ig["reliability"], "From": "A permit_inspections"},
         {"Signal": "Q · Occupancy slide", "s = 0 → 1": f"(peak occ. last {qo['lookback_months']} mo − occ. now − market drop) ÷ {qo['full_gap']:.0%}", "q": qo["reliability"], "From": "operating_metrics + market_occupancy"},
-        {"Signal": "V · Income erosion", "s = 0 → 1": f"NOI drop from its best year (last {iv['lookback_months']} mo) ÷ {iv['full_noi_drop']:.0%}", "q": iv["reliability"], "From": "operating_metrics (public disclosures; no DSCR / Trepp)"},
+        {"Signal": "V · Income erosion", "s = 0 → 1": f"NOI drop from its best year (last {iv['lookback_months']} mo) ÷ {iv['full_noi_drop']:.0%}", "q": iv["reliability"], "From": "operating_metrics (public disclosures; no DSCR)"},
         {"Signal": "X · Cost squeeze", "s = 0 → 1": f"(expense growth − revenue growth since best year) ÷ {xs['full_gap']:.0%}", "q": xs["reliability"], "From": "operating_metrics"},
         {"Signal": "K · Concession creep", "s = 0 → 1": f"(free months per lease-year now − 6+ months ago) ÷ {kc['full_per_year']}", "q": kc["reliability"], "From": "B rent_observations (free rent + lease term)"},
         {"Signal": "Lq · Licensing / care", "s = 0 → 1": "CMS 1-star 0.8 · 2-star 0.5 · abuse +0.2 · state distress 0.8", "q": lq["reliability"], "From": "A licensing_records"},
@@ -380,7 +403,7 @@ def page_how(con, run_id):
 - **⭐ STANDOUT:** a signal at ≥ {so['at_strength']:.0%} counts ×max({so['boost']}, rescale) and skips the anti-fluke discount (the boost and the rescale don't stack).
 - **↩ COUNTER-SIGNAL:** strong evidence the other way (rent beating its city by {cs['rent_beats_city_by']:.0%}+, or a city inspection in the last {cs['inspected_within_days']} days) multiplies early points by {cs['factor']} each.
 - **Ready to act (max {late['max_points']}):** court/legal filing {late['court_points']}, contractor liens {late['lien_points']} each up to {late['max_lien_points']}. Older than {late['recent_days']} days count half.
-- **Not scored:** Ten-X auctions and Trepp/CMBS data are shown as context only.
+- **Not scored:** Ten-X auctions and CMBS data are shown as context only.
 - **Tiers:** Hot ≥ {cfg['tiers']['hot']}, Watch ≥ {cfg['tiers']['watch']}.
 
 Edit every number in `pipeline/config/equation.yaml`, then rerun `python -m scorer.weekly`.

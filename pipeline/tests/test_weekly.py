@@ -1,13 +1,26 @@
 """Tests for the weekly run behind the dashboard (scorer/weekly.py). Fake data only."""
 from datetime import date
 
+import pytest
+
 from scorer import equation as eq
 from scorer import weekly
 from scorer.schema import open_db
 
 
+@pytest.fixture(autouse=True)
+def _tests_use_made_up_data(monkeypatch):
+    monkeypatch.setenv("BLOOMFIELD_INCLUDE_DEMO", "1")      # these tests use FAKE properties; real runs leave them out
+
+
 def _add(con, table, **row):
     con.execute(f"INSERT INTO {table} ({', '.join(row)}) VALUES ({', '.join('?' for _ in row)})", list(row.values()))
+
+
+def hide_office_cfg():
+    cfg = eq.load_equation_config()
+    cfg["filters"] = {**cfg["filters"], "property_types_excluded": ["Office"]}
+    return cfg
 
 
 def test_weekly_run_filters_ranks_and_compares(tmp_path):
@@ -16,19 +29,97 @@ def test_weekly_run_filters_ranks_and_compares(tmp_path):
     for rid, d, addr, st, amt, ptype in [
         ("a", date(2021, 1, 1), "1 A St", "MI", 20e6, "multifamily"),    # standout, shown
         ("b", date(2021, 1, 1), "2 B St", "IL", 20e6, "office"),         # office: filtered out
-        ("c", date(2021, 1, 1), "3 C St", "TX", 90e6, "retail"),         # too big: filtered out
+        ("c", date(2021, 1, 1), "3 C St", "TX", 1.9e6, "retail"),        # below the $2.5M minimum: filtered out
     ]:
         _add(con, "recorded_loans", record_id=rid, loan_kind="construction", recording_date=d,
              property_address=addr, state=st, amount=amt, grantee="Bank", grantor="Owner LLC")
         _add(con, "projects", project_id="p" + rid, project_name="FAKE " + rid.upper(), property_address=addr,
              state=st, property_type=ptype, months_overdue=0.0, stale_candidate=False)
-    weekly.run(con, eq.load_equation_config(), date(2026, 11, 2))
+    weekly.run(con, hide_office_cfg(), date(2026, 11, 2))
     _add(con, "recorded_loans", record_id="d", loan_kind="construction", recording_date=date(2021, 1, 1),
          property_address="4 D St", state="OH", amount=10e6, grantee="Bank", grantor="Owner LLC")
-    run2 = weekly.run(con, eq.load_equation_config(), date(2026, 11, 9))
+    run2 = weekly.run(con, hide_office_cfg(), date(2026, 11, 9))
     rows = {r[0]: r[1:] for r in con.execute(
         "SELECT property_name, rank, shown, flags FROM weekly_flags WHERE run_id = ?", [run2]).fetchall()}
     assert rows["FAKE A"][0] == 1 and rows["FAKE A"][2] == "STANDOUT"
     assert not rows["FAKE B"][1] and not rows["FAKE C"][1]
     ch = weekly.changes(con, run2)
     assert len(ch["new"]) == 1 and ch["previous"] == "week-2026-11-02"
+
+
+def test_there_is_no_upper_limit_and_the_minimum_is_two_and_a_half_million():
+    f = eq.load_equation_config()["filters"]
+    assert f["min_loan_size"] == 2_500_000 and f["max_loan_size"] is None
+    assert weekly.passes_filters("retail", "TX", 2.5e6, f)[0]                # exactly the minimum is in
+    assert not weekly.passes_filters("retail", "TX", 2.4e6, f)[0]            # just under is out
+    for big in (50e6, 500e6, 5e9):                                           # any size above the minimum is in
+        assert weekly.passes_filters("multifamily", "MI", big, f)[0]
+    assert weekly.passes_filters("multifamily", "MI", None, f)[0]            # unknown size is kept, marked as such
+    f2 = {**f, "max_loan_size": 100e6}                                       # a cap still works if someone sets one
+    assert not weekly.passes_filters("multifamily", "MI", 150e6, f2)[0]
+
+
+def test_only_real_office_is_hidden_as_office():
+    ct = weekly.clean_type
+    assert ct("Mixed-use (retail/office)") == "Mixed use"       # was wrongly "Office", so it was filtered out
+    assert ct("hotel and office tower") == "Hotel"
+    assert ct("Industrial / Office flex") == "Industrial"
+    assert ct("Retail with office above") == "Retail"
+    assert ct("Class A office") == "Office" and ct("OF") == "Office" and ct("Medical Office Building") == "Office"
+    f = eq.load_equation_config()["filters"]
+    hide = hide_office_cfg()["filters"]
+    assert weekly.passes_filters(ct("Mixed-use (retail/office)"), "MI", 20e6, hide)[0]
+    assert not weekly.passes_filters(ct("Class A office"), "MI", 20e6, hide)[0]    # hidden only when the switch is on
+    assert weekly.passes_filters(ct("Class A office"), "MI", 20e6, f)[0]           # shown by default
+
+
+def test_the_run_explains_when_everything_is_filtered_out(tmp_path):
+    con = open_db(tmp_path / "t.duckdb")
+    weekly.create_tables(con)
+    for i in range(3):
+        _add(con, "recorded_loans", record_id=f"x{i}", loan_kind="construction", recording_date=date(2021, 1, 1),
+             property_address=f"{i} X St", state="MI", amount=20e6, grantee="Bank", grantor="Owner LLC")
+        _add(con, "projects", project_id=f"px{i}", project_name=f"FAKE X{i}", property_address=f"{i} X St",
+             state="MI", property_type="office", months_overdue=0.0, stale_candidate=False)
+    run_id = weekly.run(con, hide_office_cfg(), date(2026, 11, 2))
+    fs = weekly.filter_summary(con, run_id)
+    assert fs["shown"] == 0 and fs["hidden"] == 3 and fs["reasons"] == {"Office is filtered out": 3}
+
+
+def test_office_is_shown_by_default_and_can_be_hidden(tmp_path):
+    f = eq.load_equation_config()["filters"]
+    assert f["property_types_excluded"] == []                                      # nothing is hidden by default
+    con = open_db(tmp_path / "t.duckdb")
+    weekly.create_tables(con)
+    _add(con, "recorded_loans", record_id="o", loan_kind="construction", recording_date=date(2021, 1, 1),
+         property_address="1 O St", state="MI", amount=20e6, grantee="Bank", grantor="Owner LLC")
+    _add(con, "projects", project_id="po", project_name="FAKE OFFICE", property_address="1 O St", state="MI",
+         property_type="office", months_overdue=0.0, stale_candidate=False)
+    run_id = weekly.run(con, eq.load_equation_config(), date(2026, 11, 2))
+    shown, rank = con.execute("SELECT shown, rank FROM weekly_flags WHERE run_id = ?", [run_id]).fetchone()
+    assert shown and rank == 1                                                     # the office property is on the list
+    # ...but it does not earn the "a type Bloomfield buys" deal-quality points
+    row = con.execute("SELECT deal_parts FROM weekly_flags WHERE run_id = ?", [run_id]).fetchone()[0]
+    assert "Property type" not in row
+
+
+def test_properties_known_only_from_public_loan_data_are_listed_not_hidden(tmp_path):
+    """Real SEC data gives loans with no early warning signs (score 0). They pass the filters, so they must be listed."""
+    con = open_db(tmp_path / "t.duckdb")
+    weekly.create_tables(con)
+    for i, bal in enumerate([60e6, 10e6, 2.4e6, 3.1e6]):
+        _add(con, "loans", loan_key=f"edgar:T{i}:{i}", source="sec_edgar", deal_name=f"FAKE Trust {i}",
+             property_name=f"FAKE Promenade {i}", property_address=f"{i} Promenade Blvd", property_city="Rogers",
+             property_state="AR", property_type="RT", current_balance=bal, original_balance=bal, dscr=1.82)
+    _add(con, "recorded_loans", record_id="sig", loan_kind="construction", recording_date=date(2021, 1, 1),
+         property_address="9 Signal St", state="MI", amount=20e6, grantee="Bank", grantor="Owner LLC")
+    run_id = weekly.run(con, eq.load_equation_config(), date(2026, 11, 2))
+    rows = con.execute("SELECT property_name, shown, rank, score, filter_reason FROM weekly_flags WHERE run_id = ? "
+                       "ORDER BY rank NULLS LAST", [run_id]).fetchall()
+    shown = [r for r in rows if r[1]]
+    assert [r[0] for r in rows if r[2] is not None][0] != "FAKE Promenade 0"        # a property with a signal ranks first
+    assert all(r[2] is not None for r in shown)                                      # every shown property has a rank (is listed)
+    names = {r[0] for r in shown}
+    assert {"FAKE Promenade 0", "FAKE Promenade 1", "FAKE Promenade 3"} <= names     # $60M is no longer "too big"
+    hidden = [r for r in rows if not r[1]]
+    assert [r[0] for r in hidden] == ["FAKE Promenade 2"] and "below the $2.5M" in hidden[0][4]   # only the $2.4M loan is hidden

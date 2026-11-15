@@ -101,14 +101,14 @@ def week1(con):
     ins(con, "permit_inspections", permit_number="BP-FK-12", state="OH", city="Columbus",
         inspection_date=date(2026, 10, 28), inspection_type="final framing", result="pass")
 
-    # Filtered out: office (Bloomfield doesn't buy it) and a loan above $50M.
-    a = "200 FAKE W Sample St, Chicago, IL"
-    loan(con, "fk-mo-1", "construction", date(2021, 1, 15), a, "IL", "Cook", "FAKE Midtown Office LLC",
-         "FAKE Lakeshore Bank", 33e6)
-    project(con, "fk-mo", "FAKE Midtown Office Center", a, "Chicago", "IL", "office", "Available 2025", 10.0)
+    # An office property (shown by default; the dashboard has a switch to hide it) and a loan below the $2.5M minimum (filtered out).
+    a = "200 FAKE Central Ave, St. Petersburg, FL"
+    loan(con, "fk-mo-1", "construction", date(2021, 1, 15), a, "FL", "Pinellas", "FAKE Midtown Office LLC",
+         "FAKE Gulf Coast Bank", 33e6)
+    project(con, "fk-mo", "FAKE Midtown Office Center", a, "St. Petersburg", "FL", "office", "Available 2025", 10.0)
     a = "9000 FAKE Gateway Blvd, Dallas, TX"
     loan(con, "fk-gp-1", "construction", date(2021, 3, 1), a, "TX", "Dallas", "FAKE Gateway Retail LLC",
-         "FAKE Lone Star Bank", 72e6)
+         "FAKE Lone Star Bank", 1.8e6)
     project(con, "fk-gp", "FAKE Gateway Plaza", a, "Dallas", "TX", "retail", "Opening 2025", 11.0)
 
     # Bloomfield's strongest case: the building OPENED (certificate of occupancy) but its
@@ -186,12 +186,12 @@ def build(path: Path = DEMO_DB) -> Path:
     con.close()
     sh("-m", "matcher", "--as-of", WEEK1.isoformat(), db=path)
     con = open_db(path)
-    weekly.run(con, None, WEEK1)
+    weekly.run(con, None, WEEK1, include_demo=True)
     week2(con)
     con.close()
     sh("-m", "matcher", "--as-of", WEEK2.isoformat(), db=path)
     con = open_db(path)
-    weekly.run(con, None, WEEK2)
+    weekly.run(con, None, WEEK2, include_demo=True)
     research_log(con)
     con.close()
     return path

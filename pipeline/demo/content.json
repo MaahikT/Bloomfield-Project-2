@@ -8,7 +8,7 @@
   },
   "problem": {
     "headline": "Find owners in financial trouble before the broker network does.",
-    "body": "Bloomfield lends on and buys commercial property anywhere in the U.S. (not office). A bank has strict limits on how it can help a struggling borrower; Bloomfield has few. Reaching the borrower first means offering a loan that actually fixes the problem.",
+    "body": "Bloomfield lends on and buys commercial property anywhere in the U.S. Office properties are shown by default and can be filtered out. A bank has strict limits on how it can help a struggling borrower; Bloomfield has few. Reaching the borrower first means offering a loan that actually fixes the problem.",
     "stats": [
       {
         "n": "$200M",
@@ -47,8 +47,8 @@
     {
       "name": "Stale or delayed opening dates",
       "status": "in_progress",
-      "built": "Date rules turn phrases like \"Fall 2026\" into a deadline (fully tested), and the scorer flags projects that are overdue and still unopened.",
-      "next": "The weekly website checker and Wayback Machine history (the Scout)."
+      "built": "Date rules turn phrases like \"Fall 2026\" into a deadline. The web bot now opens project websites, reads what they say and flags late projects.",
+      "next": "Run the bot on real project sites and add a search-service key."
     },
     {
       "name": "Foreclosure notices and receiverships",
@@ -59,20 +59,20 @@
     {
       "name": "Weak loans and lender stress",
       "status": "in_progress",
-      "built": "Loaders for SEC loan filings, the Trepp screen and bank call reports are coded, and scoring passes sample tests.",
+      "built": "Loaders for SEC loan filings and bank call reports are coded, and scoring passes sample tests.",
       "next": "Verify SEC field names and bank-report codes against real files."
+    },
+    {
+      "name": "Local news and leasing-site monitoring",
+      "status": "in_progress",
+      "built": "The web bot reads approved news feeds and notices for foreclosures, receiverships and lawsuits. Each lead is saved for a person to confirm.",
+      "next": "Choose the news feeds, add a search-service key, and run it on real sources."
     },
     {
       "name": "Ten-X auctions",
       "status": "not_built",
       "built": "",
       "next": "The reader and scorer can already handle an auction listing; the weekly collection from Ten-X is not built. Its terms of use are checked first."
-    },
-    {
-      "name": "Local news and leasing-site monitoring",
-      "status": "not_built",
-      "built": "",
-      "next": "The Scout that reads approved news, developer and leasing sites each week."
     },
     {
       "name": "Tracking each flag through to a closed deal",
@@ -83,7 +83,7 @@
   ],
   "results": {
     "tests": {
-      "passing": 319,
+      "passing": 374,
       "note": "They all pass, and none needs the internet or an API key."
     },
     "live_reader": {
@@ -97,10 +97,10 @@
       "note": "Real model, invented documents. The run stopped at Google's free-key limit (20 requests a day)."
     },
     "pipeline": {
-      "documents": 117,
-      "linked": 144,
-      "properties": 49,
-      "hot": 10,
+      "documents": 111,
+      "linked": 137,
+      "properties": 47,
+      "hot": 9,
       "watch": 12
     },
     "accuracy": "Not measured yet. Our labeled test set (about 30 documents, target about 90% of fields correct) is the next test to build."
@@ -146,12 +146,12 @@
   "asks": [
     {
       "ask": "Which states and counties first?",
-      "detail": "We have five samples: Washtenaw MI, Cook IL, Maricopa AZ, Travis TX, Miami-Dade FL.",
+      "detail": "We have five samples: Washtenaw MI, Maricopa AZ, Travis TX, Miami-Dade FL, Pinellas FL.",
       "by": "On this call"
     },
     {
       "ask": "A few anonymized sample deals",
-      "detail": "Plus the Trepp screen (DSCR under 1.0x) if Bloomfield is happy to share one.",
+      "detail": "Plus any CMBS or loan data Bloomfield is happy to share.",
       "by": "By Tue, Nov 10"
     },
     {
@@ -169,7 +169,7 @@
     "in": [
       "A weekly run that turns public records into ranked flags with evidence and exact quotes",
       "The Ann Arbor-style signals working end to end, plus at least one real county",
-      "Researcher view: approve, dismiss, notes; office hidden by default; filters for state, type and size",
+      "Researcher view: approve, dismiss, notes; office shown by default with a switch to hide it; filters for state, type and size",
       "AI reading tested on a labeled set, with the accuracy number shown"
     ],
     "later": [
@@ -294,7 +294,7 @@
       },
       {
         "name": "Lender and CMBS stress",
-        "idea": "Banks with rising nonaccruals, and CMBS loans with DSCR under 1.0x. Trepp data is common, so it is a small weight."
+        "idea": "Banks with rising nonaccruals, and CMBS loans with DSCR under 1.0x. CMBS data is common, so it is a small weight."
       },
       {
         "name": "Creative signals",
@@ -320,7 +320,7 @@
       "title": "Public-records collectors",
       "stack": "Python and a shared DuckDB database",
       "built": [
-        "Collectors for county courts and recorders, SEC loan filings, bank call reports, CMS data and the Trepp screen",
+        "Collectors for county courts and recorders, SEC loan filings, bank call reports, CMS data",
         "One settings file per county (all 3,100 are in a registry), plus statewide files",
         "Polite by design: reads robots.txt, one request every 3 seconds per site, identifies itself, and never logs in or bypasses a CAPTCHA or paywall",
         "A site that does not allow automation falls back to a manual drop-in folder",
@@ -336,7 +336,7 @@
         "One wrapper for every AI call; the model is a setting, so we can switch providers in minutes",
         "Fixed instructions and a fixed list of fields; the model only returns structured data",
         "Every value must carry an exact quote, and the quote is checked against the document",
-        "OCR for scans, saved answers (nothing is paid for twice), a weekly spending cap, and Trepp or Bloomfield material is never sent"
+        "OCR for scans, saved answers (nothing is paid for twice), a weekly spending cap, and Bloomfield's own material is never sent"
       ]
     },
     {
@@ -390,7 +390,7 @@
         "why": "They show a situation that is already actionable, not an early warning, so they carry modest points and mark a property Ready to act."
       },
       {
-        "name": "Forced sales and Trepp data",
+        "name": "Forced sales and CMBS data",
         "weight": "Lowest weight",
         "why": "Everyone has this data, so it gives little edge. It is kept, but it cannot carry a property into Tier 1 on its own."
       },
