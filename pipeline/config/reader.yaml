@@ -3,9 +3,11 @@
 # Change values here instead of changing Python code.
 # ---------------------------------------------------------------------------
 
-# Which company's AI service to call: "anthropic", "gemini" (Google) or "openai_compatible".
+# Which company's AI service to call: "openai_compatible" (OpenAI, the default), "anthropic" or "gemini" (Google).
 # (Can be overridden with LLM_PROVIDER in .env, which is the easy way to switch.)
-provider: anthropic
+# EVERY AI STEP in this project (the reader, the scout, the summaries) reads its key from the environment variable
+# OPENAI_API_KEY. It is a placeholder: put your real key in pipeline/.env, never in code or in the repo.
+provider: openai_compatible
 
 # Model names PER PROVIDER, so switching provider also switches models. "cheap" does quick yes/no style jobs;
 # "strong" does careful extraction. The AI Sprint manager may change these; nothing in the code hardcodes a model.

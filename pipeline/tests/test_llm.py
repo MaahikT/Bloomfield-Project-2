@@ -29,7 +29,7 @@ def ok_anthropic(text='{"a": 1}', i=100, o=20, stop="end_turn"):
 @pytest.fixture(autouse=True)
 def _setup(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-secret-123")
-    monkeypatch.delenv("LLM_PROVIDER", raising=False)
+    monkeypatch.setenv("LLM_PROVIDER", "anthropic")      # the project default is OpenAI; these tests use pretend Anthropic answers
     monkeypatch.delenv("LLM_API_KEY", raising=False)
     monkeypatch.delenv("LLM_MODEL", raising=False)
     monkeypatch.delenv("LLM_MODEL_STRONG", raising=False)

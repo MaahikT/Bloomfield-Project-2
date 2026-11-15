@@ -110,7 +110,7 @@ def get_api_key(provider: str) -> str:
     """Find the API key in .env. LLM_API_KEY works for any provider."""
     config.load_env()
     names = ["LLM_API_KEY"] + KEY_NAMES.get(provider, [])
-    for name in names:
+    for name in KEY_NAMES.get(provider, []) + ["LLM_API_KEY"]:       # the provider's own variable first (OPENAI_API_KEY)
         if os.environ.get(name, "").strip():
             return os.environ[name].strip()
     raise LLMConfigError(

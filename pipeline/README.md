@@ -123,9 +123,14 @@ python scripts/setup_db.py          # creates Part A's AND Part B's tables
 Add to `pipeline/.env` (never commit it, never paste a key into chat):
 
 ```
-LLM_API_KEY=your-key-here
-# LLM_PROVIDER=anthropic            # or openai_compatible (then also set LLM_BASE_URL)
+OPENAI_API_KEY=your-openai-api-key-here    # the placeholder every AI step reads (os.environ["OPENAI_API_KEY"])
+# LLM_PROVIDER=openai_compatible           # the default; or anthropic / gemini (then use that provider's key)
+# LLM_BASE_URL=https://api.openai.com/v1   # default; change it only for another OpenAI-style service
 ```
+
+Every AI step (the reader, the scout, the plain-English summaries) goes through one wrapper (`llm/client.py`) and uses
+`OPENAI_API_KEY` unless you switch provider. A website must never hold the key: if the web page ever calls the AI,
+it goes through a here.now proxy route that references `${OPENAI_API_KEY}` (your instructor adds that variable).
 
 Model names, prices, spending caps and privacy switches all live in `config/reader.yaml`.
 **The prices in that file are placeholders. Check your provider's price list and edit them.**
