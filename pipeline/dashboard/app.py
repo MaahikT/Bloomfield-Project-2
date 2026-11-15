@@ -80,6 +80,53 @@ def money(x):
     return f"${x / 1e6:.1f}M" if x >= 1e6 else f"${x:,.0f}"
 
 
+# ---------------------------------------------------------------------------
+# Token-gated research-ingest console (agent/ingest.py). Not linked anywhere;
+# reachable only at ?ingest_key=<BLOOMFIELD_INGEST_KEY> while BLOOMFIELD_INGEST=1.
+# Lets the authorized researcher download the flagged list (with property IDs)
+# and upload evidence batches onto the volume, where the ingest thread verifies
+# each row (fetch the cited page, verbatim-quote check) before storing it.
+# No LLM calls and no paid search anywhere on this path.
+# ---------------------------------------------------------------------------
+def maybe_ingest_console():
+    key = st.query_params.get("ingest_key")
+    if key is None:
+        return
+    expected = os.environ.get("BLOOMFIELD_INGEST_KEY", "")
+    st.title("Research ingest console")
+    if os.environ.get("BLOOMFIELD_INGEST") != "1" or not expected or key != expected:
+        st.error("Not authorized.")
+        st.stop()
+    con = get_con()
+    all_runs = runs(con)
+    if all_runs:
+        run_id = all_runs[0]
+        df = flags(con, run_id)
+        shown = df[df["shown"]]
+        st.subheader(f"Flagged list - {len(shown)} shown flags (run {run_id})")
+        cols = [c for c in ["property_id", "rank", "property_name", "address", "city", "state",
+                            "property_type", "borrower", "lender", "loan_amount", "score", "tier",
+                            "deal_quality", "est_value", "ltv", "filter_reason", "summary", "explanation"]
+                if c in shown.columns]
+        st.download_button(f"Download flagged list (CSV, {len(shown)} rows)", shown[cols].to_csv(index=False),
+                           f"flagged-{run_id}.csv", "text/csv")
+        st.download_button(f"Download FULL universe (CSV, {len(df)} rows)", df[cols].to_csv(index=False),
+                           f"universe-{run_id}.csv", "text/csv")
+    st.subheader("Upload a verified-evidence batch (JSONL)")
+    st.caption("One JSON object per line: id, property_id, claim, value, url, quote, notes, summary. "
+               "The ingest thread fetches each cited page and stores the claim only if the quote "
+               "appears verbatim on the saved page - the same standard the research agent is held to.")
+    up = st.file_uploader("JSONL batch", type=["jsonl"])
+    if up is not None:
+        from agent import ingest
+        dest = ingest.incoming_dir(db_path()) / (
+            f"ingest-{datetime.now(timezone.utc):%Y%m%dT%H%M%S}-{uuid.uuid4().hex[:8]}.jsonl")
+        dest.write_bytes(up.getvalue())
+        st.success(f"Saved {dest.name}. The ingest thread verifies and stores each row within about "
+                   "a minute; refusals and fetch failures are listed in the ingest_rows table.")
+    st.stop()
+
+
 def esc(x):
     """Records come from outside documents: escape before showing."""
     return "" if x is None or (isinstance(x, float) and pd.isna(x)) else html.escape(str(x))
@@ -575,6 +622,7 @@ PAGES = {"Ranked flags": page_ranked, "All properties": page_all, "Flag details"
 
 
 def main():
+    maybe_ingest_console()
     con = get_con()
     all_runs = runs(con)
     with st.sidebar:
