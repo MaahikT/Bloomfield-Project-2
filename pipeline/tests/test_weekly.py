@@ -10,6 +10,12 @@ def _add(con, table, **row):
     con.execute(f"INSERT INTO {table} ({', '.join(row)}) VALUES ({', '.join('?' for _ in row)})", list(row.values()))
 
 
+def hide_office_cfg():
+    cfg = eq.load_equation_config()
+    cfg["filters"] = {**cfg["filters"], "property_types_excluded": ["Office"]}
+    return cfg
+
+
 def test_weekly_run_filters_ranks_and_compares(tmp_path):
     con = open_db(tmp_path / "t.duckdb")
     weekly.create_tables(con)
@@ -22,10 +28,10 @@ def test_weekly_run_filters_ranks_and_compares(tmp_path):
              property_address=addr, state=st, amount=amt, grantee="Bank", grantor="Owner LLC")
         _add(con, "projects", project_id="p" + rid, project_name="FAKE " + rid.upper(), property_address=addr,
              state=st, property_type=ptype, months_overdue=0.0, stale_candidate=False)
-    weekly.run(con, eq.load_equation_config(), date(2026, 11, 2))
+    weekly.run(con, hide_office_cfg(), date(2026, 11, 2))
     _add(con, "recorded_loans", record_id="d", loan_kind="construction", recording_date=date(2021, 1, 1),
          property_address="4 D St", state="OH", amount=10e6, grantee="Bank", grantor="Owner LLC")
-    run2 = weekly.run(con, eq.load_equation_config(), date(2026, 11, 9))
+    run2 = weekly.run(con, hide_office_cfg(), date(2026, 11, 9))
     rows = {r[0]: r[1:] for r in con.execute(
         "SELECT property_name, rank, shown, flags FROM weekly_flags WHERE run_id = ?", [run2]).fetchall()}
     assert rows["FAKE A"][0] == 1 and rows["FAKE A"][2] == "STANDOUT"
@@ -54,8 +60,10 @@ def test_only_real_office_is_hidden_as_office():
     assert ct("Retail with office above") == "Retail"
     assert ct("Class A office") == "Office" and ct("OF") == "Office" and ct("Medical Office Building") == "Office"
     f = eq.load_equation_config()["filters"]
-    assert weekly.passes_filters(ct("Mixed-use (retail/office)"), "MI", 20e6, f)[0]
-    assert not weekly.passes_filters(ct("Class A office"), "MI", 20e6, f)[0]
+    hide = hide_office_cfg()["filters"]
+    assert weekly.passes_filters(ct("Mixed-use (retail/office)"), "MI", 20e6, hide)[0]
+    assert not weekly.passes_filters(ct("Class A office"), "MI", 20e6, hide)[0]    # hidden only when the switch is on
+    assert weekly.passes_filters(ct("Class A office"), "MI", 20e6, f)[0]           # shown by default
 
 
 def test_the_run_explains_when_everything_is_filtered_out(tmp_path):
@@ -66,6 +74,23 @@ def test_the_run_explains_when_everything_is_filtered_out(tmp_path):
              property_address=f"{i} X St", state="MI", amount=20e6, grantee="Bank", grantor="Owner LLC")
         _add(con, "projects", project_id=f"px{i}", project_name=f"FAKE X{i}", property_address=f"{i} X St",
              state="MI", property_type="office", months_overdue=0.0, stale_candidate=False)
-    run_id = weekly.run(con, eq.load_equation_config(), date(2026, 11, 2))
+    run_id = weekly.run(con, hide_office_cfg(), date(2026, 11, 2))
     fs = weekly.filter_summary(con, run_id)
     assert fs["shown"] == 0 and fs["hidden"] == 3 and fs["reasons"] == {"Office is filtered out": 3}
+
+
+def test_office_is_shown_by_default_and_can_be_hidden(tmp_path):
+    f = eq.load_equation_config()["filters"]
+    assert f["property_types_excluded"] == []                                      # nothing is hidden by default
+    con = open_db(tmp_path / "t.duckdb")
+    weekly.create_tables(con)
+    _add(con, "recorded_loans", record_id="o", loan_kind="construction", recording_date=date(2021, 1, 1),
+         property_address="1 O St", state="MI", amount=20e6, grantee="Bank", grantor="Owner LLC")
+    _add(con, "projects", project_id="po", project_name="FAKE OFFICE", property_address="1 O St", state="MI",
+         property_type="office", months_overdue=0.0, stale_candidate=False)
+    run_id = weekly.run(con, eq.load_equation_config(), date(2026, 11, 2))
+    shown, rank = con.execute("SELECT shown, rank FROM weekly_flags WHERE run_id = ?", [run_id]).fetchone()
+    assert shown and rank == 1                                                     # the office property is on the list
+    # ...but it does not earn the "a type Bloomfield buys" deal-quality points
+    row = con.execute("SELECT deal_parts FROM weekly_flags WHERE run_id = ?", [run_id]).fetchone()[0]
+    assert "Property type" not in row

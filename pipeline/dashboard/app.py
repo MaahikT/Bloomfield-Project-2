@@ -109,8 +109,12 @@ def page_ranked(con, run_id):
     status = latest_status(con)
     st.title("This week's flags")
     st.caption(f"Bloomfield Opportunity Score {cfg['version']} · {run_id.replace('week-', 'week of ')} · "
-               f"{', '.join(f['property_types_excluded'])} hidden · loans from {money(f['min_loan_size'])}"
+               f"{(', '.join(f['property_types_excluded']) + ' hidden') if f['property_types_excluded'] else 'all property types shown'} · loans from {money(f['min_loan_size'])}"
                f"{' to ' + money(f['max_loan_size']) if f.get('max_loan_size') else ' (no upper limit)'} · {'states ' + ', '.join(f['states']) if f['states'] else 'all U.S.'}")
+    hide_office = st.toggle("Hide office properties", value=False,
+                            help="Office is shown by default. Turn this on to filter it out of the list and the counts.")
+    if hide_office:
+        df = df[df["property_type"].fillna("") != "Office"]
     ranked = df[df["rank"].notna()]
     c = st.columns(5)
     c[0].metric("Ranked", len(ranked))

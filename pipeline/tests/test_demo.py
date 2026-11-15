@@ -53,7 +53,7 @@ def test_the_ann_arbor_project_is_the_top_hot_flag_with_quoted_evidence(built):
 def test_office_properties_are_identified_so_the_page_can_hide_them(built):
     offices = [p for p in built["embedded"]["properties"] if p["type"] == "office"]
     assert sorted(p["name"] for p in offices) == ["FAKE Camelback Office Plaza", "FAKE Capitol Square Offices", "FAKE Uptown Office Park"]
-    assert 'p.type === \'office\'' in built["html"] and "Show office" in built["html"]     # hidden unless ticked
+    assert 'p.type === \'office\'' in built["html"] and "Hide office" in built["html"]     # shown by default; ticking hides them
 
 
 def test_the_ai_reader_tab_shows_real_recorded_answers_with_checks_run_on_them(built):

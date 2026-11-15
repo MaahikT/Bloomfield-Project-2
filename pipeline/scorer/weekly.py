@@ -4,7 +4,7 @@ weekly.py - the weekly run behind the dashboard (Part D).
     Part A collectors -> Part B scout/reader -> Part C matcher -> THIS -> dashboard/app.py
 
 1. Scores every property with the Bloomfield Opportunity Score (scorer/equation.py).
-2. Applies Bloomfield's filters (office off, $2.5M minimum with no upper limit, states) and ranks what's left.
+2. Applies Bloomfield's filters (office is shown by default and can be hidden, $2.5M minimum with no upper limit, states) and ranks what's left.
 3. Adds "how good the deal could be" and a suggested deal angle for each flag.
 4. Saves the run, so the dashboard can show what changed since last week.
 5. Owns research_log: what the researcher did with each flag.
@@ -182,7 +182,8 @@ def is_public(p) -> bool:
 def deal_quality(r: eq.Result, ptype, amount, public, cfg, ltv=None) -> tuple[int, list[dict]]:
     q, f = cfg["deal_quality"], cfg["filters"]
     parts = [{"part": "Start", "points": q["starting_points"], "why": "Every flag starts here"}]
-    if ptype and ptype not in f["property_types_excluded"]:
+    if ptype and ptype not in f.get("property_types_not_preferred", f["property_types_excluded"]) \
+            and ptype not in f["property_types_excluded"]:
         parts.append({"part": "Property type", "points": q["property_type_fit"], "why": f"{ptype} is a type Bloomfield buys"})
     if amount and in_size_range(amount, f):
         parts.append({"part": "Size", "points": q["loan_size_fit"], "why": f"${amount / 1e6:.1f}M fits the size range"})
