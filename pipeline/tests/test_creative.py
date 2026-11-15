@@ -79,7 +79,8 @@ def multi_loan_prop(*loan_keys):
 
 def test_occupancy_slide_never_compares_across_loans(c):
     # BMO 2023-5C1 Gateway Center South: controlling note 1A-1 reports 0.9793 while pari passu
-    # companions 1A-3/1A-5 file a literal 0.0 for the SAME period - a non-report filler, not a slide.
+    # companions 1A-3/1A-5 file a literal 0.0 for the SAME period; each note is trended on its
+    # own history, so no cross-note slide is fabricated.
     p = multi_loan_prop("edgar:BMO 2023-5C1 Mortgage Trust:1A-1",
                         "edgar:BMO 2023-5C1 Mortgage Trust:1A-3",
                         "edgar:BMO 2023-5C1 Mortgage Trust:1A-5")
@@ -101,13 +102,27 @@ def test_occupancy_slide_real_trend_survives_companion_zero_notes(c):
     assert q.known and q.value == pytest.approx(0.10 / 0.15, abs=0.01)
 
 
-def test_occupancy_slide_treats_literal_zero_as_non_report(c):
-    # 0.0 after real readings is the filers' filler, not proven vacancy: BMO 2024-5C8 loan 16
-    # went 0.0 -> 1.0 in one month with payments current.
-    o = {"proj-x": [{"period_end": date(2021, 12, 31), "occupancy": 0.8786},
+def test_occupancy_slide_preserves_literal_zero_readings(c):
+    # Whether a literal 0.0 is a non-report or true vacancy is unresolved source semantics
+    # (BMO 2024-5C8 loan 16 went 0.0 -> 1.0 in one month with payments current; BMO 2022-C1
+    # loan 3 went 0.8786 -> 0.0 with DSCR also 0.0). Zeros stay in the series as observed and
+    # a same-loan slide onto one scores as filed; flagged for team review, not silently dropped.
+    p = multi_loan_prop("loan-1")
+    o = {"loan-1": [{"period_end": date(2021, 12, 31), "occupancy": 0.8786},
                     {"period_end": date(2022, 6, 30), "occupancy": 0.0}]}
-    q = cr.occupancy_slide(prop(), "Senior housing", "MI", c["occupancy_slide"], o, {}, AS_OF)
-    assert not q.known or q.value == 0.0
+    q = cr.occupancy_slide(p, "Retail", "NY", c["occupancy_slide"], o, {}, AS_OF)
+    assert q.known and q.value == 1.0 and q.q == pytest.approx(0.9 * 0.7)
+
+
+def test_duplicate_period_keeps_later_file_deterministically(c):
+    # Same loan + same period_end filed twice: the row from the later file_id wins,
+    # so repeated runs never flip the series.
+    p = multi_loan_prop("loan-1")
+    o = {"loan-1": [{"period_end": date(2021, 12, 31), "occupancy": 0.90, "file_id": "f1"},
+                    {"period_end": date(2021, 12, 31), "occupancy": 0.80, "file_id": "f2"},
+                    {"period_end": date(2022, 6, 30), "occupancy": 0.70, "file_id": "f3"}]}
+    q = cr.occupancy_slide(p, "Retail", "NY", c["occupancy_slide"], o, {}, AS_OF)
+    assert q.known and q.value == pytest.approx(0.10 / 0.15, abs=0.01)
 
 
 def test_nursing_benchmark_never_serves_assisted_living(c):

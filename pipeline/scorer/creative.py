@@ -106,12 +106,12 @@ def _ops(p, ops: dict, as_of: date) -> list[dict]:
 def _ops_by_loan(p, ops: dict, as_of: date) -> dict[str, list[dict]]:
     """Operating history grouped per loan/link, each series sorted by period_end.
 
-    Never merge loans into one series: pari passu/companion notes report separately, and a
-    note with nothing to report files a literal 0.0 (BMO 2023-5C1 notes 1A-3/1A-5 file
-    0.00000000 while 1A-1 files 0.9793 for the same property in the same period; BMO
-    2024-5C8 loan 16 went 0.0 -> 1.0 in one month with payments current). A merged series
-    compared those filler zeros against a companion note's real value and fabricated
-    trends. One row per loan+period is enforced by the collector; if duplicates ever
+    Never merge loans into one series: pari passu/companion notes report separately (BMO
+    2023-5C1 notes 1A-3/1A-5 file a literal 0.0 while 1A-1 files 0.9793 for the same
+    property in the same period), and a merged series compared different notes against
+    each other and fabricated trends. Whether a literal 0.0 is a non-report or true
+    vacancy is unresolved source semantics, so zeros are preserved as observed and the
+    cross-loan comparison is what is fixed here. One row per loan+period is enforced by the collector; if duplicates ever
     appear, the one from the later file (by file_id) wins, so results stay deterministic."""
     by_loan: dict[str, list[dict]] = {}
     for i in sorted(link_ids(p)):
@@ -145,11 +145,12 @@ def occupancy_slide(p, ptype, state, c, ops, mkt_occ, as_of) -> Sig:
         if mkt_occ.get(k):
             series, used = mkt_occ[k], k[1]
             break
-    # Each loan is trended on its own history only (see _ops_by_loan), and a literal 0.0
-    # occupancy is a non-report filler, not a proven empty building, so it is dropped here.
+    # Each loan is trended on its own history only (see _ops_by_loan). Literal 0.0
+    # readings are kept as observed: whether they are non-reports or true vacancy is
+    # unresolved source semantics, and dropping them could silently suppress real distress.
     best = None
     for history in _ops_by_loan(p, ops, as_of).values():
-        rows = [r for r in history if r.get("occupancy")]
+        rows = [r for r in history if r.get("occupancy") is not None]
         if len(rows) < 2:
             continue
         now = rows[-1]
