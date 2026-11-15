@@ -37,7 +37,7 @@ task_models:
   split_notices: strong     # split one newspaper page into separate notices
   agent: strong             # the sourcing agent (agent/): planning and evidence steps
 
-# Price per MILLION tokens, in US dollars. Used only to ESTIMATE cost and enforce the cap.
+# Price per MILLION tokens, in US dollars. Used to ESTIMATE cost for accounting and advisory warnings.
 # !!! PLACEHOLDER NUMBERS - please check your provider's current price list and edit. !!!
 prices_per_million_tokens:
   claude-haiku-5-5:  { input: 1.00, output: 5.00 }
@@ -51,11 +51,11 @@ prices_per_million_tokens:
   gpt-4o:                { input: 2.50, output: 10.00 }   # VERIFIED vs U-M Toolkit pricing 2026-11-15: https://its.umich.edu/computing/ai/pricing
   # NO 'default' catch-all on purpose: a model with no exact price above is refused (llm/cost.py).
 
-# Spending limits (US dollars). The reader stops with a clear message instead of going over.
-weekly_cost_cap_usd: 9.0    # HARD ceiling: user's rule is 'under $10 for U-M'. 9.0 leaves margin
-                           # so one reserved call plus its retry can never push the real bill to $10.
-                           # Rates VERIFIED 2026-11-15: https://its.umich.edu/computing/ai/pricing
-run_cost_cap_usd: 5      # one run can use at most half of it
+# Spending landmarks (US dollars), ADVISORY ONLY. The API account enforces its own
+# dollar limit (user decision 2026-11-15), so the code no longer stops calls at these
+# numbers - llm/cost.py logs a warning when spend passes them and keeps accounting.
+weekly_cost_cap_usd: 9.0
+run_cost_cap_usd: 5
 
 # How the wrapper talks to the service.
 llm:
