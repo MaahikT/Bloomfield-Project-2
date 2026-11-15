@@ -45,18 +45,20 @@ def load_config(path=None) -> dict:
     return load_yaml(path or CONFIG_PATH) or {}
 
 
-def run_signal(name: str, con, cfg: dict, budget: Budget, today: date, session=None) -> dict:
+def run_signal(name: str, con, cfg: dict, budget: Budget, today: date, session=None, defer_to_ai: bool = False) -> dict:
     if name == "opening_date":
-        return opening.run(con, cfg, budget, today, session)
+        return opening.run(con, cfg, budget, today, session, defer_to_ai)
     if name == "distress_news":
-        return news.run(con, cfg, budget, today, session)
+        return news.run(con, cfg, budget, today, session, defer_to_ai)
     if name in COLLECTOR_FOR:
         results = run_all.run_all(con, only=COLLECTOR_FOR[name])
-        return {"collectors": COLLECTOR_FOR[name], "ran": bool(results)}
+        return {"collectors": COLLECTOR_FOR[name], "status": [r.get("status") for r in results],
+                "new_files": sum(int(r.get("files_new") or 0) for r in results)}
     raise KeyError(f"unknown signal {name!r}; choose from {sorted(DESCRIPTIONS)}")
 
 
-def run(con, cfg: dict | None = None, signals: list[str] | None = None, today: date | None = None, session=None) -> dict:
+def run(con, cfg: dict | None = None, signals: list[str] | None = None, today: date | None = None, session=None,
+        defer_to_ai: bool = False) -> dict:
     """Run the chosen signals (default: every enabled one). One failing signal never stops the others."""
     cfg = cfg or load_config()
     today = today or date.today()
@@ -64,7 +66,7 @@ def run(con, cfg: dict | None = None, signals: list[str] | None = None, today: d
     out = {}
     for name in signals or cfg.get("enabled_signals") or list(DESCRIPTIONS):
         try:
-            out[name] = run_signal(name, con, cfg, budget, today, session)
+            out[name] = run_signal(name, con, cfg, budget, today, session, defer_to_ai)
         except KeyError:
             raise
         except Exception as e:                                          # noqa: BLE001 - keep going
@@ -78,7 +80,12 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="The web bot: one searcher per signal.")
     ap.add_argument("--signals", help="comma-separated; default is every enabled signal in config/bot.yaml")
     ap.add_argument("--list", action="store_true")
+    ap.add_argument("--full", action="store_true", help="crawl, read with the AI, link and score (see bot/full.py)")
+    ap.add_argument("--no-ai", action="store_true", help="with --full: skip the AI reader")
     args = ap.parse_args(argv)
+    if args.full:
+        from .full import main as full_main
+        return full_main([a for a in (argv if argv is not None else __import__("sys").argv[1:]) if a != "--full"])
     if args.list:
         for k, v in DESCRIPTIONS.items():
             print(f"{k:15} {v}")

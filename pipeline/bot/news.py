@@ -84,7 +84,7 @@ def candidates(cfg: dict, budget: Budget, session=None) -> list[dict]:
     return uniq
 
 
-def run(con, cfg: dict, budget: Budget, today: date | None = None, session=None) -> dict:
+def run(con, cfg: dict, budget: Budget, today: date | None = None, session=None, defer_to_ai: bool = False) -> dict:
     summary = {"items_seen": 0, "saved": 0, "skipped": 0}
     for item in candidates(cfg, budget, session):
         summary["items_seen"] += 1
@@ -100,6 +100,9 @@ def run(con, cfg: dict, budget: Budget, today: date | None = None, session=None)
                                     state=item.get("state"), city=item.get("city"), notes=f"Found by the web bot: {item['title'][:120]}")
         if res is None or res.status != "new":
             summary["skipped"] += 1
+            continue
+        if defer_to_ai:                       # the AI reader reads the saved article later: no keyword reading here
+            summary["saved"] += 1
             continue
         text = page_text(config.from_stored_path(res.file_path).read_text(encoding="utf-8", errors="replace"))
         rule = classify(text, cfg) or quick

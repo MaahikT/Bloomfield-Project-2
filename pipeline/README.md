@@ -442,10 +442,18 @@ One searcher per signal, run weekly. Settings are in `config/bot.yaml`.
 
 ```
 python -m bot --list                          # what each signal does
-python -m bot                                 # every enabled signal
-python -m bot --signals opening_date          # just one
-python -m matcher && python -m scorer.weekly  # then link and score
+python -m bot --full                          # the whole week: crawl, AI reads, link, score
+python -m bot --full --no-ai                  # the same without the AI (keyword reading only)
+python -m bot                                 # crawl only
+python -m bot --signals opening_date          # just one signal
 ```
+
+`python -m bot --full` is the one command for a real week. The bot's crawlers collect pages and records (project sites, news,
+county, bank and SEC data). The **AI reader (OpenAI)** then reads each page or document into fields with an exact, checked
+quote and spots the signals in it. The matcher links records about the same property, and the Opportunity Score equation
+ranks them. The score is plain arithmetic on the evidence, so a researcher can always see why a property ranked where it did:
+the AI reads and identifies, it never invents a score. Without a key it says so and still runs with keyword reading.
+Sample (FAKE) properties are left out of every real list; the demo database opts in explicitly.
 
 Rules it follows: every page goes through `collectors/common/fetch.py` (robots.txt obeyed, polite pace, stops at any
 login, CAPTCHA or "access denied", never gets around a block); third-party listing sites such as Zillow are never opened;

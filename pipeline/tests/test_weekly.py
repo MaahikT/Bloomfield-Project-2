@@ -1,9 +1,16 @@
 """Tests for the weekly run behind the dashboard (scorer/weekly.py). Fake data only."""
 from datetime import date
 
+import pytest
+
 from scorer import equation as eq
 from scorer import weekly
 from scorer.schema import open_db
+
+
+@pytest.fixture(autouse=True)
+def _tests_use_made_up_data(monkeypatch):
+    monkeypatch.setenv("BLOOMFIELD_INCLUDE_DEMO", "1")      # these tests use FAKE properties; real runs leave them out
 
 
 def _add(con, table, **row):

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 from datetime import date
 
@@ -251,8 +252,24 @@ def summary(r: eq.Result, name) -> str:
     return text + "."
 
 
-def run(con, cfg: dict | None = None, as_of: date | None = None) -> str:
+def is_demo_property(p) -> bool:
+    """Made-up sample data (ids start with fake / fk-, or the name says FAKE). Real lists never include it."""
+    ids = ([r.get("record_id") for r in p.recorded_loans] + [r.get("file_id") for r in p.filings]
+           + [r.get("project_id") for r in p.projects] + [r.get("loan_key") for r in p.cmbs_loans])
+    if any(str(i or "").lower().startswith(("fake", "fk-", "edgar:fake", "trepp:fake")) for i in ids):
+        return True
+    name = " ".join(str(r.get("project_name") or r.get("property_name") or "") for r in p.projects + p.cmbs_loans + p.filings)
+    return "FAKE" in name
+
+
+def include_demo_data() -> bool:
+    """Sample properties are left out unless BLOOMFIELD_INCLUDE_DEMO=1 (the demo and the tests turn it on)."""
+    return os.environ.get("BLOOMFIELD_INCLUDE_DEMO", "").strip().lower() in ("1", "true", "yes")
+
+
+def run(con, cfg: dict | None = None, as_of: date | None = None, include_demo: bool | None = None) -> str:
     cfg = cfg or eq.load_equation_config()
+    include_demo = include_demo_data() if include_demo is None else include_demo
     as_of = as_of or date.today()
     create_tables(con)
     rents, market, inspections, extra = eq.load_inputs(con)
@@ -261,6 +278,8 @@ def run(con, cfg: dict | None = None, as_of: date | None = None) -> str:
     run_id = f"week-{as_of.isoformat()}"
     rows = []
     for p in props:
+        if not include_demo and is_demo_property(p):
+            continue                                  # sample data never appears in a real list
         r = eq.score_property(p, cfg, as_of, rents, market, inspections, extra)
         if r.score <= 0 and not context_facts(p):
             continue                              # nothing to show

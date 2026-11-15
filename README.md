@@ -57,10 +57,18 @@ BLOOMFIELD_DB=data/demo.duckdb streamlit run dashboard/app.py
 
 ```bash
 python -m bot --list               # what each signal's searcher does
-python -m bot                      # run every enabled signal
-python -m matcher                  # link records about the same property
-python -m scorer.weekly            # score and rank, then open the dashboard
+python -m bot --full               # the whole week: crawl, AI reads, link, score
+python -m bot --full --no-ai       # the same without the AI (keyword reading only)
+python -m bot                      # crawl only
+streamlit run dashboard/app.py     # open the researcher dashboard
 ```
+
+`python -m bot --full` is the one command for a real week. The bot's crawlers collect pages and records (project sites, news,
+county, bank and SEC data). The **AI reader (OpenAI)** then reads each page or document into fields with an exact, checked
+quote and spots the signals in it. The matcher links records about the same property, and the Opportunity Score equation
+ranks them. The score is plain arithmetic on the evidence, so a researcher can always see why a property ranked where it did:
+the AI reads and identifies, it never invents a score. Without a key it says so and still runs with keyword reading.
+Sample (FAKE) properties are left out of every real list; the demo database opts in explicitly.
 
 ## Using the AI reader (needs a key)
 

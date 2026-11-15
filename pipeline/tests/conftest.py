@@ -9,6 +9,7 @@ def env(tmp_path, monkeypatch):
     """Point the pipeline at a temporary folder so tests never touch real data."""
     monkeypatch.setenv("BLOOMFIELD_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv("CONTACT_EMAIL", "tester@example.com")
+    monkeypatch.setenv("BLOOMFIELD_INCLUDE_DEMO", "1")      # tests use made-up (FAKE) properties; real lists never do
     config._env_loaded = True
     fetch.reset_state()
     # Tests must not really wait for the rate limiter or retry backoff.
