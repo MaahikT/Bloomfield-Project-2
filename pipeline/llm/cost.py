@@ -85,8 +85,8 @@ def check_budget(con, model: str, est_input_tokens: int, max_output_tokens: int,
     """
     cfg = cfg or load_reader_config()
     worst = compute_cost(model, est_input_tokens, max_output_tokens, cfg)
-    weekly_cap = float(cfg.get("weekly_cost_cap_usd", 25))
-    run_cap = float(cfg.get("run_cost_cap_usd", 10))
+    weekly_cap = float(cfg.get("weekly_cost_cap_usd", 10))
+    run_cap = float(cfg.get("run_cost_cap_usd", 5))
     spent_week = weekly_spend(con) if con is not None else 0.0
     if spent_week + worst > weekly_cap:
         raise CostCapExceeded(
@@ -142,7 +142,7 @@ def main() -> None:
     for r in rows:
         print(f"{r['task']:<16}{r['model']:<22}{r['calls']:>6}{r['input_tokens']:>12,}"
               f"{r['output_tokens']:>12,}{r['cost_usd']:>10.4f}")
-    cap = float(cfg.get("weekly_cost_cap_usd", 25))
+    cap = float(cfg.get("weekly_cost_cap_usd", 10))
     week = weekly_spend(con)
     print(f"\nLast 7 days: ${week:.2f} of the ${cap:.2f} weekly cap (${max(cap - week, 0):.2f} left).")
 

@@ -51,8 +51,8 @@ prices_per_million_tokens:
   default:           { input: 3.00, output: 15.00 }   # used for any model not listed above
 
 # Spending limits (US dollars). The reader stops with a clear message instead of going over.
-weekly_cost_cap_usd: 25
-run_cost_cap_usd: 10
+weekly_cost_cap_usd: 10     # the program budget is $10 in total
+run_cost_cap_usd: 5      # one run can use at most half of it
 
 # How the wrapper talks to the service.
 llm:
