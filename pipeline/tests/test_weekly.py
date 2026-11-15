@@ -16,7 +16,7 @@ def test_weekly_run_filters_ranks_and_compares(tmp_path):
     for rid, d, addr, st, amt, ptype in [
         ("a", date(2021, 1, 1), "1 A St", "MI", 20e6, "multifamily"),    # standout, shown
         ("b", date(2021, 1, 1), "2 B St", "IL", 20e6, "office"),         # office: filtered out
-        ("c", date(2021, 1, 1), "3 C St", "TX", 90e6, "retail"),         # too big: filtered out
+        ("c", date(2021, 1, 1), "3 C St", "TX", 1.9e6, "retail"),        # below the $2.5M minimum: filtered out
     ]:
         _add(con, "recorded_loans", record_id=rid, loan_kind="construction", recording_date=d,
              property_address=addr, state=st, amount=amt, grantee="Bank", grantor="Owner LLC")
@@ -32,3 +32,15 @@ def test_weekly_run_filters_ranks_and_compares(tmp_path):
     assert not rows["FAKE B"][1] and not rows["FAKE C"][1]
     ch = weekly.changes(con, run2)
     assert len(ch["new"]) == 1 and ch["previous"] == "week-2026-11-02"
+
+
+def test_there_is_no_upper_limit_and_the_minimum_is_two_and_a_half_million():
+    f = eq.load_equation_config()["filters"]
+    assert f["min_loan_size"] == 2_500_000 and f["max_loan_size"] is None
+    assert weekly.passes_filters("retail", "TX", 2.5e6, f)[0]                # exactly the minimum is in
+    assert not weekly.passes_filters("retail", "TX", 2.4e6, f)[0]            # just under is out
+    for big in (50e6, 500e6, 5e9):                                           # any size above the minimum is in
+        assert weekly.passes_filters("multifamily", "MI", big, f)[0]
+    assert weekly.passes_filters("multifamily", "MI", None, f)[0]            # unknown size is kept, marked as such
+    f2 = {**f, "max_loan_size": 100e6}                                       # a cap still works if someone sets one
+    assert not weekly.passes_filters("multifamily", "MI", 150e6, f2)[0]

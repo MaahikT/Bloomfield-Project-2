@@ -101,14 +101,14 @@ def week1(con):
     ins(con, "permit_inspections", permit_number="BP-FK-12", state="OH", city="Columbus",
         inspection_date=date(2026, 10, 28), inspection_type="final framing", result="pass")
 
-    # Filtered out: office (Bloomfield doesn't buy it) and a loan above $50M.
+    # Filtered out: office (Bloomfield doesn't buy it) and a loan below the $2.5M minimum.
     a = "200 FAKE Central Ave, St. Petersburg, FL"
     loan(con, "fk-mo-1", "construction", date(2021, 1, 15), a, "FL", "Pinellas", "FAKE Midtown Office LLC",
          "FAKE Gulf Coast Bank", 33e6)
     project(con, "fk-mo", "FAKE Midtown Office Center", a, "St. Petersburg", "FL", "office", "Available 2025", 10.0)
     a = "9000 FAKE Gateway Blvd, Dallas, TX"
     loan(con, "fk-gp-1", "construction", date(2021, 3, 1), a, "TX", "Dallas", "FAKE Gateway Retail LLC",
-         "FAKE Lone Star Bank", 72e6)
+         "FAKE Lone Star Bank", 1.8e6)
     project(con, "fk-gp", "FAKE Gateway Plaza", a, "Dallas", "TX", "retail", "Opening 2025", 11.0)
 
     # Bloomfield's strongest case: the building OPENED (certificate of occupancy) but its

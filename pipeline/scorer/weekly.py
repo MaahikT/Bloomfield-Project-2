@@ -4,7 +4,7 @@ weekly.py - the weekly run behind the dashboard (Part D).
     Part A collectors -> Part B scout/reader -> Part C matcher -> THIS -> dashboard/app.py
 
 1. Scores every property with the Bloomfield Opportunity Score (scorer/equation.py).
-2. Applies Bloomfield's filters (office off, $5M-$50M, states) and ranks what's left.
+2. Applies Bloomfield's filters (office off, $2.5M minimum with no upper limit, states) and ranks what's left.
 3. Adds "how good the deal could be" and a suggested deal angle for each flag.
 4. Saves the run, so the dashboard can show what changed since last week.
 5. Owns research_log: what the researcher did with each flag.
@@ -130,13 +130,19 @@ def property_type(p) -> str | None:
     return clean_type(name) if clean_type(name) in {v for _, v in _TYPE_RULES} else None
 
 
+def in_size_range(amount, f) -> bool:
+    """At or above the minimum; there is no upper limit unless max_loan_size is set."""
+    top = f.get("max_loan_size")
+    return f["min_loan_size"] <= amount and (top is None or amount <= top)
+
+
 def passes_filters(ptype, state, amount, f) -> tuple[bool, str | None]:
     if ptype in f["property_types_excluded"]:
         return False, f"{ptype} is filtered out"
     if f["states"] and (state or "").upper() not in [s.upper() for s in f["states"]]:
         return False, f"{state or 'Unknown state'} is outside the chosen states"
-    if amount and not (f["min_loan_size"] <= amount <= f["max_loan_size"]):
-        return False, f"${amount / 1e6:.1f}M loan is outside ${f['min_loan_size'] / 1e6:.0f}M-${f['max_loan_size'] / 1e6:.0f}M"
+    if amount and not in_size_range(amount, f):
+        return False, f"${amount / 1e6:.1f}M loan is below the ${f['min_loan_size'] / 1e6:.1f}M minimum"
     return True, None
 
 
@@ -170,7 +176,7 @@ def deal_quality(r: eq.Result, ptype, amount, public, cfg, ltv=None) -> tuple[in
     parts = [{"part": "Start", "points": q["starting_points"], "why": "Every flag starts here"}]
     if ptype and ptype not in f["property_types_excluded"]:
         parts.append({"part": "Property type", "points": q["property_type_fit"], "why": f"{ptype} is a type Bloomfield buys"})
-    if amount and f["min_loan_size"] <= amount <= f["max_loan_size"]:
+    if amount and in_size_range(amount, f):
         parts.append({"part": "Size", "points": q["loan_size_fit"], "why": f"${amount / 1e6:.1f}M fits the size range"})
     if r.L.value > 0 or r.O.value > 0:
         parts.append({"part": "Fixable problem", "points": q["fixable_problem"],

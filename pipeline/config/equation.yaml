@@ -155,8 +155,8 @@ tiers:
 # ---- FILTERS: which flags show on the ranked list (team decision) -----------
 filters:
   property_types_excluded: [Office]   # Bloomfield buys everything except office
-  min_loan_size: 5000000              # flags with no known loan size are kept, marked "size unknown"
-  max_loan_size: 50000000
+  min_loan_size: 2500000              # flags with no known loan size are kept, marked "size unknown"
+  max_loan_size: null                 # no upper limit: Bloomfield wants deals of any size above the minimum
   states: []                          # empty = the whole U.S.
 
 # ---- HOW GOOD THE DEAL COULD BE (0-100), shown next to the score ---------------

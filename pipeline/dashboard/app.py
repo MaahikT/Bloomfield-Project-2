@@ -109,8 +109,8 @@ def page_ranked(con, run_id):
     status = latest_status(con)
     st.title("This week's flags")
     st.caption(f"Bloomfield Opportunity Score {cfg['version']} · {run_id.replace('week-', 'week of ')} · "
-               f"{', '.join(f['property_types_excluded'])} hidden · loans {money(f['min_loan_size'])}–"
-               f"{money(f['max_loan_size'])} · {'states ' + ', '.join(f['states']) if f['states'] else 'all U.S.'}")
+               f"{', '.join(f['property_types_excluded'])} hidden · loans from {money(f['min_loan_size'])}"
+               f"{' to ' + money(f['max_loan_size']) if f.get('max_loan_size') else ' (no upper limit)'} · {'states ' + ', '.join(f['states']) if f['states'] else 'all U.S.'}")
     ranked = df[df["rank"].notna()]
     c = st.columns(5)
     c[0].metric("Ranked", len(ranked))

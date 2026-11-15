@@ -131,7 +131,7 @@ On real data, after Parts A, B and C have run: `python -m scorer.weekly`, then `
 | Piece | File |
 |---|---|
 | The equation | `scorer/equation.py` |
-| Weekly run: filters (office off, $5M–$50M, all U.S.), ranking, deal quality, deal angles, history, research log | `scorer/weekly.py` |
+| Weekly run: filters (office off, $2.5M minimum and no upper limit, all U.S.), ranking, deal quality, deal angles, history, research log | `scorer/weekly.py` |
 | Every number | `config/equation.yaml` |
 | Pages: Ranked flags · Flag details · What changed this week · Research log · How the score works | `dashboard/app.py` |
 | Demo data (uses the team's fake-data scripts and matcher, plus extra FAKE properties) | `scorer/demo_week.py` |

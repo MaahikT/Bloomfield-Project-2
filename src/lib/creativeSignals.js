@@ -177,7 +177,7 @@ function dealQuality(project, base, refi, signals) {
     else if (refi.ltv <= 1) { notes.push(`Very thin cushion (loan is ${pct(refi.ltv)} of value)`) }
     else { score -= 25; notes.push(`Underwater (loan is ${pct(refi.ltv)} of value)`) }
     const size = Number(project.finance.loanAmount)
-    if (size >= 5e6 && size <= 50e6) { score += 5; notes.push('Loan size fits the $5M to $50M range') }
+    if (size >= 2.5e6) { score += 5; notes.push('Loan size is above the $2.5M minimum (there is no upper limit)') }
   }
   if (base.verdict === 'flag' || base.verdict === 'watch') {
     score += 10
