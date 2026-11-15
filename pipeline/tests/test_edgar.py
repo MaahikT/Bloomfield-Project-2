@@ -123,6 +123,25 @@ def test_loans_keep_only_the_most_recent_report(con, env):
     assert con.execute("SELECT count(*) FROM loans").fetchone()[0] == 2
 
 
+def test_every_report_appends_occupancy_history(con, env):
+    """operating_metrics (the scorer's occupancy-slide input) grows one row per loan per report
+    period, even for an older report the loans table itself ignores."""
+    collect(con, FakeSession(pages(True)))
+    # loan 1 reports occupancy (0.78); loan 2 has no occupancy tag, so it adds no row
+    rows = con.execute("SELECT link_id, period_end, occupancy, source FROM operating_metrics ORDER BY 1, 2").fetchall()
+    assert rows == [(f"edgar:{TRUST3}:1", date(2026, 10, 16), 0.78, "sec_edgar")]
+    # writing the same period again replaces, never duplicates
+    edgar.write_operating_metrics(con, edgar.parse_asset_xml(E / "exh_102.xml", CFG, deal_name=TRUST3, file_id="f1"))
+    assert con.execute("SELECT count(*) FROM operating_metrics").fetchone()[0] == 1
+    # an older report is ignored by the loans table but its occupancy still joins the history
+    old_path = config.data_dir() / "old.xml"
+    old_path.write_text((E / "exh_102.xml").read_text().replace("10-16-2026", "09-16-2026"))
+    edgar.write_operating_metrics(con, edgar.parse_asset_xml(old_path, CFG, deal_name=TRUST3, file_id="f-old"))
+    periods = con.execute("SELECT period_end FROM operating_metrics WHERE link_id = ? ORDER BY 1",
+                          [f"edgar:{TRUST3}:1"]).fetchall()
+    assert periods == [(date(2026, 9, 16),), (date(2026, 10, 16),)]
+
+
 def test_every_downloaded_xml_is_kept_in_raw_files(con, env):
     collect(con, FakeSession(pages(True)))
     (r,) = con.execute("SELECT file_path FROM raw_files").fetchall()

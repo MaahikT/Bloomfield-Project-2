@@ -47,6 +47,51 @@ def test_weekly_run_filters_ranks_and_compares(tmp_path):
     assert len(ch["new"]) == 1 and ch["previous"] == "week-2026-11-02"
 
 
+def _cmbs_loan(con, key, addr, amount, name, **kw):
+    _add(con, "loans", loan_key=key, source="sec_edgar", deal_name="TEST TRUST 2026-T1", property_name=name,
+         property_address=addr, property_state="MI", property_type="MF", current_balance=amount,
+         original_balance=amount, report_period=date(2026, 10, 16), **kw)
+
+
+def test_equal_scores_rank_biggest_loan_first(tmp_path):
+    """Two score-0 CMBS properties with the same deal quality: the bigger loan ranks first, not a hash order."""
+    con = open_db(tmp_path / "t.duckdb")
+    weekly.create_tables(con)
+    _cmbs_loan(con, "edgar:T:small", "1 Small St", 3e6, "Small Plaza", dscr=1.4)
+    _cmbs_loan(con, "edgar:T:big", "2 Big St", 90e6, "Big Plaza", dscr=1.4)
+    run_id = weekly.run(con, None, date(2026, 11, 10))
+    rows = con.execute("SELECT property_name, rank, score FROM weekly_flags WHERE run_id = ? ORDER BY rank",
+                       [run_id]).fetchall()
+    assert [(r[0], r[1]) for r in rows] == [("Big Plaza", 1), ("Small Plaza", 2)]
+    assert all(r[2] == 0 for r in rows)                      # still score 0: the order comes from loan size
+
+
+def test_cmbs_payment_status_is_decoded_in_context(tmp_path):
+    """CREFC status codes are shown as plain English (context only, still not scored)."""
+    con = open_db(tmp_path / "t.duckdb")
+    weekly.create_tables(con)
+    _cmbs_loan(con, "edgar:T:late", "3 Late St", 5e6, "Late Plaza", payment_status="3")
+    _cmbs_loan(con, "edgar:T:ok", "4 Ok St", 5e6, "Ok Plaza", payment_status="0")
+    run_id = weekly.run(con, None, date(2026, 11, 10))
+    ctx = dict(con.execute("SELECT property_name, context FROM weekly_flags WHERE run_id = ?", [run_id]).fetchall())
+    assert "90-120 days delinquent" in ctx["Late Plaza"] and "payment status 3" not in ctx["Late Plaza"]
+    assert "payments current" in ctx["Ok Plaza"]
+
+
+def test_occupancy_slide_from_edgar_history_scores_above_zero(tmp_path):
+    """The occupancy history the Edgar collector appends feeds the Q signal: a real slide lifts the score."""
+    con = open_db(tmp_path / "t.duckdb")
+    weekly.create_tables(con)
+    _cmbs_loan(con, "edgar:T:slide", "5 Slide St", 5e6, "Slide Plaza", occupancy=0.60)
+    _add(con, "operating_metrics", link_id="edgar:T:slide", period_end=date(2026, 8, 16), period_months=1,
+         occupancy=0.95, source="sec_edgar")
+    _add(con, "operating_metrics", link_id="edgar:T:slide", period_end=date(2026, 10, 16), period_months=1,
+         occupancy=0.60, source="sec_edgar")
+    run_id = weekly.run(con, None, date(2026, 11, 10))
+    score, = con.execute("SELECT score FROM weekly_flags WHERE run_id = ?", [run_id]).fetchone()
+    assert 0 < score <= 30                                    # one creative signal, anti-fluked: watch-level, not hot
+
+
 def test_there_is_no_upper_limit_and_the_minimum_is_two_and_a_half_million():
     f = eq.load_equation_config()["filters"]
     assert f["min_loan_size"] == 2_500_000 and f["max_loan_size"] is None

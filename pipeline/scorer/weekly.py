@@ -91,6 +91,19 @@ RESEARCH_STATUSES = ["looked_into", "called", "meeting", "passed", "deal_closed"
 STATUS_LABELS = {"looked_into": "Looked into", "called": "Called", "meeting": "Meeting set",
                  "passed": "Passed", "deal_closed": "Deal closed"}
 
+# CREFC loan payment status codes (SEC ABS-EE form), decoded so the context line is readable.
+PAYMENT_STATUS_LABELS = {
+    "0": "payments current",
+    "1": "30-59 days delinquent",
+    "2": "60-89 days delinquent",
+    "3": "90-120 days delinquent",
+    "4": "past maturity, still paying",
+    "5": "past maturity, NOT paying",
+    "6": "121+ days delinquent",
+    "A": "payment not received, in grace period",
+    "B": "late, under 30 days",
+}
+
 _TYPE_RULES = [
     ("student", "Student housing"), ("senior", "Senior housing"), ("assisted", "Senior housing"),
     ("nursing", "Senior housing"), ("multi", "Multifamily"), ("apartment", "Multifamily"),
@@ -168,7 +181,8 @@ def context_facts(p) -> list[str]:
         if ln.get("watchlist_flag"):
             bits.append("on watchlist")
         if ln.get("payment_status"):
-            bits.append(str(ln["payment_status"]))
+            status = str(ln["payment_status"]).strip()
+            bits.append(PAYMENT_STATUS_LABELS.get(status, f"payment status {status}"))
         if bits:
             src = (ln.get("source") or "CMBS").lower()
             note = "everyone has this" if src in ("sec_edgar", "cmbs") else "public disclosure"
@@ -310,8 +324,9 @@ def run(con, cfg: dict | None = None, as_of: date | None = None, include_demo: b
         })
     # Every property that passes the filters is on the list. Ones with warning signs come first (highest score first);
     # properties we only know from public loan data (score 0) follow, best deal quality first, so they are not hidden.
+    # Equal scores and deal quality order by loan size (biggest first), the same tie-break score_all uses.
     ranked = sorted([x for x in rows if x["shown"]],
-                    key=lambda x: (-x["score"], -x["deal_quality"], x["property_id"]))
+                    key=lambda x: (-x["score"], -x["deal_quality"], -(x["loan_amount"] or 0), x["property_id"]))
     for i, x in enumerate(ranked, 1):
         x["rank"] = i
     con.execute("DELETE FROM weekly_flags WHERE run_id = ?", [run_id])
