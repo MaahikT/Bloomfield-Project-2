@@ -27,6 +27,7 @@ from __future__ import annotations
 import datetime
 import ipaddress
 import json
+import os
 import re
 import socket
 import uuid
@@ -213,13 +214,22 @@ def _public_address_error(url: str) -> str | None:
 def web_search(query: str, *, bot_cfg: dict, budget) -> dict:
     """Search the open web through the project's search service (bot/search.py). Honest when it is off."""
     from bot import search as bot_search
+    provider = ((bot_cfg.get("search") or {}).get("provider", "none"))
+    if provider not in ("brave", "tavily"):
+        return _err("No search service is configured (config/bot.yaml search.provider is "
+                    f"'{provider}'). Set it to 'brave' or 'tavily' and add the matching API key to .env, "
+                    "or use fetch_page / run_collector with addresses you already know.")
+    # A configured provider WITHOUT its key is a hard failure, not an empty result: the agent
+    # (and the weekly pass's failure counter) must see "not searched" distinctly from
+    # "searched and found nothing", so a missing credential can never pass as clean coverage.
+    key_env = ((bot_cfg.get("search") or {}).get(provider) or {}).get(
+        "api_key_env", "TAVILY_API_KEY" if provider == "tavily" else "BRAVE_SEARCH_API_KEY")
+    if not os.environ.get(key_env, "").strip():
+        return _err(f"The search service '{provider}' is configured but {key_env} is not set in the "
+                    "environment, so nothing was searched. Add the key and re-run; do not treat "
+                    "properties checked in this state as researched.")
     results = bot_search.search(query, bot_cfg, budget)
     if not results:
-        provider = ((bot_cfg.get("search") or {}).get("provider", "none"))
-        if provider not in ("brave", "tavily"):
-            return _err("No search service is configured (config/bot.yaml search.provider is "
-                        f"'{provider}'). Set it to 'brave' or 'tavily' and add the matching API key to .env, "
-                        "or use fetch_page / run_collector with addresses you already know.")
         return {"ok": True, "results": [], "note": "The search service returned nothing for this query."}
     return {"ok": True, "results": results}
 
