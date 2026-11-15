@@ -1,9 +1,16 @@
 """Tests for the weekly run behind the dashboard (scorer/weekly.py). Fake data only."""
 from datetime import date
 
+import pytest
+
 from scorer import equation as eq
 from scorer import weekly
 from scorer.schema import open_db
+
+
+@pytest.fixture(autouse=True)
+def _tests_use_made_up_data(monkeypatch):
+    monkeypatch.setenv("BLOOMFIELD_INCLUDE_DEMO", "1")      # these tests use FAKE properties; real runs leave them out
 
 
 def _add(con, table, **row):
@@ -94,3 +101,25 @@ def test_office_is_shown_by_default_and_can_be_hidden(tmp_path):
     # ...but it does not earn the "a type Bloomfield buys" deal-quality points
     row = con.execute("SELECT deal_parts FROM weekly_flags WHERE run_id = ?", [run_id]).fetchone()[0]
     assert "Property type" not in row
+
+
+def test_properties_known_only_from_public_loan_data_are_listed_not_hidden(tmp_path):
+    """Real SEC data gives loans with no early warning signs (score 0). They pass the filters, so they must be listed."""
+    con = open_db(tmp_path / "t.duckdb")
+    weekly.create_tables(con)
+    for i, bal in enumerate([60e6, 10e6, 2.4e6, 3.1e6]):
+        _add(con, "loans", loan_key=f"edgar:T{i}:{i}", source="sec_edgar", deal_name=f"FAKE Trust {i}",
+             property_name=f"FAKE Promenade {i}", property_address=f"{i} Promenade Blvd", property_city="Rogers",
+             property_state="AR", property_type="RT", current_balance=bal, original_balance=bal, dscr=1.82)
+    _add(con, "recorded_loans", record_id="sig", loan_kind="construction", recording_date=date(2021, 1, 1),
+         property_address="9 Signal St", state="MI", amount=20e6, grantee="Bank", grantor="Owner LLC")
+    run_id = weekly.run(con, eq.load_equation_config(), date(2026, 11, 2))
+    rows = con.execute("SELECT property_name, shown, rank, score, filter_reason FROM weekly_flags WHERE run_id = ? "
+                       "ORDER BY rank NULLS LAST", [run_id]).fetchall()
+    shown = [r for r in rows if r[1]]
+    assert [r[0] for r in rows if r[2] is not None][0] != "FAKE Promenade 0"        # a property with a signal ranks first
+    assert all(r[2] is not None for r in shown)                                      # every shown property has a rank (is listed)
+    names = {r[0] for r in shown}
+    assert {"FAKE Promenade 0", "FAKE Promenade 1", "FAKE Promenade 3"} <= names     # $60M is no longer "too big"
+    hidden = [r for r in rows if not r[1]]
+    assert [r[0] for r in hidden] == ["FAKE Promenade 2"] and "below the $2.5M" in hidden[0][4]   # only the $2.4M loan is hidden

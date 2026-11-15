@@ -96,7 +96,12 @@ def tags(r):
         out.append(":violet-badge[⭐ STANDOUT]")
     if "COUNTER-SIGNAL" in (r["flags"] or ""):
         out.append(":blue-badge[↩ COUNTER-SIGNAL]")
-    out.append(":red-badge[✅ READY TO ACT]" if r["stage"] == "ready_to_act" else ":green-badge[Early warning]")
+    if r["stage"] == "ready_to_act":
+        out.append(":red-badge[✅ READY TO ACT]")
+    elif r["score"] and r["score"] > 0:
+        out.append(":green-badge[Early warning]")
+    else:
+        out.append(":gray-badge[No warning signs yet]")
     return " ".join(out)
 
 
@@ -116,11 +121,21 @@ def page_ranked(con, run_id):
     if hide_office:
         df = df[df["property_type"].fillna("") != "Office"]
     ranked = df[df["rank"].notna()]
+    live = eq.load_equation_config()["filters"]
+    if {k: f.get(k) for k in ("min_loan_size", "max_loan_size", "property_types_excluded")} != \
+            {k: live.get(k) for k in ("min_loan_size", "max_loan_size", "property_types_excluded")}:
+        st.warning("This run was made with older filter settings than the ones now in config/equation.yaml "
+                   f"(it used loans {money(f['min_loan_size'])}–{money(f['max_loan_size']) if f.get('max_loan_size') else 'no limit'}, "
+                   f"hiding {', '.join(f['property_types_excluded']) or 'nothing'}). "
+                   "Pull the latest code and run `python -m scorer.weekly` again to apply the current settings.")
+    if len(ranked) and not (ranked["score"] > 0).any():
+        st.info("None of these properties has an early warning sign yet. They are listed because they pass the filters; "
+                "they are known only from public loan data. Add county records or run the web bot to find signals.")
     c = st.columns(5)
-    c[0].metric("Ranked", len(ranked))
+    c[0].metric("Listed", len(ranked))
     c[1].metric("Hot (call this week)", int((ranked["tier"] == "hot").sum()))
     c[2].metric("Watch", int((ranked["tier"] == "watch").sum()))
-    c[3].metric("Early warning (no filing yet)", int((ranked["stage"] == "early").sum()))
+    c[3].metric("Early warning (no filing yet)", int(((ranked["stage"] == "early") & (ranked["score"] > 0)).sum()))
     c[4].metric("Filtered out", int((~df["shown"]).sum()))
     if len(ranked) == 0 and len(df) and not df["shown"].any():
         why = df["filter_reason"].fillna("unknown").value_counts()
@@ -142,7 +157,7 @@ def page_ranked(con, run_id):
                        f"{esc(place)} · {money(r['loan_amount'])}")
             b.markdown(tags(r))
             parts = [f"{code} {r[col]:.0%}" for col, code, _, _ in TERMS if r.get(col) and r[col] > 0]
-            b.caption(("Early signals: " + " · ".join(parts)) if parts else "No early signals (late filings only)")
+            b.caption(("Early signals: " + " · ".join(parts)) if parts else ("No early signals (late filings only)" if r["score"] and r["score"] > 0 else "No warning signs found yet"))
             if not r["shown"]:
                 b.markdown(f":gray[Hidden: {esc(r['filter_reason'])}]")
             if r["property_id"] in status:

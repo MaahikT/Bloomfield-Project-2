@@ -48,6 +48,8 @@ class FakeLLM:
         self.requests.append((url, headers, payload))
         if "generateContent" in url:                                    # Gemini
             user_text = payload["contents"][0]["parts"][0]["text"]
+        elif "instructions" in payload:                                 # OpenAI Responses API (the Codex default)
+            user_text = payload["input"]
         elif "system" in payload:                                       # Anthropic
             user_text = payload["messages"][0]["content"]
         else:                                                           # OpenAI-style (system is message 0)
@@ -64,6 +66,9 @@ class FakeLLM:
             return 200, {"candidates": [{"content": {"parts": [{"text": text}]}, "finishReason": "STOP"}],
                          "usageMetadata": {"promptTokenCount": 200, "candidatesTokenCount": 100,
                                            "totalTokenCount": 300}}, {}
+        if url.endswith("/responses"):
+            return 200, {"output": [{"type": "message", "content": [{"type": "output_text", "text": text}]}],
+                         "usage": {"input_tokens": 200, "output_tokens": 100}}, {}
         if "chat/completions" in url:
             return 200, {"choices": [{"message": {"content": text}, "finish_reason": "stop"}],
                          "usage": {"prompt_tokens": 200, "completion_tokens": 100}}, {}
