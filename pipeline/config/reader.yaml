@@ -35,6 +35,7 @@ task_models:
   extract: strong           # turn a document into clean fields
   summary: strong           # plain-English flag summaries
   split_notices: strong     # split one newspaper page into separate notices
+  agent: strong             # the sourcing agent (agent/): planning and evidence steps
 
 # Price per MILLION tokens, in US dollars. Used only to ESTIMATE cost and enforce the cap.
 # !!! PLACEHOLDER NUMBERS - please check your provider's current price list and edit. !!!
