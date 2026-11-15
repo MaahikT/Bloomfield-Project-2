@@ -83,7 +83,7 @@
   ],
   "results": {
     "tests": {
-      "passing": 319,
+      "passing": 355,
       "note": "They all pass, and none needs the internet or an API key."
     },
     "live_reader": {
