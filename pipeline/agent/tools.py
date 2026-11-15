@@ -46,8 +46,9 @@ COLLECTOR_NAME = "agent"
 TOOL_SCHEMAS = [
     {"type": "function", "function": {
         "name": "web_search",
-        "description": "Search the public web. Returns a list of {title, url, snippet}. Only works when a "
-                       "search service key is configured; otherwise it says so and you must use other tools.",
+        "description": "Search the public web through the project's search service (Brave or Tavily). "
+                       "Returns a list of {title, url, snippet}. Only works when a search service key is "
+                       "configured; otherwise it says so and you must use other tools.",
         "parameters": {"type": "object",
                        "properties": {"query": {"type": "string", "description": "The search query."}},
                        "required": ["query"]}}},
@@ -215,10 +216,10 @@ def web_search(query: str, *, bot_cfg: dict, budget) -> dict:
     results = bot_search.search(query, bot_cfg, budget)
     if not results:
         provider = ((bot_cfg.get("search") or {}).get("provider", "none"))
-        if provider != "brave":
+        if provider not in ("brave", "tavily"):
             return _err("No search service is configured (config/bot.yaml search.provider is "
-                        f"'{provider}'). Set it to 'brave' and add BRAVE_SEARCH_API_KEY to .env, or use "
-                        "fetch_page / run_collector with addresses you already know.")
+                        f"'{provider}'). Set it to 'brave' or 'tavily' and add the matching API key to .env, "
+                        "or use fetch_page / run_collector with addresses you already know.")
         return {"ok": True, "results": [], "note": "The search service returned nothing for this query."}
     return {"ok": True, "results": results}
 
