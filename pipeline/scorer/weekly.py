@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from datetime import date
 
 from collectors.common import db
@@ -115,9 +116,16 @@ def clean_type(raw) -> str | None:
     if text.upper() in _CMBS_CODES:
         return _CMBS_CODES[text.upper()]
     low = text.lower().replace("_", " ")
-    for needle, label in _TYPE_RULES:
-        if needle in low:
-            return label
+    matches = [label for needle, label in _TYPE_RULES if needle in low]
+    if "mixed" in low:
+        return "Mixed use"                         # "Mixed-use (retail/office)" is mixed use, not office
+    # Office is only excluded when the property really is office: a hotel, apartment building or industrial
+    # flex space with some office space in it must not be hidden.
+    others = [m for m in matches if m != "Office"]
+    if others:
+        return others[0]
+    if matches:
+        return matches[0]
     return text.replace("_", " ").title()
 
 
@@ -336,6 +344,15 @@ def changes(con, run_id: str | None = None, cfg: dict | None = None) -> dict:
     return out
 
 
+def filter_summary(con, run_id: str) -> dict:
+    """How many flags were hidden by the filters, and why. Makes 'everything is filtered out' easy to diagnose."""
+    rows = con.execute("SELECT coalesce(filter_reason, 'shown'), count(*) FROM weekly_flags WHERE run_id = ? "
+                       "GROUP BY 1 ORDER BY 2 DESC", [run_id]).fetchall()
+    return {"shown": sum(n for r, n in rows if r == "shown"),
+            "hidden": sum(n for r, n in rows if r != "shown"),
+            "reasons": {re.sub(r"^\$[\d.]+M loan ", "loan ", r): n for r, n in rows if r != "shown"}}
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Weekly scoring run for the dashboard.")
     ap.add_argument("--as-of", help="YYYY-MM-DD (default today)")
@@ -349,6 +366,12 @@ def main(argv=None):
     print(f"{run_id}: {len(top)} ranked (top 10):")
     for rank, name, score, tier, flags in top:
         print(f"  {rank:>2}. {score:>5.1f} {tier:<5} {name}" + (f"  [{flags}]" if flags else ""))
+    fs = filter_summary(con, run_id)
+    if fs["hidden"]:
+        print(f"Filters hid {fs['hidden']} of {fs['hidden'] + fs['shown']} flags: " +
+              "; ".join(f"{n} x {r}" for r, n in fs["reasons"].items()))
+    if not top and fs["hidden"]:
+        print("Nothing is ranked because every flag was filtered out. Check `filters:` in config/equation.yaml.")
     ch = changes(con, run_id)
     if ch["previous"]:
         print(f"Since {ch['previous']}: {len(ch['new'])} new, {len(ch['worse'])} worse, "

@@ -118,6 +118,10 @@ def page_ranked(con, run_id):
     c[2].metric("Watch", int((ranked["tier"] == "watch").sum()))
     c[3].metric("Early warning (no filing yet)", int((ranked["stage"] == "early").sum()))
     c[4].metric("Filtered out", int((~df["shown"]).sum()))
+    if len(ranked) == 0 and len(df) and not df["shown"].any():
+        why = df["filter_reason"].fillna("unknown").value_counts()
+        st.warning("Every flag is hidden by the filters. Reasons: " + "; ".join(f"{n} × {r}" for r, n in why.items())
+                   + ". Turn on 'Show filtered-out' to see them, or change `filters:` in config/equation.yaml.")
 
     left, right = st.columns([2, 1])
     tier_pick = left.multiselect("Tiers", ["hot", "watch", "low"], default=["hot", "watch", "low"],

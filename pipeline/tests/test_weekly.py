@@ -44,3 +44,28 @@ def test_there_is_no_upper_limit_and_the_minimum_is_two_and_a_half_million():
     assert weekly.passes_filters("multifamily", "MI", None, f)[0]            # unknown size is kept, marked as such
     f2 = {**f, "max_loan_size": 100e6}                                       # a cap still works if someone sets one
     assert not weekly.passes_filters("multifamily", "MI", 150e6, f2)[0]
+
+
+def test_only_real_office_is_hidden_as_office():
+    ct = weekly.clean_type
+    assert ct("Mixed-use (retail/office)") == "Mixed use"       # was wrongly "Office", so it was filtered out
+    assert ct("hotel and office tower") == "Hotel"
+    assert ct("Industrial / Office flex") == "Industrial"
+    assert ct("Retail with office above") == "Retail"
+    assert ct("Class A office") == "Office" and ct("OF") == "Office" and ct("Medical Office Building") == "Office"
+    f = eq.load_equation_config()["filters"]
+    assert weekly.passes_filters(ct("Mixed-use (retail/office)"), "MI", 20e6, f)[0]
+    assert not weekly.passes_filters(ct("Class A office"), "MI", 20e6, f)[0]
+
+
+def test_the_run_explains_when_everything_is_filtered_out(tmp_path):
+    con = open_db(tmp_path / "t.duckdb")
+    weekly.create_tables(con)
+    for i in range(3):
+        _add(con, "recorded_loans", record_id=f"x{i}", loan_kind="construction", recording_date=date(2021, 1, 1),
+             property_address=f"{i} X St", state="MI", amount=20e6, grantee="Bank", grantor="Owner LLC")
+        _add(con, "projects", project_id=f"px{i}", project_name=f"FAKE X{i}", property_address=f"{i} X St",
+             state="MI", property_type="office", months_overdue=0.0, stale_candidate=False)
+    run_id = weekly.run(con, eq.load_equation_config(), date(2026, 11, 2))
+    fs = weekly.filter_summary(con, run_id)
+    assert fs["shown"] == 0 and fs["hidden"] == 3 and fs["reasons"] == {"Office is filtered out": 3}
