@@ -159,12 +159,20 @@ def page_ranked(con, run_id):
         st.warning("Every flag is hidden by the filters. Reasons: " + "; ".join(f"{n} × {r}" for r, n in why.items())
                    + ". Turn on 'Show filtered-out' to see them, or change `filters:` in config/equation.yaml.")
 
-    left, right = st.columns([2, 1])
-    tier_pick = left.multiselect("Tiers", ["hot", "watch", "low"], default=["hot", "watch", "low"],
-                                 format_func=lambda t: TIER_ICON[t])
-    show_hidden = right.toggle("Show filtered-out (office, size, location)")
-    view = df if show_hidden else ranked
-    view = view[view["tier"].isin(tier_pick)]
+    tier_pick = st.multiselect("Tiers", ["hot", "watch", "low"], default=["hot", "watch", "low"],
+                               format_func=lambda t: TIER_ICON[t])
+    view = ranked[ranked["tier"].isin(tier_pick)]
+    # Cards are expensive to render; hundreds of rows kept the script "Running" for
+    # minutes and every button stayed a skeleton. Show the strongest flags as cards
+    # and point to the All properties table for the full scored universe.
+    MAX_CARDS = 50
+    if len(view) > MAX_CARDS:
+        st.caption(f"Showing the top {MAX_CARDS} of {len(view)} ranked flags. "
+                   "The **All properties** page lists every scored property.")
+        view = view.head(MAX_CARDS)
+    if (df["rank"].isna()).any():
+        st.caption(f"{int(df['rank'].isna().sum())} more properties were scored but have no distress signals or context yet "
+                   "(missing data is not proof of absence). They are on the **All properties** page.")
     for r in view.to_dict("records"):
         with st.container(border=True):
             a, b, c3 = st.columns([0.7, 5, 1.8])
@@ -415,8 +423,39 @@ Edit every number in `pipeline/config/equation.yaml`, then rerun `python -m scor
 """)
 
 
-PAGES = {"Ranked flags": page_ranked, "Flag details": page_detail, "What changed this week": page_changes,
-         "Research log": page_log, "How the score works": page_how}
+def page_all(con, run_id):
+    st.title("All properties")
+    df = flags(con, run_id)
+    if df.empty:
+        st.info("No properties in this run.")
+        return
+    st.caption(
+        "Every property scored in this run, including the ones with no distress signals yet. "
+        "A missing or zero score means we found no signals in the data we have - "
+        "missing data is not proof of absence.")
+    out = pd.DataFrame({
+        "Rank": df["rank"],
+        "Property": df["property_name"],
+        "Type": df["property_type"],
+        "City": df["city"],
+        "State": df["state"],
+        "Loan": df["loan_amount"],
+        "Score": df["score"],
+        "Tier": df["tier"],
+        "Listed": df["shown"].map({True: "yes", False: "no"}),
+        "Why hidden": df["filter_reason"].fillna(""),
+    }).sort_values(["Score", "Property"], ascending=[False, True])
+    c1, c2 = st.columns(2)
+    tier_pick = c1.multiselect("Tiers", ["hot", "watch", "low"], default=["hot", "watch", "low"],
+                               format_func=lambda t: TIER_ICON[t], key="all_tiers")
+    listed_pick = c2.multiselect("Listed status", ["yes", "no"], default=["yes", "no"], key="all_listed")
+    out = out[out["Tier"].isin(tier_pick) & out["Listed"].isin(listed_pick)]
+    st.caption(f"{len(out)} of {len(df)} properties shown")
+    st.dataframe(out, hide_index=True, use_container_width=True)
+
+
+PAGES = {"Ranked flags": page_ranked, "All properties": page_all, "Flag details": page_detail,
+         "What changed this week": page_changes, "Research log": page_log, "How the score works": page_how}
 
 
 def main():
