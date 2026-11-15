@@ -21,9 +21,6 @@ from .settings import load_reader_config
 log = get_logger("llm.cost")
 
 
-_warned_models: set[str] = set()      # say "no price listed" once per model, not on every call
-
-
 class CostCapExceeded(RuntimeError):
     """Raised when the next AI call would push spending over a cap."""
 
@@ -51,21 +48,17 @@ def estimate_tokens(text: str, cfg: dict | None = None) -> int:
 def get_prices(model: str, cfg: dict | None = None) -> tuple[float, float]:
     """(dollars per input token, dollars per output token) for a model.
 
-    Fail-closed: a model with no listed price is charged at the HIGHEST rates in the
-    table, never at a cheaper guess, so the ledger and the spending cap can never
-    under-count an unfamiliar model."""
+    Fail-closed: a model with no EXACT configured price is refused. Any guessed price
+    (a default catch-all, the highest listed rate) can under-count the real bill, and
+    the spending cap is only as honest as the prices behind it."""
     cfg = cfg or load_reader_config()
     table = cfg.get("prices_per_million_tokens") or {}
     entry = table.get(model)
     if entry is None:
-        entries = list(table.values())
-        if not entries:
-            raise ValueError("reader.yaml needs prices_per_million_tokens (at least a 'default')")
-        if model not in _warned_models:
-            _warned_models.add(model)
-            log.warning("no price listed for model %r in reader.yaml; charging the highest listed price until one is added", model)
-        return (max(float(e["input"]) for e in entries) / 1_000_000,
-                max(float(e["output"]) for e in entries) / 1_000_000)
+        raise ValueError(
+            f"no exact price configured for model {model!r} in reader.yaml. Add its "
+            "authoritative per-million-token price to prices_per_million_tokens before "
+            "spending on it.")
     return float(entry["input"]) / 1_000_000, float(entry["output"]) / 1_000_000
 
 
