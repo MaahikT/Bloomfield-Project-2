@@ -169,7 +169,7 @@ COLS.forEach(([key, label, kind], ci) => {
     T(s, key === "not_built" ? sg.next : sg.built, { x: x + 0.1, y: y + 0.33, w: w - 0.2, h: 0.52, fontSize: 9, color: C.accent6, objectName: "Board text " + (ci + 1) + "-" + (ri + 1) });
   });
 });
-notes(s, "Maahik", "Coded: construction loans that never converted, contractor liens, and UCC foreclosure sales. For UCC, the reader recognizes the notice and pulls out the secured party, sale date and collateral, and the scorer gives it 30 points, the strongest single signal. In progress: stale opening dates, foreclosure and receivership notices, and weak loans. The next slide explains what is done and what is left on each. Not built yet: Ten-X collection, local news and leasing-site monitoring, and tracking each flag to a closed deal.");
+notes(s, "Maahik", "Coded: construction loans that never converted, contractor liens, and UCC foreclosure sales. For UCC, the reader recognizes the notice and pulls out the secured party, sale date and collateral, and the scorer gives it a small weight, because forced sales give little edge. In progress: stale opening dates, foreclosure and receivership notices, and weak loans. The next slide explains what is done and what is left on each. Not built yet: Ten-X collection, local news and leasing-site monitoring, and tracking each flag to a closed deal.");
 
 // ================= 10. in progress detail =================
 s = pres.addSlide({ masterName: "CONTENT", sectionTitle: "Problem and build" });
@@ -200,6 +200,20 @@ s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: M, y: 3.92, w: W, h: 0.95, rectRa
 T(s, "DECISION", { x: M + 0.2, y: 3.92, w: 1.3, h: 0.95, fontSize: 14, bold: true, color: C.accent1, valign: "middle", objectName: "Decision label" });
 T(s, content.approach.decision.when + ": keep every signal in one ranked list, or focus on the one signal that produces the most actionable flags. We choose using your feedback, how reliable each data source is, and which flags a researcher would really act on.", { x: M + 1.55, y: 3.92, w: W - 1.75, h: 0.95, fontSize: 12, color: C.background1, valign: "middle", objectName: "Decision text" });
 notes(s, "Vishwa", "Be open about this: we are deliberately wide right now. We are testing several approaches in parallel because we do not yet know which gives Bloomfield the best flags. Before the final, we choose whether to keep all of them or focus on one and make it excellent. Ask Bloomfield which they would pick today; it is the most useful input we can get.");
+
+// ================= 11b. how we weight the signals =================
+s = pres.addSlide({ masterName: "CONTENT", sectionTitle: "Problem and build" });
+title(s, "+How we weight the signals");
+content.priorities.items.forEach((it, i) => {
+  const y = 1.15 + i * 0.66, strong = i < 2;
+  card(s, M, y, W, 0.62, "Priority row " + (i + 1));
+  s.addShape(pres.shapes.RECTANGLE, { x: M, y, w: 0.09, h: 0.62, fill: { color: strong ? "FFCB05" : "B8B4A8" }, line: { color: strong ? "FFCB05" : "B8B4A8", width: 0.5 }, objectName: "Priority bar " + (i + 1) });
+  T(s, it.name, { x: M + 0.25, y: y + 0.05, w: 2.6, h: 0.3, fontSize: 13, bold: true, color: C.text2, objectName: "Priority name " + (i + 1) });
+  T(s, it.weight.toUpperCase(), { x: M + 0.25, y: y + 0.34, w: 2.6, h: 0.24, fontSize: 9, bold: true, color: C.accent4, charSpacing: 0.4, objectName: "Priority weight " + (i + 1) });
+  T(s, it.why, { x: M + 3.0, y, w: W - 3.15, h: 0.62, fontSize: 11, color: C.accent6, valign: "middle", objectName: "Priority why " + (i + 1) });
+});
+T(s, content.priorities.netr, { x: M, y: 4.5, w: W, h: 0.45, fontSize: 11, italic: true, color: C.text2, valign: "middle", objectName: "NETR note" });
+notes(s, "Vishwa", "These weights come straight from Bloomfield's own view of the signals. The construction-loan clock is strongest: if a project opens and its construction loan is still outstanding, or a loan from five years ago was never paid off, that is distress. The opening-date watch is a good but weaker signal because a three to six month delay is normal, so short slips score little. Court and lien filings come late: they confirm a situation is actionable, they do not warn early, so they mark a property Ready to act. Forced sales and Trepp data give little edge because everyone has them. Creative signals are very promising once we can detect them reliably. We use NETR Online as a directory to find county record sites, screening each site before it is searched.");
 
 // ================= 8. live demo =================
 pres.addSection({ title: "Demo" });

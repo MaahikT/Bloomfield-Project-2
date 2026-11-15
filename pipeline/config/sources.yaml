@@ -5,6 +5,9 @@
 
 # The name of the variable in .env that holds our contact email.
 contact_email_env: CONTACT_EMAIL
+# Used when .env has no CONTACT_EMAIL, so the tools work with no setup. It is only written into the
+# User-Agent so a website owner can reach the team. Set CONTACT_EMAIL in .env to override it.
+contact_email_default: AISprint@umich.edu
 
 # Sent as the "User-Agent" with every request. {email} is filled in from .env.
 user_agent_template: "BloomfieldSourcingResearch/0.1 (University of Michigan AI Sprint; contact: {email})"

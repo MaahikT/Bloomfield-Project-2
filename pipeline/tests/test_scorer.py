@@ -229,6 +229,7 @@ def test_tiers(scon, cfg):
     filing(scon, "c", "tax_delinquency", filing_date=AS_OF, property_address="2 B St")
     filing(scon, "d", "lis_pendens", filing_date=AS_OF, property_address="3 C St")
     tiers = {sp.facts["property_address"]: sp.tier for sp in score_all(scon, cfg, AS_OF)}
+    # late filings confirm a situation is actionable: foreclosure and lis pendens reach watch; a tax notice alone does not
     assert tiers == {"1 A St": "watch", "2 B St": "low", "3 C St": "watch"}
 
 
@@ -260,7 +261,8 @@ def test_troubled_ann_arbor_project_ranks_first(fake_db, cfg):
     families = {s.family for s in top.signals}
     assert {"construction_loan", "permits", "liens", "lender", "opening"} <= families
     # the two middle properties are on the watch list, the 20 healthy ones are low
-    assert [sp.tier for sp in ranked[1:3]] == ["watch", "watch"]
+    # Trepp-style CMBS data gives little edge (low); a lis pendens is a late "ready to act" confirmation (watch)
+    assert sorted(sp.tier for sp in ranked[1:3]) == ["low", "watch"]
     assert all(sp.tier == "low" for sp in ranked[3:])
     assert len(ranked) == 24
 
@@ -290,7 +292,7 @@ def test_write_scores_replaces_previous_run(fake_db, cfg):
 def test_cli_runs_and_explains(fake_db, capsys):
     assert scorer_main(["--db", str(fake_db), "--csv", "--top", "3"]) == 0
     out = capsys.readouterr().out
-    assert "1 hot, 2 watch, 21 low" in out and "Maize Row" in out
+    assert "1 hot, 1 watch, 22 low" in out and "Maize Row" in out
     assert scorer_main(["--db", str(fake_db), "--explain", "maize"]) == 0
     assert "evidence: recorded_loans/fake-rl-annarbor-1" in capsys.readouterr().out
     assert scorer_main(["--db", str(fake_db), "--explain", "no such place"]) == 1
@@ -298,3 +300,45 @@ def test_cli_runs_and_explains(fake_db, capsys):
 
 def test_scorer_tables_listed():
     assert TABLES == ["property_scores", "score_signals"]
+
+
+# ---- Bloomfield's priorities (Nov 2026): construction clock first, opening date second, late filings confirm ----
+def test_construction_clock_outweighs_every_other_single_signal(cfg):
+    sig = cfg["signals"]
+    clock = sig["construction_loan_no_takeout"]["points"] + sig["construction_loan_five_years"]["points"]
+    caps = cfg["family_caps"]
+    assert caps["construction_loan"] == max(caps.values())
+    assert caps["opening"] > max(caps[f] for f in ("permits", "lender", "cmbs", "liens", "legal"))
+    assert clock > max(v["points"] for k, v in sig.items() if isinstance(v, dict) and "points" in v
+                       and v.get("family") not in ("construction_loan",))
+
+
+def test_late_filings_and_trepp_style_data_carry_the_lowest_weights(cfg):
+    legal = cfg["signals"]["legal_event"]["points_by_tag"]
+    assert legal["ucc_sale_scheduled"] <= 5 and legal["listed_for_auction"] <= 5     # forced sales: not really a signal
+    assert max(legal.values()) < cfg["signals"]["construction_loan_no_takeout"]["points"]
+    assert cfg["family_caps"]["cmbs"] < cfg["family_caps"]["opening"]
+
+
+def test_an_old_construction_loan_never_paid_off_gets_the_five_year_bonus(scon, cfg):
+    loan(scon, "r1", "construction", AS_OF - timedelta(days=int(365.25 * 5.5)), amount=20_000_000, address="9 Old St")
+    sp = score_all(scon, cfg, AS_OF)[0]
+    names = {s.name for s in sp.signals}
+    assert {"construction_loan_no_takeout", "construction_loan_five_years"} <= names
+    assert sp.score == 45 and sp.tier == "watch"
+
+
+def test_a_short_opening_delay_is_normal_and_scores_nothing(scon, cfg):
+    def project(pid, months):
+        upsert(scon, "projects", {"project_id": pid, "project_name": pid, "property_address": "5 Delay St",
+                                  "city": "Town", "state": "MI", "stale_candidate": True, "months_overdue": months,
+                                  "stated_opening_phrase": "Opening Fall 2026", "last_checked_at": AS_OF})
+    project("p-short", 2.0)
+    assert not [s for sp in score_all(scon, cfg, AS_OF) for s in sp.signals if s.name == "stale_opening"]
+    scon.execute("DELETE FROM projects")
+    project("p-mid", 4.0)
+    mid = [s for sp in score_all(scon, cfg, AS_OF) for s in sp.signals if s.name == "stale_opening"][0].points
+    scon.execute("DELETE FROM projects")
+    project("p-long", 9.0)
+    long_ = [s for sp in score_all(scon, cfg, AS_OF) for s in sp.signals if s.name == "stale_opening"][0].points
+    assert 0 < mid < long_

@@ -118,11 +118,55 @@ def test_proposed_files_are_manual_inbox_and_never_automatic(cand, tmp_path):
     assert OK_SITE in doc["sources"]["recorder"]["notes"]
 
 
-def test_the_shipped_settings_keep_the_directory_locked():
+def test_netr_is_approved_and_still_polite():
     cfg = discover.load_config()
     d = cfg["directories"]["netr_online"]
-    assert d["terms_checked"] is False             # a person must flip this after reading the terms
-    assert "automated" in cfg["terms_red_flags"]
+    assert d["terms_checked"] is True              # approved by NETR Online (via Bloomfield), Nov 2026
+    assert "automated" in cfg["terms_red_flags"]   # every county site NETR points to is still screened
+
+
+# ---- the tool must still work when the guessed directory addresses are wrong, or the network is blocked ----
+HOME = DIR + "/"
+CFG2 = {**CFG, "directories": {"fake_dir": {**CFG["directories"]["fake_dir"], "home_url": HOME,
+                                            "state_url": DIR + "/states/{state}"}}}
+
+
+def nav_pages():
+    p = pages()
+    del p[COUNTY_PAGE]                                     # the guessed county address does not exist
+    p[HOME] = FakeResponse('<html><body><a href="/browse/xx-land">Xland</a><a href="/browse/zz">Zeta</a></body></html>')
+    p[DIR + "/states/XX"] = FakeResponse("not found", 404)  # the guessed state address does not exist either
+    p[DIR + "/browse/xx-land"] = FakeResponse('<html><body><a href="/c/other">Other County</a>'
+                                              '<a href="/c/fakeland-real">Fakeland County</a></body></html>')
+    p[DIR + "/c/fakeland-real"] = FakeResponse(DIRECTORY_HTML)
+    return p
+
+
+def test_it_follows_the_directorys_own_links_when_the_guessed_addresses_are_wrong(cand):
+    cfg = {**CFG2, "directories": {"fake_dir": {**CFG2["directories"]["fake_dir"]}}}
+    import collectors.discover as dd
+    dd.STATE_NAMES["XX"] = "Xland"
+    sess = FakeSession(nav_pages())
+    rows = discover.discover_county(cand, cfg, "fake_dir", "XX", "Fakeland County", session=sess)
+    assert len(rows) == 5 and DIR + "/c/fakeland-real" in sess.requested
+
+
+def test_a_page_saved_from_a_browser_works_with_no_network(cand, tmp_path):
+    f = tmp_path / "saved.html"
+    f.write_text(DIRECTORY_HTML, encoding="utf-8")
+    rows = discover.discover_from_html(cand, CFG, "fake_dir", "XX", "Fakeland County", str(f), page_url=COUNTY_PAGE)
+    assert {r["kind"] for r in rows} == {"recorder", "court", "public_notice", "other"} and len(rows) == 5
+
+
+def test_the_self_check_names_what_is_wrong(env):
+    steps = discover.check_access(CFG2, "fake_dir", "XX", "Fakeland County", session=FakeSession({}))
+    failed = [m for ok, m in steps if not ok]
+    assert failed and "cannot open" in failed[0]            # nothing reachable: it says so plainly
+    p = nav_pages()
+    import collectors.discover as dd
+    dd.STATE_NAMES["XX"] = "Xland"
+    steps = discover.check_access(CFG2, "fake_dir", "XX", "Fakeland County", session=FakeSession(p))
+    assert all(ok for ok, _ in steps) and "5 outside links" in steps[-1][1]
 
 
 def test_recorders_are_screened_first_because_they_feed_the_loan_clock():

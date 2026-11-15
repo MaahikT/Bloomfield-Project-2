@@ -133,6 +133,13 @@ def construction_loan_signals(p: Property, cfg: dict, as_of: date) -> list[Signa
             f"recorded {age / 12:.1f} years ago with no permanent loan or payoff since",
             "recorded_loans", c.get("record_id"), c_date))
 
+    rule = s_cfg.get("construction_loan_five_years")
+    if rule and not paid_off and age >= rule["min_age_months"]:
+        out.append(Signal(
+            "construction_loan_five_years", rule["family"], rule["points"],
+            f"The construction loan is {age / 12:.1f} years old and has never been paid off",
+            "recorded_loans", c.get("record_id"), c_date))
+
     rule = s_cfg["construction_loan_modified"]
     mods = [r for r in later if (r.get("loan_kind") or "").lower() in ("modification", "extension")]
     for r in mods[: rule["max_count"]]:
@@ -442,7 +449,10 @@ def opening_signals(p: Property, cfg: dict) -> list[Signal]:
             r = s["stale_opening"]
             months = pr.get("months_overdue") or 0
             extra = min(r["max_extra"], r["per_month_overdue"] * months)
-            out.append(Signal("stale_opening", r["family"], r["points"] + extra,
+            grace, half = r.get("grace_months", 0), r.get("half_until_months", 0)
+            factor = 0.0 if months < grace else 0.5 if months < half else 1.0
+            if factor:
+                out.append(Signal("stale_opening", r["family"], (r["points"] + extra) * factor,
                               f"{name} said it would open '{pr.get('stated_opening_phrase')}' but the site "
                               f"still says coming soon ({months:.0f} months overdue)",
                               quote=pr.get("stated_opening_phrase"), **ev))

@@ -32,7 +32,8 @@ CREATE TABLE IF NOT EXISTS property_scores (
     grouped_by       TEXT,            -- part_c (Part C's links) or fallback (parcel/address)
     as_of            DATE,
     scoring_version  TEXT,
-    scored_at        TIMESTAMP
+    scored_at        TIMESTAMP,
+    ready_to_act     BOOLEAN          -- a late court or lien filing confirms the situation is actionable now
 );
 
 -- Every reason behind every score (the evidence trail).
@@ -58,6 +59,7 @@ TABLES = ["property_scores", "score_signals"]
 def create_scorer_tables(con) -> None:
     """Create Part D's tables if they do not exist yet (safe to run any time)."""
     con.execute(SCHEMA_SQL)
+    con.execute("ALTER TABLE property_scores ADD COLUMN IF NOT EXISTS ready_to_act BOOLEAN")
 
 
 def open_db(path=None, read_only: bool = False):

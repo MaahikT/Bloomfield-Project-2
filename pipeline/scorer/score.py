@@ -41,6 +41,7 @@ class ScoredProperty:
     score: float = 0.0
     tier: str = "low"
     summary: str = ""
+    ready_to_act: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -123,6 +124,11 @@ def score_property(p: Property, cfg: dict, as_of: date, banks: sig.BankBook) -> 
     sp.score = round(min(cfg["max_score"], sum(sp.counted.values())), 1)
     tiers = cfg["tiers"]
     sp.tier = "hot" if sp.score >= tiers["hot"] else "watch" if sp.score >= tiers["watch"] else "low"
+    # Court and lien filings come late: they confirm a situation is actionable, they are not an early warning.
+    rta = cfg.get("ready_to_act", {})
+    sp.ready_to_act = any(s.family in ("legal", "liens") and sp.counted[id(s)] >= rta.get("min_points", 1) for s in sp.signals)
+    if sp.ready_to_act and sp.tier == "low" and rta.get("floor_tier") == "watch":
+        sp.tier = "watch"
     top = [s.detail for s in sp.signals if sp.counted[id(s)] > 0][:3]
     sp.summary = "; ".join(top) if top else "No warning signs found"
     return sp
@@ -150,7 +156,7 @@ def write_scores(con, scored: list[ScoredProperty], cfg: dict, as_of: date) -> N
             row = {"property_id": sp.prop.property_id, **sp.facts, "score": sp.score, "tier": sp.tier,
                    "signal_count": sum(1 for s in sp.signals if sp.counted[id(s)] > 0),
                    "summary": sp.summary, "grouped_by": sp.prop.grouped_by, "as_of": as_of,
-                   "scoring_version": version, "scored_at": now}
+                   "scoring_version": version, "scored_at": now, "ready_to_act": sp.ready_to_act}
             cols = list(row)
             con.execute(f"INSERT INTO property_scores ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})",
                         [row[c] for c in cols])
