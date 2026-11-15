@@ -24,7 +24,7 @@ if str(PIPELINE) not in sys.path:
 def main() -> None:
     from dashboard import scheduler
 
-    scheduler.ensure_started(os.environ.get("BLOOMFIELD_DB") or None)
+    scheduler.ensure_started(os.environ.get("BLOOMFIELD_DB") or None, source="boot")
 
     from streamlit.web import cli
 
