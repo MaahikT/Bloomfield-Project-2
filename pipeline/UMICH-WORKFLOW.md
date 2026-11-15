@@ -1,5 +1,7 @@
 # Bloomfield: U-M Toolkit setup and workflow
 
+This branch now defaults to U-M Toolkit in `config/reader.yaml`, even when only the key is supplied. Existing environment or `.env` overrides still win and must be corrected if stale.
+
 ## The key and the endpoint must agree
 
 A U-M GPT Toolkit credential is not an OpenAI platform key or a ChatGPT/Codex login.
@@ -31,7 +33,7 @@ source .venv/bin/activate
 python -m pip install -r requirements.txt
 ```
 
-If `pipeline/.env` does not exist, copy `.env.umich.example` to `.env`; otherwise merge the settings above without overwriting other settings.
+If `pipeline/.env` does not exist, copy `.env.example` to `.env`; otherwise merge the settings above without overwriting other settings.
 Add the actual credential in a local editor or secret manager. `.env` stays git-ignored.
 Use a real monitored `CONTACT_EMAIL` for SEC requests.
 Existing exported shell variables override `.env`; clear stale provider/model/key settings or open a clean shell before testing.
