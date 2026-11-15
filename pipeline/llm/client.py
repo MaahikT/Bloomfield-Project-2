@@ -48,7 +48,7 @@ class LLMConfigError(LLMError):
 
 
 class RestrictedMaterialError(LLMError):
-    """We refused to send private (Trepp / Bloomfield) material to an outside service."""
+    """We refused to send private (Bloomfield) material to an outside service."""
 
 
 @dataclass
@@ -297,14 +297,14 @@ def call_llm_detailed(task: str, system_prompt: str, user_text: str, max_output_
     file_hash       fingerprint of the document (for the cache key); if omitted we hash the text
     prompt_version  e.g. "v2" (for the cache key); if omitted we hash the system prompt
     variant         only for a "retry with the error message" call
-    restricted      "trepp" or "bloomfield" if the text is private material; we refuse unless
-                    reader.yaml allows it (both switches default to false)
+    restricted      "bloomfield" if the text is private material; we refuse unless
+                    reader.yaml allows it (the switch defaults to false)
     """
     cfg = cfg or load_reader_config()
 
     # Privacy guard: private material never leaves this computer unless config allows it.
     if restricted:
-        flag = {"trepp": "trepp_ai_allowed", "bloomfield": "bloomfield_material_ai_allowed"}.get(restricted)
+        flag = {"bloomfield": "bloomfield_material_ai_allowed"}.get(restricted)
         if flag is None or not cfg.get(flag, False):
             raise RestrictedMaterialError(
                 f"Refusing to send {restricted} material to an outside AI service "

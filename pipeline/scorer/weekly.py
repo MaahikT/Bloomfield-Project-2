@@ -68,7 +68,7 @@ CREATE TABLE IF NOT EXISTS weekly_flags (
     explanation     TEXT,       -- JSON: every term of the equation and why
     deal_parts      TEXT,       -- JSON: how deal quality was built
     angles          TEXT,       -- JSON: suggested deal angles
-    context         TEXT,       -- JSON: facts shown but not scored (auctions, Trepp/CMBS)
+    context         TEXT,       -- JSON: facts shown but not scored (auctions, CMBS)
     summary         TEXT,
     PRIMARY KEY (run_id, property_id)
 );
@@ -156,7 +156,7 @@ def context_facts(p) -> list[str]:
             bits.append(str(ln["payment_status"]))
         if bits:
             src = (ln.get("source") or "CMBS").lower()
-            note = "everyone has this" if src in ("trepp", "sec_edgar", "cmbs") else "public disclosure"
+            note = "everyone has this" if src in ("sec_edgar", "cmbs") else "public disclosure"
             out.append(f"{ln.get('source') or 'CMBS'} loan data: " + ", ".join(bits) + f" ({note})")
     return out
 

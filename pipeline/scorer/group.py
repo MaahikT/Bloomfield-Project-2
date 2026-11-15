@@ -74,7 +74,7 @@ def load_records(con) -> dict[str, list[dict]]:
             WHERE coalesce(f.status, 'ok') <> 'failed'""")
     if table_exists(con, "loans"):
         if table_exists(con, "loan_links"):
-            # Part C's loan_group_id: the same loan reported by EDGAR and Trepp is scored once.
+            # Part C's loan_group_id: the same loan reported by two sources is scored once.
             out["loans"] = _rows(con, """SELECT l.*, k.loan_group_id FROM loans l
                                          LEFT JOIN loan_links k USING (loan_key)""")
         else:

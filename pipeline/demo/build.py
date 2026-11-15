@@ -250,8 +250,6 @@ def sources_table() -> list[dict]:
          "note": "Item codes still need checking against the official dictionary (the tool prints an audit)."},
         {"group": "National", "name": "CMS nursing home data", "how": "Automatic download (open data)", "status": "unverified",
          "note": "Dataset IDs still need checking."},
-        {"group": "National", "name": "Trepp screen (DSCR under 1.0x)", "how": "Researcher uploads the export", "status": "manual",
-         "note": "Stays on this computer. Never committed, never sent to an AI."},
         {"group": "Scout", "name": "Project and leasing websites, local news, Ten-X, WSJ legal notices", "how": "Fixed list of approved sites, read-only",
          "status": "planned", "note": "Not built yet. WSJ pages are always a weekly manual upload; nothing logs in."},
         {"group": "AI", "name": "AI Reader (OpenAI by default; Claude or Gemini also work)", "how": "One wrapper; the key is read from the environment, never stored in the page; cheap and strong models; answers cached; weekly cost cap",

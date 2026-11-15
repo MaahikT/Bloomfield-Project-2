@@ -151,19 +151,6 @@ def fake_middle_properties(con) -> None:
         "report_period": TODAY.replace(day=1) - timedelta(days=1), "file_id": "fake-edgar-trust-xml",
         "collected_at": NOW,
     }, replace=True)
-    # ...and the same loan again as Trepp reports it (different key, address spelled differently).
-    # Part C should see these are one loan; Part D should not count its problems twice.
-    db.insert_row(con, "loans", {
-        "loan_key": "trepp:FAKE Trust 2019-C77:77", "source": "trepp",
-        "deal_name": "FAKE TRUST 2019-C77", "property_name": "Camelback Office Plaza FAKE",
-        "property_address": "4400 Sample Ave.", "property_city": "Phoenix",
-        "property_state": "AZ", "property_zip": None, "property_type": "OF",
-        "current_balance": 27_350_000, "original_balance": 29_000_000,
-        "maturity_date": TODAY + timedelta(days=240), "dscr": 0.86, "occupancy": 0.70,
-        "payment_status": "Current", "servicer_name": "Example Servicing FAKE", "watchlist_flag": True,
-        "servicer_commentary": None, "report_period": TODAY.replace(day=1) - timedelta(days=31),
-        "file_id": None, "collected_at": NOW,
-    }, replace=True)
 
     # 2) Chicago hotel: lis pendens filed by its lender.
     fid = "fake-chicago-lis-pendens"

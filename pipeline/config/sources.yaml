@@ -33,7 +33,6 @@ lookback_days:
 # Which collectors run (and in what order) when you run everything.
 enabled_collectors:
   - inbox
-  - trepp
   - edgar
   - ffiec
   - county

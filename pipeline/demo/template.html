@@ -388,7 +388,7 @@ function renderReader(root) {
     h('li', {}, 'Amounts and dates must be believable; a loan must mature after it was recorded.'),
     h('li', {}, 'If the document type disagrees with the label from the collector, or the scan is poor, a person reviews it.'),
     h('li', {}, 'Answers are saved, so reading the same document twice costs nothing, and a weekly spending cap stops the run before it overspends.'),
-    h('li', {}, 'Bloomfield\'s own material and Trepp data are never sent to an AI.'),
+    h('li', {}, 'Bloomfield\'s own material is never sent to an AI.'),
     bad && h('li', {}, h('b', {}, 'Caught in this demo: '), readerLabel(bad) + ' (' + bad.file_id + '): ' + (bad.reason || '')))));
   if (DATA.review.matches.length) root.append(h('h2', {}, 'Matches waiting for a person'), h('p', { class: 'sub' }, 'When the matcher is not sure two records are the same property, it asks instead of guessing.'),
     ...DATA.review.matches.map(m => { const dec = state.matches[m.review_id];
@@ -437,7 +437,7 @@ function renderSources(root) {
       h('tbody', {}, DATA.sources.map(s => h('tr', {}, h('td', {}, h('b', {}, s.name)), h('td', {}, s.how), h('td', {}, h('span', { class: 'pill ' + STATUS[s.status][0] }, STATUS[s.status][1])), h('td', { class: 'sub' }, s.note)))))));
 }
 function renderHow(root) {
-  const steps = [['Collect', 'Public records (county filings, liens, recorded loans, permits), SEC and FFIEC data, and the Trepp screen if Bloomfield shares one.', 'A researcher uploads the Trepp screen; nothing pulls on its own.'],
+  const steps = [['Collect', 'Public records (county filings, liens, recorded loans, permits), and SEC and FFIEC data.', 'A researcher uploads the Trepp screen; nothing pulls on its own.'],
     ['Read', 'The AI Reader turns each document into the same fields, with the exact source quote.', 'Fields are shown beside the source sentence; anything doubtful goes to a person.'],
     ['Link', 'Records about the same property, loan, lender and company are joined (parcel, address, fuzzy names).', 'Unsure matches wait in a review queue.'],
     ['Score', 'Each property gets points for each independent warning sign; signals of the same kind are capped.', 'Bloomfield owns the weights, size, geography and property types.'],

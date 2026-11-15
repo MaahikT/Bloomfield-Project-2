@@ -9,7 +9,7 @@ In plain English, for each file in raw_files that is waiting:
 
 Safe to stop and restart: each file is saved as soon as it is done, and answers already paid for
 come from the cache. It skips files that Part A already turns into tables (SEC EDGAR, FFIEC, CMS,
-Trepp) and anything marked confidential. It stops cleanly if the spending cap is reached.
+Bloomfield material) and anything marked confidential. It stops cleanly if the spending cap is reached.
 
 Run from the pipeline/ folder:
     python -m reader.batch --limit 50 --state MI
@@ -77,8 +77,6 @@ def select_files(con, cfg: dict, state=None, source=None, retry_failed=False) ->
     """raw_files rows with no filing_fields row for the current prompt version."""
     rcfg = cfg.get("reader") or {}
     allowed = set(rcfg.get("process_sources") or [])
-    if cfg.get("trepp_ai_allowed", False):
-        allowed.add("trepp")                         # Trepp is only read if config explicitly allows it
     if not allowed:
         return []
     marks = ", ".join("?" for _ in allowed)
@@ -238,7 +236,7 @@ def run(limit: int | None = None, state: str | None = None, source: str | None =
 
     bar = tqdm(todo, desc="Reading", unit="file", disable=not progress or quiet)
     for row in bar:
-        restricted = "trepp" if row["source"] == "trepp" else ("bloomfield" if is_confidential(row) else None)
+        restricted = "bloomfield" if is_confidential(row) else None
         try:
             out = process_file(con, row, cfg, engine, restricted)
         except cost.CostCapExceeded as e:

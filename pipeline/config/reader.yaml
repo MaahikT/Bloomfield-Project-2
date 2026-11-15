@@ -103,7 +103,7 @@ reader:
   require_quotes: true          # every filled-in field must come with a supporting quote
   value_in_quote_min_score: 85  # how well a field's value must match its own quote (0-100)
   max_consecutive_llm_errors: 3 # stop the batch if the AI service keeps failing
-  # Which kinds of files the reader processes. sec_edgar, ffiec, cms and trepp are already
+  # Which kinds of files the reader processes. sec_edgar, ffiec and cms are already
   # parsed into tables by Part A, so the reader skips them.
   process_sources: [county_court, recorder, public_notice, permit, state_license,
                     manual_upload, project_site, news, auction, wsj_notice]
@@ -116,5 +116,4 @@ ocr:
   language: eng
 
 # ---- Privacy switches. Bloomfield decides if these ever change. ----
-trepp_ai_allowed: false              # true = Trepp data may be sent to the outside AI service
 bloomfield_material_ai_allowed: false  # true = files marked confidential / from manual_upload/bloomfield/

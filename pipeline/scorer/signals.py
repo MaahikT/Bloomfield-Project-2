@@ -315,7 +315,7 @@ def lender_signals(p: Property, cfg: dict, banks: BankBook) -> list[Signal]:
 
 
 # ---------------------------------------------------------------------------
-# 5. CMBS loan data (Part A loans: EDGAR and Trepp)
+# 5. CMBS loan data (Part A loans: SEC EDGAR)
 # ---------------------------------------------------------------------------
 _DELINQUENT = re.compile(r"(30|60|90|120)\s*\+?\s*(day|dpd)|delinq|default|foreclos|\breo\b|non-?perform|late|bankrupt|matured", re.I)
 

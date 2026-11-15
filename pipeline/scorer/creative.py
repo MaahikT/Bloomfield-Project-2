@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS operating_metrics (
     revenue        DOUBLE,
     expenses       DOUBLE,
     noi            DOUBLE,
-    debt_service   DOUBLE,       -- kept for reference only: NOT scored (DSCR needs Trepp, which we don't have)
+    debt_service   DOUBLE,       -- kept for reference only: NOT scored (DSCR is not scored)
     source         TEXT,
     file_id        TEXT,
     disclosed_on   DATE          -- when it became public (e.g. EMMA posting date); NULL = period_end
@@ -132,7 +132,7 @@ def occupancy_slide(p, ptype, state, c, ops, mkt_occ, as_of) -> Sig:
 
 
 # ---------------------------------------------------------------------------
-# V: income erosion (NOI now vs. its best year in the lookback) - no DSCR: that needs Trepp
+# V: income erosion (NOI now vs. its best year in the lookback) - no DSCR
 # ---------------------------------------------------------------------------
 def income_erosion(p, c, ops, as_of) -> Sig:
     rows = [r for r in _ops(p, ops, as_of) if r.get("noi") is not None]

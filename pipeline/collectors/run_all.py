@@ -1,7 +1,7 @@
 """
 run_all.py - runs every collector in order (or just the ones you name) and prints a summary.
 
-In plain English: this is the "weekly run" button. Order: inbox, trepp, edgar, ffiec, county,
+In plain English: this is the "weekly run" button. Order: inbox, edgar, ffiec, county,
 recorded_loans, liens, permits, state. One collector failing never stops the others (it is logged
 and the next one runs). At the end you get a table: per collector, new files, skipped duplicates,
 errors, and which sources fell back to the manual inbox.
@@ -9,11 +9,11 @@ errors, and which sources fell back to the manual inbox.
 Run from the pipeline/ folder:
     python -m collectors.run_all                                   # everything
     python -m collectors.run_all --only county --county mi_washtenaw
-    python -m collectors.run_all --only trepp,ffiec                # several, comma separated
+    python -m collectors.run_all --only edgar,ffiec                # several, comma separated
     python -m collectors.run_all --state MI                        # one state: inbox + county only
     python -m collectors.run_all --since 2026-10-01
 
---state skips the national collectors (trepp, edgar, ffiec, state/CMS), which always cover every state.
+--state skips the national collectors (edgar, ffiec, state/CMS), which always cover every state.
 recorded_loans, liens and permits are not built yet and are listed as "not built".
 """
 from __future__ import annotations
@@ -21,14 +21,14 @@ from __future__ import annotations
 import argparse
 from datetime import date
 
-from collectors import county, edgar, ffiec, state, trepp
+from collectors import county, edgar, ffiec, state
 from collectors.common import db, inbox
 from collectors.common.log import RunTracker, get_logger, setup_logging
 
 log = get_logger("run_all")
 
-ORDER = ["inbox", "trepp", "edgar", "ffiec", "county", "recorded_loans", "liens", "permits", "state"]
-NATIONAL = {"trepp", "edgar", "ffiec", "state"}          # always every state: skipped by --state
+ORDER = ["inbox", "edgar", "ffiec", "county", "recorded_loans", "liens", "permits", "state"]
+NATIONAL = {"edgar", "ffiec", "state"}          # always every state: skipped by --state
 NOT_BUILT = {"recorded_loans", "liens", "permits"}
 
 
@@ -40,7 +40,6 @@ def _inbox(con, a):
 
 RUNNERS = {
     "inbox": _inbox,
-    "trepp": lambda con, a: trepp.collect(con),
     "edgar": lambda con, a: edgar.collect(con, since=a.since),
     "ffiec": lambda con, a: ffiec.collect(con),
     "county": lambda con, a: county.collect(con, state=a.state, county=a.county, since=a.since),

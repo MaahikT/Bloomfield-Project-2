@@ -141,7 +141,7 @@ notes(s, "Neel", "Input, AI step, output, human check. The rule we never break: 
 s = pres.addSlide({ masterName: "CONTENT", sectionTitle: "Problem and build" });
 title(s, "+How it's built: five stages");
 T(s, "One pipeline, five stages. Each stage writes to the same shared database, and a person checks the output.", { x: M, y: 1.18, w: W, h: 0.3, fontSize: 14, color: C.accent6, objectName: "Stages intro" });
-const CTRL = ["A researcher uploads Trepp; nothing pulls on its own.", "Doubtful results go to a person.", "Unsure matches wait for a person.", "Bloomfield owns the weights and filters.", "The researcher approves or dismisses."];
+const CTRL = ["Automatic where a site allows it; manual drop-in where it does not.", "Doubtful results go to a person.", "Unsure matches wait for a person.", "Bloomfield owns the weights and filters.", "The researcher approves or dismisses."];
 content.how_built.forEach((st, i) => {
   const x = M + i * 1.78;
   card(s, x, 1.65, 1.62, 3.2, "Stage card " + (i + 1));
@@ -213,7 +213,7 @@ content.priorities.items.forEach((it, i) => {
   T(s, it.why, { x: M + 3.0, y, w: W - 3.15, h: 0.62, fontSize: 11, color: C.accent6, valign: "middle", objectName: "Priority why " + (i + 1) });
 });
 T(s, content.priorities.netr, { x: M, y: 4.5, w: W, h: 0.45, fontSize: 11, italic: true, color: C.text2, valign: "middle", objectName: "NETR note" });
-notes(s, "Vishwa", "These weights come straight from Bloomfield's own view of the signals. The construction-loan clock is strongest: if a project opens and its construction loan is still outstanding, or a loan from five years ago was never paid off, that is distress. The opening-date watch is a good but weaker signal because a three to six month delay is normal, so short slips score little. Court and lien filings come late: they confirm a situation is actionable, they do not warn early, so they mark a property Ready to act. Forced sales and Trepp data give little edge because everyone has them. Creative signals are very promising once we can detect them reliably. We use NETR Online as a directory to find county record sites, screening each site before it is searched.");
+notes(s, "Vishwa", "These weights come straight from Bloomfield's own view of the signals. The construction-loan clock is strongest: if a project opens and its construction loan is still outstanding, or a loan from five years ago was never paid off, that is distress. The opening-date watch is a good but weaker signal because a three to six month delay is normal, so short slips score little. Court and lien filings come late: they confirm a situation is actionable, they do not warn early, so they mark a property Ready to act. Forced sales and CMBS data give little edge because everyone has them. Creative signals are very promising once we can detect them reliably. We use NETR Online as a directory to find county record sites, screening each site before it is searched.");
 
 // ================= 8. live demo =================
 pres.addSection({ title: "Demo" });
@@ -275,7 +275,7 @@ content.asks.forEach((a, i) => {
   T(s, [{ text: a.ask, options: { bold: true, color: C.text2, fontSize: 15, breakLine: true } }, { text: a.detail, options: { color: C.accent6, fontSize: 11 } }], { x: M + 0.8, y, w: 5.9, h: 0.8, valign: "middle", objectName: "Ask text " + (i + 1) });
   T(s, a.by, { x: 7.5, y, w: 1.75, h: 0.8, fontSize: 12, bold: true, color: C.accent6, valign: "middle", align: "right", objectName: "Ask deadline " + (i + 1) });
 });
-notes(s, "Maahik (questions 1 and 3), Rex (questions 2 and 4). Neel takes notes for the whole call.", "Ask more than you defend. If the client pushes back, write it down and decide as a team afterward. Question 1: which states and counties first. 2: a few anonymized sample deals, plus the Trepp screen if they are happy to share. 3: which signals would make them pick up the phone, and their size range, property types and markets. 4: any rules on sending public records to an AI service, and who should hold the AI account.");
+notes(s, "Maahik (questions 1 and 3), Rex (questions 2 and 4). Neel takes notes for the whole call.", "Ask more than you defend. If the client pushes back, write it down and decide as a team afterward. Question 1: which states and counties first. 2: a few anonymized sample deals, and any loan data they are happy to share. 3: which signals would make them pick up the phone, and their size range, property types and markets. 4: any rules on sending public records to an AI service, and who should hold the AI account.");
 
 // ================= 12. what ships Nov 17 =================
 pres.addSection({ title: "Nov 17 and next steps" });

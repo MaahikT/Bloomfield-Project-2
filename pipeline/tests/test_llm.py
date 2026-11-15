@@ -126,14 +126,14 @@ def test_truncated_answers_are_flagged_and_not_cached(bcon, monkeypatch):
     assert r1.truncated and not r2.cached and len(api.calls) == 2
 
 
-def test_trepp_and_bloomfield_material_is_never_sent_by_default(bcon, monkeypatch):
+def test_bloomfield_material_is_never_sent_by_default(bcon, monkeypatch):
     api = use_api(monkeypatch, [ok_anthropic()])
-    for kind in ("trepp", "bloomfield"):
+    for kind in ("bloomfield",):
         with pytest.raises(client.RestrictedMaterialError):
             client.call_llm("extract", "s", "t", 100, con=bcon, restricted=kind)
     assert api.calls == []
     # only an explicit config switch lets it through
-    client.call_llm("extract", "s", "t", 100, con=bcon, restricted="trepp", cfg=make_cfg(trepp_ai_allowed=True))
+    client.call_llm("extract", "s", "t", 100, con=bcon, restricted="bloomfield", cfg=make_cfg(bloomfield_material_ai_allowed=True))
     assert len(api.calls) == 1
 
 

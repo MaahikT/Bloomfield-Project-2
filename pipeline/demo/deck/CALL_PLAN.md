@@ -57,7 +57,7 @@ Email Shana before Session 3 (Nov 10):
 > **What we're changing because of your feedback:** [from the notes]
 > **What we need from you, and by when:**
 > 1. [states and counties to start with, if not answered on the call]
-> 2. A few anonymized sample deals (and the Trepp screen if you're happy to share one): by Tue, Nov 10
+> 2. A few anonymized sample deals : by Tue, Nov 10
 > 3. [anything else]
 >
 > Thanks again,

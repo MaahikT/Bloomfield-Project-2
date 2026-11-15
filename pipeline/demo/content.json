@@ -59,7 +59,7 @@
     {
       "name": "Weak loans and lender stress",
       "status": "in_progress",
-      "built": "Loaders for SEC loan filings, the Trepp screen and bank call reports are coded, and scoring passes sample tests.",
+      "built": "Loaders for SEC loan filings and bank call reports are coded, and scoring passes sample tests.",
       "next": "Verify SEC field names and bank-report codes against real files."
     },
     {
@@ -98,7 +98,7 @@
     },
     "pipeline": {
       "documents": 117,
-      "linked": 144,
+      "linked": 143,
       "properties": 49,
       "hot": 10,
       "watch": 12
@@ -151,7 +151,7 @@
     },
     {
       "ask": "A few anonymized sample deals",
-      "detail": "Plus the Trepp screen (DSCR under 1.0x) if Bloomfield is happy to share one.",
+      "detail": "Plus any CMBS or loan data Bloomfield is happy to share.",
       "by": "By Tue, Nov 10"
     },
     {
@@ -294,7 +294,7 @@
       },
       {
         "name": "Lender and CMBS stress",
-        "idea": "Banks with rising nonaccruals, and CMBS loans with DSCR under 1.0x. Trepp data is common, so it is a small weight."
+        "idea": "Banks with rising nonaccruals, and CMBS loans with DSCR under 1.0x. CMBS data is common, so it is a small weight."
       },
       {
         "name": "Creative signals",
@@ -320,7 +320,7 @@
       "title": "Public-records collectors",
       "stack": "Python and a shared DuckDB database",
       "built": [
-        "Collectors for county courts and recorders, SEC loan filings, bank call reports, CMS data and the Trepp screen",
+        "Collectors for county courts and recorders, SEC loan filings, bank call reports, CMS data",
         "One settings file per county (all 3,100 are in a registry), plus statewide files",
         "Polite by design: reads robots.txt, one request every 3 seconds per site, identifies itself, and never logs in or bypasses a CAPTCHA or paywall",
         "A site that does not allow automation falls back to a manual drop-in folder",
@@ -336,7 +336,7 @@
         "One wrapper for every AI call; the model is a setting, so we can switch providers in minutes",
         "Fixed instructions and a fixed list of fields; the model only returns structured data",
         "Every value must carry an exact quote, and the quote is checked against the document",
-        "OCR for scans, saved answers (nothing is paid for twice), a weekly spending cap, and Trepp or Bloomfield material is never sent"
+        "OCR for scans, saved answers (nothing is paid for twice), a weekly spending cap, and Bloomfield's own material is never sent"
       ]
     },
     {
@@ -390,7 +390,7 @@
         "why": "They show a situation that is already actionable, not an early warning, so they carry modest points and mark a property Ready to act."
       },
       {
-        "name": "Forced sales and Trepp data",
+        "name": "Forced sales and CMBS data",
         "weight": "Lowest weight",
         "why": "Everyone has this data, so it gives little edge. It is kept, but it cannot carry a property into Tier 1 on its own."
       },

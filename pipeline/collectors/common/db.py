@@ -22,7 +22,7 @@ from . import config
 # The allowed values for the "label" columns. Collectors check against these.
 VALID_SOURCES = {
     "county_court", "recorder", "public_notice", "permit", "state_license",
-    "cms", "sec_edgar", "ffiec", "trepp", "manual_upload",
+    "cms", "sec_edgar", "ffiec", "manual_upload",
     # added by Part B (the scout):
     "project_site", "news", "auction", "wsj_notice",
 }
@@ -80,7 +80,7 @@ CREATE TABLE IF NOT EXISTS recorded_loans (
     collected_at       TIMESTAMP
 );
 
--- Loan-level data from SEC EDGAR CMBS filings and the Trepp screen.
+-- Loan-level data from SEC EDGAR CMBS filings.
 CREATE TABLE IF NOT EXISTS loans (
     loan_key             TEXT PRIMARY KEY,
     source               TEXT,

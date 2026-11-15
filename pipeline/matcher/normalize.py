@@ -1,7 +1,7 @@
 """
 normalize.py - turn messy names, addresses and parcel numbers into comparable keys.
 
-In plain English: county clerks, the SEC, Trepp and the AI Reader all write the same thing
+In plain English: county clerks, the SEC and the AI Reader all write the same thing
 differently ("Maize Row Holdings, L.L.C." vs "MAIZE ROW HOLDINGS LLC"; "12 North Main Street"
 vs "12 N. Main St"). These helpers boil each one down to a plain key so they can be compared.
 """

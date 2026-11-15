@@ -74,7 +74,6 @@ def test_sources_tab_is_honest_about_what_is_manual_or_unverified(built):
     assert counties["status"] == "manual" and "Washtenaw County" in counties["note"]
     assert by_name["SEC EDGAR (CMBS loans)"]["status"] == "unverified"
     assert by_name["FFIEC call reports (bank health)"]["status"] == "unverified"
-    assert by_name["Trepp screen (DSCR under 1.0x)"]["status"] == "manual"
 
 
 def test_the_page_works_offline_and_loads_nothing_from_the_internet(built):

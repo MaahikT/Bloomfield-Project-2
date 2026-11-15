@@ -5,7 +5,7 @@ In plain English: Part C reads Part A's and Part B's tables and writes down whic
 are about the same thing:
   * properties / property_links  - which records are about the same building
   * loan_histories               - each recorded loan's story: modified? refinanced? paid off?
-  * loan_links                   - the same CMBS loan reported by EDGAR and by Trepp
+  * loan_links                   - the same CMBS loan reported by two different sources
   * lender_links                 - lender names -> the bank's FFIEC ID (bank_stats.rssd_id)
   * entities / entity_links      - borrowers, developers, contractors... with spelling variants merged
   * match_review                 - "maybe" matches a person should confirm or reject
@@ -69,7 +69,7 @@ CREATE TABLE IF NOT EXISTS loan_histories (
     built_at              TIMESTAMP
 );
 
--- The same CMBS loan in more than one source (EDGAR and Trepp give it different keys).
+-- The same CMBS loan in more than one source (each source gives it a different key).
 CREATE TABLE IF NOT EXISTS loan_links (
     loan_key          TEXT PRIMARY KEY,
     loan_group_id     TEXT,             -- shared by every report of the same loan

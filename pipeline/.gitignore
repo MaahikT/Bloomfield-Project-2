@@ -12,15 +12,11 @@ data/
 *.xlsx
 *.xls
 
-# Anything Bloomfield sends us (Trepp exports, sample deals)
+# Anything Bloomfield sends us (licensed exports, sample deals)
 samples/
 bloomfield_samples/
 *.private.*
 *[Tt][Rr][Ee][Pp][Pp]*
-# ...except our own Trepp *code and settings* (they contain no data)
-!collectors/trepp.py
-!config/trepp_columns.yaml
-!tests/test_trepp.py
 !tests/__pycache__
 __pycache__/
 .pytest_cache/
