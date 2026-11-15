@@ -174,10 +174,11 @@ CHANGE_KINDS = ("extension", "modification")
 NOT_A_LOAN = ("extension", "modification", "release", "assignment", "permanent_takeout")
 
 
-def clock_loan(p: Property):
+def clock_loan(p: Property, as_of: date | None = None):
     """The loan whose clock is running: the latest construction loan, or else a short-term ("transitional")
     loan - any other mortgage that has needed an extension or modification since it was recorded."""
-    loans = sorted([r for r in p.recorded_loans if as_date(r.get("recording_date"))],
+    loans = sorted([r for r in p.recorded_loans if as_date(r.get("recording_date"))
+                    and (as_of is None or as_date(r["recording_date"]) <= as_of)],   # nothing recorded after as_of
                    key=lambda r: as_date(r["recording_date"]))
     kind = lambda r: (r.get("loan_kind") or "").lower()
     built = [r for r in loans if kind(r) == "construction"]
@@ -193,11 +194,12 @@ def clock_loan(p: Property):
 
 
 def loan_clock(p: Property, c: dict, as_of: date) -> Part:
-    loan = clock_loan(p)
+    loan = clock_loan(p, as_of)
     if not loan:
         return Part()
     con_loan, label = loan
-    loans = sorted(p.recorded_loans, key=lambda r: as_date(r.get("recording_date")) or date.min)
+    loans = sorted([r for r in p.recorded_loans if (as_date(r.get("recording_date")) or date.min) <= as_of],
+                   key=lambda r: as_date(r.get("recording_date")) or date.min)
     start = as_date(con_loan.get("recording_date"))
     later = [r for r in loans if (as_date(r.get("recording_date")) or date.min) > start]
     if any((r.get("loan_kind") or "").lower() in ("permanent", "release") for r in later):
@@ -396,7 +398,7 @@ def applicable_terms(p: Property, cfg: dict, as_of: date) -> dict:
     deadlines = [as_date(pr.get("opening_deadline")) for pr in p.projects if pr.get("opening_deadline")]
     recent_opening = any(d and months_between(d, as_of) <= a["recent_opening_months"] for d in deadlines)
     return {
-        "loan_clock": clock_loan(p) is not None or pre_opening or recent_build,
+        "loan_clock": clock_loan(p, as_of) is not None or pre_opening or recent_build,
         # a construction loan means something is being built: its opening date is unknown, not inapplicable
         "opening_delay": pre_opening or recent_opening or "construction" in kinds or recent_build,
         "creative": True,

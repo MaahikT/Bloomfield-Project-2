@@ -194,3 +194,9 @@ def test_extended_short_term_loan_is_on_the_clock(cfg):
     r = eq.loan_clock(extended, cfg["loan_clock"], AS_OF)
     assert r.value == 1.0 and "short-term loan" in r.why
     assert eq.applicable_terms(extended, cfg, AS_OF)["loan_clock"] is True
+
+
+def test_loan_records_after_the_scoring_date_are_ignored(cfg):
+    p = Property("a", recorded_loans=[construction(date(2021, 1, 1), "unknown"),
+                                      construction(date(2027, 1, 1), "extension")])
+    assert eq.loan_clock(p, cfg["loan_clock"], AS_OF).value == 0       # the extension hasn't happened yet
