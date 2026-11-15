@@ -79,6 +79,45 @@ def test_convergence_when_no_new_evidence(con):
     assert s["sweeps"] == 1
 
 
+def test_tool_failures_are_not_convergence(con):
+    # Zero new evidence WITH failed tool calls (e.g. search service missing) must NOT
+    # report convergence - that would disguise an API failure as completed research.
+    _add_week(con, ["p1"])
+
+    n = {"i": 0}
+
+    def fake_agent(c, goal):
+        n["i"] += 1
+        rid = f"run-x{n['i']}"
+        c.execute("INSERT INTO agent_steps (run_id, step, kind, name, detail, created_at) "
+                  f"VALUES ('{rid}', 1, 'tool_result', 'web_search', "
+                  "'{\"ok\": false, \"error\": \"No search service is configured\"}', now())")
+        return {"run_id": rid, "status": "done", "evidence_rows": 0}
+
+    s = aw.run_pass(con, limits=_limits(max_passes=3), agent_run=fake_agent)
+    assert s["status"] == "stopped:no_new_evidence_with_failures"
+    assert s["tool_call_failures"] == 1  # stops after the first failed sweep; retry is next pass
+    assert s["evidence_new"] == 0
+    assert s["sweeps"] == 1
+
+
+def test_agent_exception_does_not_kill_the_pass(con):
+    _add_week(con, ["p1", "p2"])
+
+    def fake_agent(c, goal):
+        if "p1" in goal:
+            raise RuntimeError("boom")
+        c.execute("INSERT INTO evidence (evidence_id, run_id, subject, claim, value, source_kind, "
+                  "db_query, observed_at) VALUES ('e1', 'run-y', 's', 'c', 'v', 'database', "
+                  "'select 1', now())")
+        return {"run_id": "run-y", "status": "done", "evidence_rows": 1}
+
+    s = aw.run_pass(con, limits=_limits(), agent_run=fake_agent)
+    assert s["goals_run"] == 2
+    assert s["goals_failed"] == 1
+    assert s["evidence_new"] == 1
+
+
 def test_scorer_rerun_and_pass_row_recorded(con):
     _add_week(con, ["p1"])
 
