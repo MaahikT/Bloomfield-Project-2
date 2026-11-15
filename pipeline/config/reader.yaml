@@ -60,8 +60,9 @@ run_cost_cap_usd: 5      # one run can use at most half of it
 # How the wrapper talks to the service.
 llm:
   timeout_seconds: 180           # Gemini can take over a minute when Google is busy
-  max_retries: 1            # money safety: at most 1 extra try (429/5xx); the cost cap's
-                           # pre-call reservation accounts for this retry (see weekly_cost_cap_usd)
+  max_retries: 0            # money safety: NO automatic retries. Every attempt either returns
+                           # metered usage or is charged at full worst case (llm/client.py
+                           # _log_unknown_usage), so the ledger never under-counts the bill.
   backoff_base_seconds: 2   # wait 2s, 4s, 8s, 16s, 32s
   chars_per_token: 4        # rough estimate used BEFORE a call to check the cost cap
   openai_responses:
