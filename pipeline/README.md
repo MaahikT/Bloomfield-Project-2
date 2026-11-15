@@ -410,7 +410,7 @@ If a site blocks automation, `county.py` switches that source to the manual inbo
 
 `collectors/discover.py` reads the NETR Online directory (approved by NETR), collects each county's recorder,
 court, public-notice and assessor links, screens every site (robots.txt, login or CAPTCHA wall, terms wording),
-and writes proposed county settings files. Set `CONTACT_EMAIL` in `pipeline/.env` first, then run from `pipeline/`:
+and writes proposed county settings files. No setup is needed: requests identify the team with the default contact address in `config/sources.yaml` (set `CONTACT_EMAIL` in `pipeline/.env` to use a different one). Run from `pipeline/`:
 
 ```
 python -m collectors.discover --check                                        # can it reach and read NETR?

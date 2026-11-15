@@ -220,7 +220,7 @@ def check_access(cfg: dict, directory: str, state: str = "MI", county: str = "Wa
     """A step-by-step self-check that says exactly what is working and what is not."""
     out = []
     email = config.get_user_agent()
-    out.append((bool(email), "CONTACT_EMAIL is set in .env" if email else "CONTACT_EMAIL is missing: create pipeline/.env with CONTACT_EMAIL=you@example.com"))
+    out.append((bool(email), "contact address is set (the team default unless .env overrides it)" if email else "no contact address: set contact_email_default in config/sources.yaml"))
     try:
         d = _directory(cfg, directory)
     except (KeyError, DirectoryNotApproved) as e:

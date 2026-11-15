@@ -92,9 +92,18 @@ def test_normal_page_with_signin_link_is_not_blocked(env):
     assert fetch.polite_get("https://ok.example.org/a", DOMAIN, session=session) is not None
 
 
-def test_missing_contact_email_refuses_to_fetch(env, monkeypatch):
+def test_no_setup_needed_the_team_address_is_the_default_contact(env, monkeypatch):
     monkeypatch.delenv("CONTACT_EMAIL")
-    assert fetch.polite_get("https://example.org/a", DOMAIN, session=FakeSession({})) is None
+    ua = config.get_user_agent()
+    assert ua and "AISprint@umich.edu" in ua            # we always identify ourselves, even with no .env
+    session = FakeSession({"https://ok.example.org/robots.txt": FakeResponse("User-agent: *\nAllow: /", content_type="text/plain"),
+                           "https://ok.example.org/a": FakeResponse("<html>results</html>")})
+    assert fetch.polite_get("https://ok.example.org/a", DOMAIN, session=session) is not None
+
+
+def test_a_set_contact_email_overrides_the_default(env, monkeypatch):
+    monkeypatch.setenv("CONTACT_EMAIL", "me@example.org")
+    assert "me@example.org" in config.get_user_agent()
 
 
 def test_rate_limit_waits_between_requests(env, monkeypatch):

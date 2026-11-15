@@ -93,11 +93,13 @@ def domain_settings(domain: str, cfg: dict | None = None) -> dict:
 def get_user_agent(cfg: dict | None = None) -> str | None:
     """
     Build the User-Agent text, including our contact email from .env.
-    Returns None if the email is missing (we refuse to scrape anonymously).
+    If .env has no CONTACT_EMAIL we use the team's shared address from sources.yaml (contact_email_default),
+    so nothing needs setting up. We still always identify ourselves and never fetch anonymously.
     """
     cfg = cfg if cfg is not None else load_sources_config()
     load_env()
-    email = os.environ.get(cfg.get("contact_email_env", "CONTACT_EMAIL"), "").strip()
+    email = (os.environ.get(cfg.get("contact_email_env", "CONTACT_EMAIL"), "").strip()
+             or str(cfg.get("contact_email_default") or "").strip())
     if not email:
         return None
     template = cfg.get(
