@@ -248,7 +248,22 @@ def _retry_delay_from_body(body: dict) -> float:
     return 0.0
 
 
-def _send_with_retries(provider, model, system_prompt, user_text, max_tokens, cfg, key, task=None):
+def _log_unknown_usage(con, task, provider, model, worst_in, max_tokens, cfg) -> None:
+    """A request was SENT but the answer never came back (timeout / connection drop): the
+    provider may still bill it. Charge the FULL WORST CASE (estimated prompt + max output)
+    so the spending ledger never under-counts. Rows are marked unknown-usage-worst-case."""
+    if con is None:
+        return
+    try:
+        cost.record_usage(con, task, provider, model, worst_in, max_tokens,
+                          "unknown-usage-worst-case", cfg)
+        log.warning("no response after sending; charged worst-case estimate for task=%s", task)
+    except Exception:
+        log.exception("could not record unknown-usage worst case")
+
+
+def _send_with_retries(provider, model, system_prompt, user_text, max_tokens, cfg, key, task=None,
+                       con=None):
     """Send the request; retry on rate limits / server errors / timeouts with growing waits."""
     build, parse = PROVIDERS[provider]
     url, headers, payload = build(model, system_prompt, user_text, max_tokens, cfg, key, task)
@@ -264,6 +279,8 @@ def _send_with_retries(provider, model, system_prompt, user_text, max_tokens, cf
             status, body, resp_headers = _post_json(url, headers, payload, timeout)
         except (requests.Timeout, requests.ConnectionError) as e:
             problem = f"network problem ({type(e).__name__})"
+            _log_unknown_usage(con, task, provider, model,
+                               cost.estimate_tokens(system_prompt + user_text, cfg), max_tokens, cfg)
         else:
             if status == 200:
                 return parse(body)
@@ -333,7 +350,7 @@ def call_llm_detailed(task: str, system_prompt: str, user_text: str, max_output_
 
     # 3. The real call.
     text, in_tok, out_tok, truncated = _send_with_retries(
-        provider, model, system_prompt, user_text, max_output_tokens, cfg, api_key, task)
+        provider, model, system_prompt, user_text, max_output_tokens, cfg, api_key, task, con=con)
     in_tok = int(in_tok) if in_tok is not None else est_in
     out_tok = int(out_tok) if out_tok is not None else cost.estimate_tokens(text, cfg)
 
@@ -425,6 +442,7 @@ def call_with_tools(task: str, system_prompt: str, messages: list[dict], tools: 
             status, body, resp_headers = _post_json(f"{base}/chat/completions", headers, payload, timeout)
         except (requests.Timeout, requests.ConnectionError) as e:
             problem = f"network problem ({type(e).__name__})"
+            _log_unknown_usage(con, task, provider, model, est_in, max_output_tokens, cfg)
         else:
             if status == 200:
                 choice = (body.get("choices") or [{}])[0]
