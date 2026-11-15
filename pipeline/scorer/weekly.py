@@ -342,14 +342,24 @@ def run(con, cfg: dict | None = None, as_of: date | None = None, include_demo: b
                     key=lambda x: (-x["score"], -x["deal_quality"], -(x["loan_amount"] or 0), x["property_id"]))
     for i, x in enumerate(ranked, 1):
         x["rank"] = i
-    con.execute("DELETE FROM weekly_flags WHERE run_id = ?", [run_id])
-    con.execute("DELETE FROM weekly_runs WHERE run_id = ?", [run_id])
-    for x in rows:
-        cols = list(x)
-        con.execute(f"INSERT INTO weekly_flags ({', '.join(cols)}) VALUES ({', '.join('?' for _ in cols)})",
-                    [x[c] for c in cols])
-    con.execute("INSERT INTO weekly_runs VALUES (?, ?, ?, ?, ?, ?)",
-                [run_id, as_of, db.utc_now(), cfg["version"], json.dumps(cfg), len(ranked)])
+    # Replace the week's rows in ONE transaction: a crash or a container kill mid-write must
+    # never leave the week deleted-but-not-rebuilt (the dashboard then shows "No weekly run yet"
+    # even though the data is fine). With a transaction, an interrupted write simply never
+    # commits and the previous run's rows stay visible.
+    con.execute("BEGIN TRANSACTION")
+    try:
+        con.execute("DELETE FROM weekly_flags WHERE run_id = ?", [run_id])
+        con.execute("DELETE FROM weekly_runs WHERE run_id = ?", [run_id])
+        for x in rows:
+            cols = list(x)
+            con.execute(f"INSERT INTO weekly_flags ({', '.join(cols)}) VALUES ({', '.join('?' for _ in cols)})",
+                        [x[c] for c in cols])
+        con.execute("INSERT INTO weekly_runs VALUES (?, ?, ?, ?, ?, ?)",
+                    [run_id, as_of, db.utc_now(), cfg["version"], json.dumps(cfg), len(ranked)])
+        con.execute("COMMIT")
+    except Exception:
+        con.execute("ROLLBACK")
+        raise
     return run_id
 
 
