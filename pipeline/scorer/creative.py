@@ -115,13 +115,25 @@ def occupancy_slide(p, ptype, state, c, ops, mkt_occ, as_of) -> Sig:
     window = [r for r in rows if (now_d - as_date(r["period_end"])).days <= c["lookback_months"] * 30.5]
     peak = max(window, key=lambda r: r["occupancy"])
     drop = peak["occupancy"] - now["occupancy"]
-    series = mkt_occ.get(((state or "").upper(), ptype)) or mkt_occ.get(("US", ptype))
+    keys = [((state or "").upper(), ptype), ("US", ptype)]
+    if ptype == "Senior housing":   # subtype matters: nursing-facility averages are not an
+        raw = " ".join(str(r.get("property_type") or "")          # assisted-living benchmark
+                       for r in p.projects + p.filings + p.cmbs_loans).lower()
+        sub = ("nursing" if ("nursing" in raw or "skilled" in raw)
+               else "assisted" if ("assisted" in raw or "independent living" in raw) else None)
+        if sub:
+            keys = [((state or "").upper(), f"Senior housing ({sub})"), ("US", f"Senior housing ({sub})")] + keys
+    series, used = None, None
+    for k in keys:
+        if mkt_occ.get(k):
+            series, used = mkt_occ[k], k[1]
+            break
     q = c["reliability"]
     if series:
         m_then = min(series, key=lambda t: abs((t[0] - as_date(peak["period_end"])).days))[1]
         m_now = min(series, key=lambda t: abs((t[0] - now_d).days))[1]
         mkt_drop = m_then - m_now
-        why = (f"occupancy {peak['occupancy']:.1%} -> {now['occupancy']:.1%} ({drop * 100:.1f} pts) vs. market "
+        why = (f"occupancy {peak['occupancy']:.1%} -> {now['occupancy']:.1%} ({drop * 100:.1f} pts) vs. {used or ''} market "
                f"{m_then:.1%} -> {m_now:.1%} ({mkt_drop * 100:.1f} pts)")
     else:
         mkt_drop = 0.0
