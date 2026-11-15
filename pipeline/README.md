@@ -1,3 +1,5 @@
+> Using a U-M GPT Toolkit key? Follow [UMICH-WORKFLOW.md](UMICH-WORKFLOW.md). A U-M key is not an OpenAI Codex key.
+
 # Bloomfield Sourcing Tool: Part A, Public Records Collectors
 
 These collectors get raw public data **into a DuckDB database** (`data/bloomfield.duckdb`).
