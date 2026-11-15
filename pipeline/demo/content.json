@@ -41,7 +41,7 @@
     {
       "name": "UCC foreclosure sales",
       "status": "coded",
-      "built": "UCC sale notices are coded: the reader pulls out the secured party, sale date and collateral, and the scorer weights them 30 points, our strongest single signal.",
+      "built": "UCC sale notices are coded: the reader pulls out the secured party, sale date and collateral. The scorer gives them a small weight, because forced sales give little edge.",
       "next": "Run it on real UCC notices."
     },
     {
@@ -83,7 +83,7 @@
   ],
   "results": {
     "tests": {
-      "passing": 315,
+      "passing": 319,
       "note": "They all pass, and none needs the internet or an API key."
     },
     "live_reader": {
@@ -97,11 +97,11 @@
       "note": "Real model, invented documents. The run stopped at Google's free-key limit (20 requests a day)."
     },
     "pipeline": {
-      "documents": 120,
+      "documents": 117,
       "linked": 144,
       "properties": 49,
       "hot": 10,
-      "watch": 18
+      "watch": 12
     },
     "accuracy": "Not measured yet. Our labeled test set (about 30 documents, target about 90% of fields correct) is the next test to build."
   },
@@ -278,23 +278,23 @@
     "options": [
       {
         "name": "Opening-date watch",
-        "idea": "Project websites that still say \"coming soon\" after the date has passed, and dates that keep moving."
+        "idea": "Project sites still saying \"coming soon\" past the date. A 3 to 6 month slip is normal, so it is weighted accordingly."
       },
       {
         "name": "Construction-loan clock",
-        "idea": "Construction loans with no permanent loan or release recorded after their expected term."
+        "idea": "Our strongest signal: loans never paid off, or still outstanding when the project opens."
       },
       {
         "name": "Court and lien filings",
-        "idea": "Contractor liens, lis pendens, foreclosure notices and receiverships at the county."
+        "idea": "Contractor liens, lis pendens, foreclosures and receiverships. They come late, so they confirm a property is ready to act."
       },
       {
         "name": "Forced and public sales",
-        "idea": "UCC sales of ownership interests (WSJ print notices) and Ten-X auction listings."
+        "idea": "UCC sales and Ten-X listings. Kept, but weighted lowest because everyone has this data."
       },
       {
         "name": "Lender and CMBS stress",
-        "idea": "Banks with rising commercial real estate nonaccruals, and loans with DSCR under 1.0x or on a servicer watchlist."
+        "idea": "Banks with rising nonaccruals, and CMBS loans with DSCR under 1.0x. Trepp data is common, so it is a small weight."
       },
       {
         "name": "Creative signals",
@@ -324,7 +324,8 @@
         "One settings file per county (all 3,100 are in a registry), plus statewide files",
         "Polite by design: reads robots.txt, one request every 3 seconds per site, identifies itself, and never logs in or bypasses a CAPTCHA or paywall",
         "A site that does not allow automation falls back to a manual drop-in folder",
-        "Every file is saved unchanged and fingerprinted (SHA-256), so nothing loads twice and a run can restart"
+        "Every file is saved unchanged and fingerprinted (SHA-256), so nothing loads twice and a run can restart",
+        "Finds each county's record sites through the NETR Online directory, and screens every site before it is added to the list"
       ]
     },
     {
@@ -369,5 +370,36 @@
         "Approve, dismiss or annotate each property; the tool never contacts anyone"
       ]
     }
-  ]
+  ],
+  "priorities": {
+    "headline": "How we weight the signals",
+    "items": [
+      {
+        "name": "Construction-loan clock",
+        "weight": "Strongest",
+        "why": "A project that opens with its construction loan still outstanding, or a loan from five years ago that was never paid off, is distress."
+      },
+      {
+        "name": "Opening-date watch",
+        "weight": "Weighted high, but weaker",
+        "why": "A 3 to 6 month delay is normal, so short slips score little or nothing and only longer overdue dates score in full."
+      },
+      {
+        "name": "Court and lien filings",
+        "weight": "Confirmation, comes late",
+        "why": "They show a situation that is already actionable, not an early warning, so they carry modest points and mark a property Ready to act."
+      },
+      {
+        "name": "Forced sales and Trepp data",
+        "weight": "Lowest weight",
+        "why": "Everyone has this data, so it gives little edge. It is kept, but it cannot carry a property into Tier 1 on its own."
+      },
+      {
+        "name": "Creative signals",
+        "weight": "Not scored yet",
+        "why": "Very promising, but only once we find a reliable way to detect them. We are testing ideas before the final."
+      }
+    ],
+    "netr": "We use NETR Online as a directory to find each county's record sites. Every site is screened (robots.txt, login or CAPTCHA wall, terms) before it is searched."
+  }
 }

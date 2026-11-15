@@ -3,7 +3,17 @@
 # Every number the scorer uses lives here. Change points here, not in Python.
 # Bump `version` whenever you change anything so old scores can be told apart.
 # ---------------------------------------------------------------------------
-version: "d-1.0"
+version: "d-1.1"
+
+# PRIORITIES (agreed with Bloomfield's feedback, Nov 2026)
+#   1. Construction-loan clock: the strongest signal. A loan still outstanding when the project opens, or a
+#      construction loan from five years ago that was never paid off, is distress.
+#   2. Opening-date watch: good but weaker. A 3-6 month slip is normal, so short delays earn little or nothing.
+#   3. Court and lien filings come LATE. They are a "ready to act" confirmation, not an early warning, so they
+#      carry modest points and also switch on the ready_to_act flag.
+#   4. Forced and public sales (UCC, auctions) and Trepp-style CMBS data give little edge (everyone has them),
+#      so they carry the lowest weights.
+#   5. Creative signals are promising but have no reliable detector yet, so they are not scored.
 
 # Final score is the sum of signal points, capped at 100.
 max_score: 100
@@ -14,6 +24,12 @@ tiers:
   watch: 30      # keep an eye on it
   # anything lower is "low"
 
+# A late court or lien filing confirms a situation is actionable now. When one with at least this many points
+# is present the property is flagged ready_to_act and is placed in at least the watch tier.
+ready_to_act:
+  min_points: 8
+  floor_tier: watch
+
 # Signals older than this many days count for half their points (old news is weaker).
 stale_after_days: 730
 
@@ -23,20 +39,24 @@ needs_review_factor: 0.75
 # Points for each signal. Signals in the same `family` don't stack beyond the family cap,
 # so one property can't hit 100 just from five versions of the same story.
 family_caps:
-  construction_loan: 35
+  construction_loan: 50     # strongest family
+  opening: 30               # second strongest
   permits: 20
-  liens: 20
   lender: 15
-  cmbs: 35
-  legal: 40
-  opening: 25
+  cmbs: 15                  # everyone has Trepp: low edge
+  liens: 12                 # late: confirmation
+  legal: 15                 # late: confirmation
 
 signals:
   # --- recorded loans (Part A recorded_loans) ---
   construction_loan_no_takeout:
     family: construction_loan
-    points: 25
+    points: 35
     min_age_months: 30          # construction loans normally take out in 24-36 months
+  construction_loan_five_years:
+    family: construction_loan
+    points: 10                  # extra: a construction loan this old that was never paid off
+    min_age_months: 60
   construction_loan_modified:
     family: construction_loan
     points: 10                  # each modification / extension after the construction loan
@@ -58,10 +78,10 @@ signals:
   # --- liens (Part B filing_fields) ---
   mechanics_lien:
     family: liens
-    points: 15
+    points: 8
     recent_days: 180            # liens filed within this window get full points, older ones half
     big_lien_share: 0.02        # lien >= 2% of the loan adds the bonus below
-    big_lien_bonus: 5
+    big_lien_bonus: 4
 
   # --- the lender (Part A bank_stats) ---
   lender_nonaccruals_rising:
@@ -76,56 +96,58 @@ signals:
   # --- CMBS loan data (Part A loans: EDGAR + Trepp) ---
   cmbs_dscr_below_1:
     family: cmbs
-    points: 15
+    points: 6
   cmbs_low_occupancy:
     family: cmbs
-    points: 8
+    points: 4
     below: 0.80
   cmbs_watchlist:
     family: cmbs
-    points: 8
+    points: 4
   cmbs_delinquent:
     family: cmbs
-    points: 20
+    points: 8
   cmbs_maturity_near:
     family: cmbs
-    points: 6
+    points: 3
     within_months: 12
   cmbs_past_maturity:
     family: cmbs
-    points: 15
+    points: 6
 
   # --- legal / distress events (Part B filing_fields: filing_type and distress_tags) ---
   legal_event:
     family: legal
-    points_by_tag:
-      foreclosure_scheduled: 30
-      receiver_appointed: 30
-      lis_pendens: 30
-      lender_lawsuit: 25
-      ucc_sale_scheduled: 30
-      listed_for_auction: 25
-      maturity_default: 20
-      payment_default: 20
-      special_servicing_transfer: 15
-      tax_delinquent: 10
-      license_suspended: 10
-      license_violation: 5
-      cash_management_triggered: 8
-      major_tenant_leaving: 8
-      occupancy_decline: 6
-      construction_stalled: 15
+    points_by_tag:               # late signals: modest points, plus the ready_to_act flag
+      foreclosure_scheduled: 12
+      receiver_appointed: 12
+      lis_pendens: 12
+      lender_lawsuit: 10
+      ucc_sale_scheduled: 5      # forced sales: not really a signal
+      listed_for_auction: 5
+      maturity_default: 10
+      payment_default: 10
+      special_servicing_transfer: 6
+      tax_delinquent: 4
+      license_suspended: 4
+      license_violation: 2
+      cash_management_triggered: 4
+      major_tenant_leaving: 4
+      occupancy_decline: 3
+      construction_stalled: 8
 
   # --- the Scout's opening-date tracking (Part B projects) ---
   stale_opening:
     family: opening
-    points: 15
+    points: 14
+    grace_months: 3             # a 3-month slip is normal: no points below this
+    half_until_months: 6        # 3-6 months overdue counts half; past 6 months counts in full
     per_month_overdue: 1        # plus 1 point per month overdue...
-    max_extra: 10               # ...up to 10 extra
+    max_extra: 8                # ...up to 8 extra
   missed_lease_up:
     family: opening
-    points: 10
+    points: 8
   opening_date_moved:
     family: opening
-    points: 4                   # per change of the stated opening date
+    points: 3                   # per change of the stated opening date
     max_count: 2

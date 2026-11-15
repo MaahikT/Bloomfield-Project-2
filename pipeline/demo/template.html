@@ -88,6 +88,9 @@
   .execsum { border-left: 4px solid var(--accent); } .execsum p { margin: 6px 0; } .execsum .eyebrow { color: var(--accent); font-weight: 700; letter-spacing: .6px; font-size: .78rem; text-transform: uppercase; }
   .kfacts { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin: 8px 0; } .kfacts div { background: var(--soft); border-radius: 8px; padding: 6px 10px; } .kfacts b { display: block; font-size: 1.1rem; } .kfacts span { font-size: .78rem; color: var(--muted); }
   h2.tierhead { margin: 22px 0 8px; font-size: 1.05rem; border-bottom: 2px solid var(--line); padding-bottom: 6px; } h2.tierhead.hot { border-color: var(--hot); } h2.tierhead.watch { border-color: var(--watch); } h2.tierhead .sub { font-weight: 400; font-size: .85rem; }
+  .pill.rta { background: var(--navy); color: #fff; }
+  .prio { display: grid; grid-template-columns: 170px 1fr; gap: 4px 14px; padding: 9px 0; border-bottom: 1px solid var(--line); } .prio:last-child { border-bottom: 0; } .prio .w { font-size: .78rem; color: var(--accent); font-weight: 700; text-transform: uppercase; letter-spacing: .4px; }
+  @media (max-width: 640px) { .prio { grid-template-columns: 1fr; } }
   .approach { margin: 14px 0; } .approach .opt { background: var(--soft); border-radius: 8px; padding: 8px 12px; }
   footer { color: var(--muted); font-size: .85rem; margin-top: 30px; }
   .steps { counter-reset: s; padding: 0; list-style: none; } .steps li { counter-increment: s; display: grid; grid-template-columns: 34px 1fr; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); }
@@ -209,6 +212,12 @@ function highlight(text, quotes) {
 }
 
 /* ---------- start here ---------- */
+function prioritiesPanel() {
+  const P = C.priorities; if (!P) return null;
+  return h('div', { class: 'card', id: 'priorities' }, h('h2', { style: 'margin-top:0' }, P.headline),
+    (P.items || []).map(i => h('div', { class: 'prio' }, h('div', {}, h('b', {}, i.name), h('div', { class: 'w' }, i.weight)), h('div', { class: 'sub' }, i.why))),
+    P.netr && h('p', { class: 'sub', style: 'margin:10px 0 0' }, P.netr));
+}
 function approachPanel() {
   const A = C.approach; if (!A) return null; const D = A.decision || {};
   return h('div', { class: 'card approach', id: 'approach' }, h('h2', { style: 'margin-top:0' }, 'Our approach: explore every route, then focus'), h('p', { class: 'lead', style: 'margin-top:0' }, A.body),
@@ -231,7 +240,7 @@ function renderStart(root) {
       h('div', {}, h('h2', { style: 'margin-top:0' }, 'Build status by signal'), h('div', { class: 'card' }, (C.signals || []).map(s => h('div', { class: 'sigrow' },
         h('span', { class: 'pill ' + SIG_STATUS[s.status][0], style: 'min-width:92px;text-align:center' }, SIG_STATUS[s.status][1]),
         h('div', {}, h('b', {}, s.name), h('div', { class: 'sub' }, s.built), s.next && h('div', { class: 'sub' }, h('b', {}, 'Next: '), s.next))))))),
-    approachPanel(),
+    prioritiesPanel(), approachPanel(),
     h('footer', {}, 'A researcher at Bloomfield reviews every flag and decides what is worth a call. The tool never contacts anyone.'));
 }
 
@@ -252,7 +261,7 @@ function flagCard(p, position) {
   const d = state.decisions[p.id];
   return h('button', { class: 'card flag', 'data-prop': p.id, onclick: () => openDetail(p.id), 'aria-label': 'Open ' + p.name }, h('div', { class: 'rank' }, '#' + position),
     h('div', {},
-      h('div', { class: 'flag-head' }, h('span', { class: 'name' }, p.name), h('span', { class: 'pill ' + p.tier }, tierShort(p.tier)),
+      h('div', { class: 'flag-head' }, h('span', { class: 'name' }, p.name), h('span', { class: 'pill ' + p.tier }, tierShort(p.tier)), p.ready_to_act && h('span', { class: 'pill rta', title: 'A court or lien filing confirms this is actionable now' }, 'Ready to act'),
         h('span', { class: 'scorebar ' + p.tier, title: 'score' }, h('i', { style: 'width:' + p.score + '%' })), h('span', { class: 'score' }, Math.round(p.score) + '/100'),
         d && d.action && h('span', { class: 'pill ' + (d.action === 'approved' ? 'good' : 'low') + ' decision' }, DECISION_LABEL[d.action])),
       h('div', { class: 'sub' }, [[p.city, p.state].filter(Boolean).join(', '), p.type !== 'unknown' ? title(p.type) : null, p.lender && 'Lender: ' + p.lender,
@@ -324,7 +333,7 @@ function openDetail(id) {
   const set = (action) => { state.decisions[id] = { ...(state.decisions[id] || {}), action: (state.decisions[id] || {}).action === action ? null : action }; saveDecisions(); openDetail(id); render(); };
   const box = h('div', {},
     h('button', { class: 'close', onclick: () => closeAll() }, 'Close'),
-    h('div', { class: 'flag-head' }, h('h2', { style: 'margin:0' }, p.name), h('span', { class: 'pill ' + p.tier }, tierFull(p.tier)), h('span', { class: 'score' }, Math.round(p.score) + '/100')),
+    h('div', { class: 'flag-head' }, h('h2', { style: 'margin:0' }, p.name), h('span', { class: 'pill ' + p.tier }, tierFull(p.tier)), p.ready_to_act && h('span', { class: 'pill rta' }, 'Ready to act'), h('span', { class: 'score' }, Math.round(p.score) + '/100')),
     h('p', { class: 'sub' }, [p.address, p.county].filter(Boolean).join(' · ')),
     p.exec_summary && h('div', { class: 'card execsum', id: 'd-summary' }, h('div', { class: 'eyebrow' }, 'Executive summary'),
       h('div', { class: 'kfacts' }, p.exec_summary.facts.map(f => h('div', {}, h('b', {}, f.label === 'Latest evidence' ? day(f.value) : f.value), h('span', {}, f.label)))),
@@ -439,7 +448,7 @@ function renderHow(root) {
       h('table', {}, h('tbody', {}, ws.map(w => h('tr', {}, h('td', {}, signalName(w.signal)), h('td', { style: 'text-align:right' }, '+' + w.points))))))))
     , h('h2', {}, 'How each stage is built'), h('div', { class: 'grid2' }, (C.how_built || []).map(b => h('div', { class: 'card' }, h('div', { class: 'eyebrow', style: 'color:var(--accent);font-weight:700;font-size:.78rem;text-transform:uppercase' }, b.step), h('b', {}, b.title),
       h('div', { class: 'sub' }, 'Built with: ' + b.stack), h('ul', { class: 'tight' }, (b.built || []).map(x => h('li', {}, x))))))
-    , approachPanel()
+    , prioritiesPanel(), approachPanel()
     , h('h2', {}, 'This demo'), h('p', { class: 'sub' }, 'Built on ' + DATA.meta.built_at + ' from the real pipeline run on invented data (scoring ' + DATA.meta.scoring_version + '). Re-run with: python -m demo --open'));
 }
 

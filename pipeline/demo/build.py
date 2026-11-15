@@ -241,6 +241,8 @@ def sources_table() -> list[dict]:
                  "status": "manual", "note": ", ".join(c["county"] for c in named) + ". Every site is set to manual inbox until a person checks its terms of use."})
     rows.append({"group": "Counties", "name": "All ~3,100 U.S. counties", "how": "County registry + add-county helper (one file per county)",
                  "status": "built", "note": "Adding a county is adding a settings file, not writing code."})
+    rows.append({"group": "Counties", "name": "NETR Online directory (finds county record sites)", "how": "Reads the directory, screens every site, proposes county files",
+                 "status": "unverified", "note": "Built and tested on sample pages. Stays locked until a person confirms the directory's terms of use."})
     rows += [
         {"group": "National", "name": "SEC EDGAR (CMBS loans)", "how": "Automatic download, 4 requests/second", "status": "unverified",
          "note": "XML field names still need checking against a real filing (the tool prints an audit)."},
@@ -291,6 +293,8 @@ def _exec_summary(prop: dict, tier_text: str) -> dict:
             paras.append(f"Only one kind of record ({FAMILY_WORDS.get(families[0], families[0])}) supports this flag, so it is placed for {tier_text.lower()}.")
     else:
         paras.append("No distress indicators were found in the records collected so far.")
+    if prop.get("ready_to_act"):
+        paras.append("A court or lien filing is on record. Those come late, so this confirms the situation is actionable now: marked Ready to act.")
     facts = [{"label": "Score", "value": f"{round(prop['score'])}/100"}, {"label": "Indicators", "value": str(len(sigs))},
              {"label": "Record types", "value": str(len(families))}]
     if prop.get("loan_amount"):
@@ -342,7 +346,7 @@ def export(con, recorded: list[dict]) -> dict:
             "loan_amount": p["loan_amount"], "score": p["score"], "tier": p["tier"], "summary": p["summary"],
             "signals": sigs, "timeline": _timeline(sigs, histories, project), "loans": histories, "bank": bank,
             "entity": ents[0] if ents else None, "contact_lookup": lookups[0] if lookups else None,
-            "grouped_by": p["grouped_by"]})
+            "grouped_by": p["grouped_by"], "ready_to_act": bool(p.get("ready_to_act"))})
         tinfo = (json.loads(CONTENT.read_text(encoding="utf-8")).get("tiers", {}) if CONTENT.exists() else {}).get(p["tier"], {})
         tier_text = f"{tinfo.get('label', p['tier'])} ({tinfo.get('name', p['tier'])})"
         properties[-1]["exec_summary"] = _exec_summary(properties[-1], tier_text)
