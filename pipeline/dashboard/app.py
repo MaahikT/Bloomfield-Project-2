@@ -30,7 +30,6 @@ sys.path.insert(0, str(PIPELINE))
 from scorer import equation as eq  # noqa: E402
 from scorer import weekly  # noqa: E402
 from scorer.schema import open_db  # noqa: E402
-from dashboard import scheduler as _scheduler  # noqa: E402
 
 st.set_page_config(page_title="Bloomfield Flags", page_icon="🏚️", layout="wide")
 
@@ -47,21 +46,10 @@ def db_path():
     return os.environ.get("BLOOMFIELD_DB") or None
 
 
-@st.cache_resource
-def _scheduler_status():
-    """Optional weekly collector, OFF unless BLOOMFIELD_SCHEDULER=1. See dashboard/scheduler.py.
-    Runs as a thread in THIS process because DuckDB allows only one read-write process."""
-    return _scheduler.ensure_started(db_path())
-
-
-_scheduler_status()
-
-
 def get_con():
     if "con" not in st.session_state:
         con = open_db(db_path())
-        # The scheduler thread can be creating the same tables right now; retry its catalog conflicts.
-        _scheduler.with_catalog_retry(lambda: weekly.create_tables(con))
+        weekly.create_tables(con)
         st.session_state.con = con
     return st.session_state.con
 
@@ -120,6 +108,22 @@ def tags(r):
 # ---------------------------------------------------------------------------
 # Pages
 # ---------------------------------------------------------------------------
+def research_status(con) -> str:
+    """One honest line about the sourcing agent's work on THIS database: how many research
+    goals finished, how much verified evidence they saved, and the estimated model cost so
+    far. Shown on the weekly list so research coverage is visible next to the ranks. The
+    agent writes its own tables; if they do not exist here, it has never run on this data."""
+    try:
+        goals, ev = con.execute(
+            "SELECT (SELECT count(*) FROM agent_runs WHERE status IN ('done', 'step_cap')), "
+            "       (SELECT count(*) FROM evidence)").fetchone()
+        usd = con.execute("SELECT COALESCE(sum(est_cost_usd), 0) FROM llm_usage WHERE task = 'agent'").fetchone()[0]
+    except Exception:
+        return "🔎 Research agent: has not run on this database yet (0 properties researched, 0 verified evidence records)."
+    return (f"🔎 Research agent: {goals} propert{'y' if goals == 1 else 'ies'} researched · "
+            f"{ev} verified evidence record{'s' if ev != 1 else ''} · model usage ≈ ${usd:.2f} (estimate)")
+
+
 def page_ranked(con, run_id):
     df, cfg = flags(con, run_id), run_cfg(con, run_id)
     f = cfg["filters"]
@@ -128,6 +132,7 @@ def page_ranked(con, run_id):
     st.caption(f"Bloomfield Opportunity Score {cfg['version']} · {run_id.replace('week-', 'week of ')} · "
                f"{(', '.join(f['property_types_excluded']) + ' hidden') if f['property_types_excluded'] else 'all property types shown'} · loans from {money(f['min_loan_size'])}"
                f"{' to ' + money(f['max_loan_size']) if f.get('max_loan_size') else ' (no upper limit)'} · {'states ' + ', '.join(f['states']) if f['states'] else 'all U.S.'}")
+    st.caption(research_status(con))
     hide_office = st.toggle("Hide office properties", value=False,
                             help="Office is shown by default. Turn this on to filter it out of the list and the counts.")
     if hide_office:
@@ -423,11 +428,7 @@ def main():
         st.radio("Page", list(PAGES), key="page")
         run_id = st.selectbox("Week", all_runs, format_func=lambda x: x.replace("week-", "Week of ")) if all_runs else None
         st.caption(f"Database: {Path(db_path() or 'data/bloomfield.duckdb').name}")
-        if "demo" in Path(db_path() or "").name:
-            st.caption("Sample data only. The tool reads and flags; Bloomfield's team does all outreach.")
-        else:
-            st.caption("Live data from public SEC filings (CMBS loans). County sources are not turned on. "
-                       "The tool reads and flags; Bloomfield's team does all outreach.")
+        st.caption("Sample data only. The tool reads and flags; Bloomfield's team does all outreach.")
     if not run_id:
         st.title("No weekly run yet")
         st.write("Run `python -m scorer.weekly` (real data) or `python -m scorer.demo_week` (made-up demo).")
