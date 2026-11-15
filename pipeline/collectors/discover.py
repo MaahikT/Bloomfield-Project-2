@@ -16,6 +16,8 @@ site is only a candidate until a person reads the terms and adds the selectors (
 Run from the pipeline/ folder:
     python -m collectors.discover --state MI --county "Washtenaw County"
     python -m collectors.discover --state MI --limit 10 --screen --proposals
+    python -m collectors.discover --check                  # self-check: can it reach and read the directory?
+    python -m collectors.discover --state MI --county "Washtenaw County" --from-html saved_page.html   # offline
     python -m collectors.discover --report                 # what has been found so far
 """
 from __future__ import annotations
@@ -111,26 +113,140 @@ def _directory(cfg: dict, name: str) -> dict:
     return d
 
 
+STATE_NAMES = {"AL": "Alabama", "AK": "Alaska", "AZ": "Arizona", "AR": "Arkansas", "CA": "California", "CO": "Colorado",
+               "CT": "Connecticut", "DE": "Delaware", "DC": "District of Columbia", "FL": "Florida", "GA": "Georgia",
+               "HI": "Hawaii", "ID": "Idaho", "IL": "Illinois", "IN": "Indiana", "IA": "Iowa", "KS": "Kansas",
+               "KY": "Kentucky", "LA": "Louisiana", "ME": "Maine", "MD": "Maryland", "MA": "Massachusetts",
+               "MI": "Michigan", "MN": "Minnesota", "MS": "Mississippi", "MO": "Missouri", "MT": "Montana",
+               "NE": "Nebraska", "NV": "Nevada", "NH": "New Hampshire", "NJ": "New Jersey", "NM": "New Mexico",
+               "NY": "New York", "NC": "North Carolina", "ND": "North Dakota", "OH": "Ohio", "OK": "Oklahoma",
+               "OR": "Oregon", "PA": "Pennsylvania", "RI": "Rhode Island", "SC": "South Carolina", "SD": "South Dakota",
+               "TN": "Tennessee", "TX": "Texas", "UT": "Utah", "VT": "Vermont", "VA": "Virginia", "WA": "Washington",
+               "WV": "West Virginia", "WI": "Wisconsin", "WY": "Wyoming"}
+
+
+def _plain(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", (text or "").lower()).strip()
+
+
+def find_link(html: str, page_url: str, wanted: list[str], same_site: str) -> str | None:
+    """On a directory page, the link on the same site whose text (or address) matches one of the wanted names."""
+    wants = [_plain(w) for w in wanted if w]
+    best = None
+    for a in BeautifulSoup(html, "html.parser").select("a[href]"):
+        href = urljoin(page_url, a["href"].strip())
+        if urlparse(href).netloc.lower() != same_site:
+            continue
+        text = _plain(a.get_text(" "))
+        text_no_county = re.sub(r" county$", "", text)
+        for w in wants:
+            if text == w or text_no_county == w:
+                return href                       # exact match wins
+            if best is None and w and (f" {w} " in f" {text} " or w.replace(" ", "-") in href.lower() or w.replace(" ", "_") in href.lower()):
+                best = href
+    return best
+
+
+def _get(url: str, session=None):
+    return fetch.polite_get(url, config.domain_settings(urlparse(url).netloc), session=session)
+
+
+def locate_county_page(d: dict, state: str, county: str, session=None) -> tuple[str | None, str]:
+    """Find the directory page for one county. Try the configured address first, then follow the directory's links."""
+    host = urlparse(d.get("home_url") or d["county_url"]).netloc.lower()
+    names = [re.sub(r"\s+county$", "", county, flags=re.I), county]
+    guess = d["county_url"].format(state=state, county_slug=county_slug(county))
+    resp = _get(guess, session)
+    if resp is not None:
+        return guess, resp.text
+    log.info("the guessed county address did not work; following the directory's own links instead")
+    state_page = None
+    if d.get("state_url"):
+        url = d["state_url"].format(state=state)
+        r = _get(url, session)
+        if r is not None:
+            state_page = (url, r.text)
+    if state_page is None and d.get("home_url"):
+        r = _get(d["home_url"], session)
+        if r is not None:
+            st_link = find_link(r.text, d["home_url"], [STATE_NAMES.get(state, state), state], host)
+            if st_link:
+                r2 = _get(st_link, session)
+                if r2 is not None:
+                    state_page = (st_link, r2.text)
+    if state_page is None:
+        return None, "could not open the directory's page for this state"
+    link = find_link(state_page[1], state_page[0], names, host)
+    if not link:
+        return None, f"the state page has no link that matches {county}"
+    r = _get(link, session)
+    return (link, r.text) if r is not None else (None, f"could not open {link}")
+
+
+def save_candidates(con, html: str, page_url: str, d: dict, cfg: dict, directory: str, state: str, county: str) -> list[dict]:
+    rows = []
+    for text, link in parse_links(html, page_url, d.get("skip_domains", [])):
+        if con.execute("SELECT 1 FROM website_candidates WHERE url = ?", [link]).fetchone():
+            continue
+        kind = classify(text, link, cfg.get("classify", {}))
+        con.execute("INSERT INTO website_candidates VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    [link, state, county, kind, text[:200], page_url, directory, "not_screened", None, db.utc_now(), None])
+        rows.append({"url": link, "state": state, "county": county, "kind": kind, "link_text": text[:200],
+                     "found_on": page_url, "directory": directory})
+    return rows
+
+
 def discover_county(con, cfg: dict, directory: str, state: str, county: str, session=None) -> list[dict]:
     """Find the county's website links in the directory and save them as candidates."""
     d = _directory(cfg, directory)
-    url = d["county_url"].format(state=state, county_slug=county_slug(county))
-    resp = fetch.polite_get(url, config.domain_settings(urlparse(url).netloc), session=session)
-    if resp is None:
-        log.warning("could not read %s (blocked, disallowed or down); use the manual route for %s", url, county)
+    url, html = locate_county_page(d, state, county, session)
+    if url is None:
+        log.warning("%s, %s: %s (blocked, disallowed or down?). Run --check for details, or use --from-html with a saved page.",
+                    county, state, html)
         return []
-    rows = []
-    for text, link in parse_links(resp.text, url, d.get("skip_domains", [])):
-        row = {"url": link, "state": state, "county": county, "kind": classify(text, link, cfg.get("classify", {})),
-               "link_text": text[:200], "found_on": url, "directory": directory}
-        if con.execute("SELECT 1 FROM website_candidates WHERE url = ?", [link]).fetchone():
-            continue
-        con.execute("INSERT INTO website_candidates VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                    [link, state, county, row["kind"], row["link_text"], url, directory,
-                     "not_screened", None, db.utc_now(), None])
-        rows.append(row)
+    rows = save_candidates(con, html, url, d, cfg, directory, state, county)
     log.info("%s, %s: %d new candidate sites", county, state, len(rows))
     return rows
+
+
+def discover_from_html(con, cfg: dict, directory: str, state: str, county: str, html_path: str, page_url: str | None = None) -> list[dict]:
+    """Offline route: read a directory page saved from a browser (File > Save page as). No network needed."""
+    d = _directory(cfg, directory)
+    html = Path(html_path).read_text(encoding="utf-8", errors="replace")
+    return save_candidates(con, html, page_url or d.get("home_url") or "https://directory.invalid/", d, cfg, directory, state, county)
+
+
+def check_access(cfg: dict, directory: str, state: str = "MI", county: str = "Washtenaw County", session=None) -> list[tuple[bool, str]]:
+    """A step-by-step self-check that says exactly what is working and what is not."""
+    out = []
+    email = config.get_user_agent()
+    out.append((bool(email), "CONTACT_EMAIL is set in .env" if email else "CONTACT_EMAIL is missing: create pipeline/.env with CONTACT_EMAIL=you@example.com"))
+    try:
+        d = _directory(cfg, directory)
+    except (KeyError, DirectoryNotApproved) as e:
+        return out + [(False, str(e))]
+    out.append((True, f"{directory} is approved in discovery.yaml"))
+    home = d.get("home_url") or d["county_url"]
+    domain = urlparse(home).netloc.lower()
+    resp = _get(home, session)
+    if resp is None:
+        why = fetch.get_fallbacks().get(domain) or (
+            "robots.txt disallows it" if fetch.get_robots_skips().get(domain) else
+            "could not connect. If you are on a cloud session, its network policy probably blocks this host; "
+            "on your own computer check your internet connection or firewall")
+        return out + [(False, f"cannot open {home}: {why}")]
+    out.append((True, f"opened the directory home page {home}"))
+    url, html = locate_county_page(d, state, county, session)
+    if url is None:
+        return out + [(False, f"could not find the {county}, {state} page: {html}. Save that page from a browser and use --from-html")]
+    out.append((True, f"found the {county}, {state} page: {url}"))
+    links = parse_links(html, url, d.get("skip_domains", []))
+    kinds: dict[str, int] = {}
+    for text, link in links:
+        k = classify(text, link, cfg.get("classify", {}))
+        kinds[k] = kinds.get(k, 0) + 1
+    out.append((bool(links), f"{len(links)} outside links on that page ({', '.join(f'{n} {k}' for k, n in sorted(kinds.items())) or 'none'})"))
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -221,12 +337,24 @@ def main() -> None:
     ap.add_argument("--screen", action="store_true", help="screen the sites found (robots.txt, login/CAPTCHA, terms)")
     ap.add_argument("--proposals", action="store_true", help="write proposed county settings files")
     ap.add_argument("--report", action="store_true")
+    ap.add_argument("--check", action="store_true", help="self-check: is the directory reachable and does it parse?")
+    ap.add_argument("--from-html", help="read a directory page saved from a browser instead of fetching it (needs --state and --county)")
     args = ap.parse_args()
     setup_logging()
     con = db.connect()
     ensure_table(con)
     cfg = load_config()
-    if not args.report:
+    if args.check:
+        steps = check_access(cfg, args.directory, args.state or "MI", args.county or "Washtenaw County")
+        for ok, msg in steps:
+            print(("PASS  " if ok else "FAIL  ") + msg)
+        raise SystemExit(0 if all(ok for ok, _ in steps) else 1)
+    if args.from_html:
+        if not (args.state and args.county):
+            raise SystemExit("--from-html needs --state and --county")
+        rows = discover_from_html(con, cfg, args.directory, args.state, args.county, args.from_html)
+        print(f"{len(rows)} new candidate sites from {args.from_html}")
+    elif not args.report:
         counties = [(args.state, args.county)] if args.county else [
             (s, c) for s, c in con.execute(
                 "SELECT state, county FROM county_registry WHERE (? IS NULL OR state = ?) ORDER BY priority, state, county",

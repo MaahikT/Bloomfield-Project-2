@@ -404,3 +404,21 @@ this quarter and the one before.
 
 A file with `statewide: true` covers a whole state (statewide court search, press-association notice sites).
 If a site blocks automation, `county.py` switches that source to the manual inbox and logs why.
+
+
+## Finding county record websites (NETR Online)
+
+`collectors/discover.py` reads the NETR Online directory (approved by NETR), collects each county's recorder,
+court, public-notice and assessor links, screens every site (robots.txt, login or CAPTCHA wall, terms wording),
+and writes proposed county settings files. Set `CONTACT_EMAIL` in `pipeline/.env` first, then run from `pipeline/`:
+
+```
+python -m collectors.discover --check                                        # can it reach and read NETR?
+python -m collectors.discover --state MI --county "Washtenaw County" --screen --proposals
+python -m collectors.discover --state MI --limit 10 --screen --proposals     # a batch of counties
+python -m collectors.discover --report
+```
+
+If the network blocks NETR, save the county page from a browser and use
+`--from-html saved_page.html --state MI --county "Washtenaw County"`. Screened sites are only candidates:
+a person confirms each site's terms and adds its search settings before it becomes automatic.
