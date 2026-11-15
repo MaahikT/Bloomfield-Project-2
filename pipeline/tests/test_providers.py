@@ -213,10 +213,10 @@ def test_private_material_is_still_refused_with_gemini(gemini, bcon):
     assert gemini.requests == []
 
 
-def test_the_cost_cap_still_applies_with_gemini(gemini, bcon):
-    with pytest.raises(cost.CostCapExceeded):
-        client.call_llm("extract", "s", "t" * 100, 1000, con=bcon, cfg=make_cfg(weekly_cost_cap_usd=0.0000001))
-    assert gemini.requests == []
+def test_the_advisory_cost_cap_does_not_block_gemini(gemini, bcon):
+    # Advisory only: the provider account enforces its own dollar limit.
+    client.call_llm("extract", "s", "t" * 100, 1000, con=bcon, cfg=make_cfg(weekly_cost_cap_usd=0.0000001))
+    assert len(gemini.requests) == 1
 
 
 # ---- the whole Reader, on every provider ----------------------------------------------------------------------------
