@@ -183,6 +183,13 @@ def research_diagnostics(con) -> str:
             lines.append(f"FAILED tool {f_[1]} at {f_[0]}: {f_[2]}")
     except Exception:
         pass
+    try:
+        evs = con.execute("SELECT subject, claim, source_url FROM evidence "
+                          "ORDER BY observed_at DESC LIMIT 3").fetchall()
+        for e in evs:
+            lines.append(f"latest evidence: {e[0]} - {e[1]} - {e[2]}")
+    except Exception:
+        pass
     return "\n".join(lines) if len(lines) > 1 else lines[0]
 
 
@@ -334,6 +341,51 @@ def page_detail(con, run_id):
         st.subheader("Deal angle for Bloomfield")
         for s in json.loads(r["angles"]) or ["No clear angle yet: keep watching."]:
             st.markdown(f"- {s}")
+
+    st.subheader("AI research")
+    aruns = con.execute(
+        "SELECT status, started_at, final_answer FROM agent_runs "
+        "WHERE goal LIKE '%[property_id=' || ? || ']%' "
+        "ORDER BY started_at DESC LIMIT 3", [pid]).fetchall()
+    if not aruns:
+        st.caption("The research agent has not covered this property yet.")
+    for a_status, a_started, a_final in aruns:
+        when = pd.Timestamp(a_started).strftime("%b %d %H:%M")
+        if a_status == "running":
+            st.markdown(f"**Researcher is working on this property now** (started {when}).")
+        elif a_final:
+            st.markdown(f"**Researcher ({when}, {esc(a_status)}):** {esc(a_final)}")
+        else:
+            st.markdown(f"**Researcher ({when}):** run ended with status `{esc(a_status)}`, no summary written.")
+    ev_rows = con.execute(
+        "SELECT e.claim, e.value, e.source_kind, e.source_url, e.quote, e.observed_at "
+        "FROM evidence e JOIN agent_runs r ON r.run_id = e.run_id "
+        "WHERE r.goal LIKE '%[property_id=' || ? || ']%' "
+        "ORDER BY e.observed_at DESC", [pid]).fetchall()
+    if ev_rows:
+        st.markdown(f"**Verified evidence ({len(ev_rows)}):** every row was checked against the saved "
+                    "source - the quote appears verbatim on the page at the address shown.")
+        for e_claim, e_value, e_kind, e_url, e_quote, e_obs in ev_rows:
+            val = f" = **{esc(str(e_value))}**" if e_value not in (None, "") else ""
+            st.markdown(f"- {esc(e_claim)}{val}")
+            if e_kind == "web_page":
+                if isinstance(e_url, str) and e_url.startswith(("https://", "http://")):
+                    st.caption(f'web proof: "{esc(e_quote)}" - {esc(e_url)} · {pd.Timestamp(e_obs):%b %d %H:%M}')
+                else:
+                    st.caption(f'web proof: "{esc(e_quote)}" (source address on file) · {pd.Timestamp(e_obs):%b %d %H:%M}')
+            else:
+                st.caption(f"database proof: {esc(e_url)} · {pd.Timestamp(e_obs):%b %d %H:%M}")
+    elif aruns:
+        latest = aruns[0][0]
+        if latest == "done":
+            st.caption("The researcher completed this property and saved no verified evidence: "
+                       "it found nothing it could verify, or sources blocked it. An honest empty "
+                       "result, not a skipped property.")
+        elif latest == "running":
+            st.caption("Research in progress; no verified evidence saved yet.")
+        else:
+            st.caption(f"The last research run ended with status '{esc(latest)}' and saved no "
+                       "verified evidence. The property stays pending and will be retried.")
 
     st.subheader("Research log")
     with st.form(f"log-{pid}", clear_on_submit=True):
