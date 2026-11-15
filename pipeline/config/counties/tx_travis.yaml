@@ -24,6 +24,14 @@ sources:
   public_notice:
     access: manual_inbox
     notes: "Texas Press Association public notice site and County Clerk foreclosure postings. Drop notices into data/inbox/public_notice/TX/<county>/."
+  permits:                        # PRIORITY 2 -> I site inactivity + certificates of occupancy (NOT on NETR)
+    access: manual_inbox          # CANDIDATE for open_data_api: City of Austin "Issued Construction Permits" (BLDS)
+    url: "https://data.austintexas.gov"
+    notes: >-
+      City of Austin "Issued Construction Permits" open dataset (BLDS standard: PermitNum, IssuedDate,
+      CompletedDate, ...). To automate: confirm the dataset id, its terms and field names on data.austintexas.gov,
+      then set access: open_data_api with api: {format: socrata, url: https://data.austintexas.gov/resource/<id>.json}
+      and default_doc_category: building_permit. Until then drop exports into data/inbox/permit/TX/<county>/.
 
 reference_sites:
   - {office: "Travis Central Appraisal District", phone: "(512) 834-9317", url: "https://www.traviscad.org/propertysearch",

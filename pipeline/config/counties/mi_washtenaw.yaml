@@ -24,6 +24,14 @@ sources:
   public_notice:                  # READY TO ACT (foreclosure by advertisement, sheriff sales)
     access: manual_inbox
     notes: "Michigan foreclosure by advertisement is published in newspapers and posted by the Sheriff (see mi_statewide). Drop notices into data/inbox/public_notice/MI/<county>/."
+  permits:                        # PRIORITY 2 -> I site inactivity + certificates of occupancy (NOT on NETR)
+    access: manual_inbox
+    url: "https://secure.a2gov.org/A2Trak/PermitSearch"
+    notes: >-
+      City of Ann Arbor permits and inspections are in A2Trak (STREAM system); nearby townships use BS&A Online
+      (Ann Arbor Charter Township, Pittsfield, Ypsilanti Twp - see reference_sites). Export or save commercial
+      permits, inspection results and certificates of occupancy into data/inbox/permit/MI/<county>/
+      (subfolders building_permit / permit_inspection / certificate_of_occupancy). permits.py loads them.
 
 reference_sites:                  # not collected automatically; what each one feeds
   - {office: "Equalization Office (assessment)", phone: "(734) 994-2511", url: "https://www.washtenaw.org/431/Equalization",
@@ -38,6 +46,8 @@ reference_sites:                  # not collected automatically; what each one f
   - {office: "Township of Scio (BS&A Online)", phone: "(734) 665-2123", url: "https://bsaonline.com/?uid=127", feeds: "Same as Ann Arbor"}
   - {office: "Township of Bridgewater (BS&A Online)", url: "https://bsaonline.com/?uid=392", feeds: "Same as Ann Arbor"}
   - {office: "Township of Sharon (BS&A Online)", url: "https://bsaonline.com/?uid=1906", feeds: "Same as Ann Arbor"}
+  - {office: "Ann Arbor Charter Township building department (BS&A)", url: "https://annarbortownship.gov/departments/building/index.php",
+     feeds: "I site inactivity / certificates of occupancy for township addresses (not on NETR)"}
   - {office: "NETR city/township directory", url: "https://publicrecords.netronline.com/directory/mi_numbers_washtenaw",
      feeds: "Index of the local BS&A sites above"}
   - {office: "NETR Mapping and GIS", url: "https://map.netronline.com/michigan-washtenaw/26161", feeds: "Part C: parcel lookups"}

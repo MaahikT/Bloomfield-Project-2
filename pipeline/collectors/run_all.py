@@ -14,14 +14,15 @@ Run from the pipeline/ folder:
     python -m collectors.run_all --since 2026-10-01
 
 --state skips the national collectors (trepp, edgar, ffiec, state/CMS), which always cover every state.
-recorded_loans, liens and permits are not built yet and are listed as "not built".
+recorded_loans and liens are not built yet and are listed as "not built". permits loads the permit files
+that "county" and the inbox saved into permit_inspections / filing_fields.
 """
 from __future__ import annotations
 
 import argparse
 from datetime import date
 
-from collectors import county, edgar, ffiec, state, trepp
+from collectors import county, edgar, ffiec, permits, state, trepp
 from collectors.common import db, inbox
 from collectors.common.log import RunTracker, get_logger, setup_logging
 
@@ -29,7 +30,7 @@ log = get_logger("run_all")
 
 ORDER = ["inbox", "trepp", "edgar", "ffiec", "county", "recorded_loans", "liens", "permits", "state"]
 NATIONAL = {"trepp", "edgar", "ffiec", "state"}          # always every state: skipped by --state
-NOT_BUILT = {"recorded_loans", "liens", "permits"}
+NOT_BUILT = {"recorded_loans", "liens"}
 
 
 def _inbox(con, a):
@@ -44,6 +45,7 @@ RUNNERS = {
     "edgar": lambda con, a: edgar.collect(con, since=a.since),
     "ffiec": lambda con, a: ffiec.collect(con),
     "county": lambda con, a: county.collect(con, state=a.state, county=a.county, since=a.since),
+    "permits": lambda con, a: permits.collect(con),   # permit files (from county "permits" sources / inbox) -> tables
     "state": lambda con, a: state.collect(con),
 }
 

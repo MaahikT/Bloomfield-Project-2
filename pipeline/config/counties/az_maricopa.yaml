@@ -24,6 +24,15 @@ sources:
   public_notice:
     access: manual_inbox
     notes: "Arizona Newspapers Association public notices site. Drop notices into data/inbox/public_notice/AZ/<county>/."
+  permits:                        # PRIORITY 2 -> I site inactivity + certificates of occupancy (NOT on NETR)
+    access: manual_inbox
+    url: "https://phoenixopendata.com"
+    notes: >-
+      City of Phoenix Planning & Development keeps permits, inspections and certificates of occupancy; its online
+      research tool has an "Issued Permit Data Export" spreadsheet, and the ShapePHX permits layer is at
+      https://mapportal.phoenix.gov/pds/rest/services/ShapePHX/ShapePHXPermitsPoints/MapServer . Tempe has its own
+      building department. Save exports as CSV and drop them into data/inbox/permit/AZ/<county>/ (building_permit / permit_inspection /
+      certificate_of_occupancy). permits.py loads them.
 
 reference_sites:
   - {office: "Assessor", phone: "(602) 506-3406", url: "https://mcassessor.maricopa.gov/",

@@ -23,6 +23,15 @@ sources:
   public_notice:
     access: manual_inbox
     notes: "Florida Press Association public notice site (floridapublicnotices.com). Drop notices into data/inbox/public_notice/FL/<county>/."
+  permits:                        # PRIORITY 2 -> I site inactivity + certificates of occupancy (NOT on NETR)
+    access: manual_inbox          # CANDIDATE for open_data_api: St. Petersburg permit service (ArcGIS)
+    url: "https://www.stpete.org/business/building_permitting/building_permits.php"
+    notes: >-
+      City of St. Petersburg permit applications are on an ArcGIS service
+      (https://egis.stpete.org/arcgis/rest/services/ServicesDSD/AllPermitApplicaitons/MapServer); certificate-of-
+      occupancy history is in the city's property cards (look up by hand). Clearwater has its own building
+      department. Drop exports into data/inbox/permit/FL/<county>/ (building_permit / permit_inspection /
+      certificate_of_occupancy). permits.py loads them.
 
 reference_sites:
   - {office: "Property Appraiser", phone: "(727) 464-3207", url: "https://www.pcpao.gov/",

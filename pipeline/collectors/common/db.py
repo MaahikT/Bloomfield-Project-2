@@ -29,7 +29,7 @@ VALID_SOURCES = {
 VALID_DOC_CATEGORIES = {
     "foreclosure_notice", "receivership", "lender_lawsuit", "lis_pendens",
     "recorded_loan", "mechanics_lien", "tax_delinquency", "building_permit",
-    "certificate_of_occupancy", "license_action", "business_record", "other",
+    "certificate_of_occupancy", "permit_inspection", "license_action", "business_record", "other",
     # added by Part B (the scout):
     "project_website", "news_article", "auction_listing", "ucc_sale_notice",
 }

@@ -23,6 +23,15 @@ sources:
   public_notice:
     access: manual_inbox
     notes: "Florida Press Association public notice site (floridapublicnotices.com). Drop notices into data/inbox/public_notice/FL/<county>/."
+  permits:                        # PRIORITY 2 -> I site inactivity + certificates of occupancy (NOT on NETR)
+    access: manual_inbox          # CANDIDATE for open_data_api: Miami-Dade Open Data Hub (ArcGIS)
+    url: "https://gis-mdc.opendata.arcgis.com"
+    notes: >-
+      Miami-Dade County Open Data Hub has building-permit and certificate-of-occupancy datasets (ArcGIS); the City of
+      Miami publishes its own "Building Permits Since 2014" layer (https://www.miami.gov/Maps-Data/Data-Explorer).
+      To automate: confirm each dataset's URL, terms and field names, then set access: open_data_api with
+      api: {format: arcgis, url: <layer>/query} (default_doc_category: building_permit, or certificate_of_occupancy
+      for the CO dataset). Until then drop exports into data/inbox/permit/FL/<county>/.
 
 reference_sites:
   - {office: "Property Appraiser", phone: "(305) 375-4712", url: "https://www.miamidade.gov/Apps/PA/propertysearch/#/",

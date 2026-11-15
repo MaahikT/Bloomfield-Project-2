@@ -283,7 +283,7 @@ def test_shipped_configs_cover_the_five_sample_counties_and_are_all_manual_for_n
 
 def test_template_is_valid_yaml_with_every_section():
     t = yaml.safe_load((county.COUNTIES_DIR / "_template.yaml").read_text())
-    assert set(t["sources"]) == {"court", "recorder", "public_notice"}
+    assert set(t["sources"]) == {"court", "recorder", "public_notice", "permits"}
     assert t["sources"]["public_notice"]["selectors"]["document_link"].endswith("@href")
 
 

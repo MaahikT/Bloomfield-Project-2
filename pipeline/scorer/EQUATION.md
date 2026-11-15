@@ -39,7 +39,7 @@ Score = min(100, Early + Late)
 | Signal | s = 0 → 1 | Reliability q | Data from |
 |---|---|---|---|
 | **R** rent vs. city | (city rent change − property rent change) ÷ 15 pts | 0.9 | B `rent_observations` + A `market_rents` |
-| **I** site inactivity | 60 → 180 days since a city inspection on an open permit | 0.8 | A `permit_inspections` |
+| **I** site inactivity | 60 → 180 days since a city inspection on an open permit | 0.8 | A `permit_inspections` (filled by `collectors/permits.py` from city building departments; NETR does not list them) |
 | **Q** occupancy slide | (peak occupancy in the last 36 months − occupancy now − market drop) ÷ 15 pts | 0.9 (×0.7 with no market data) | `operating_metrics` + `market_occupancy` |
 | **V** income erosion | (best-year NOI in the last 48 months − NOI now) ÷ best-year NOI ÷ 50%. **No DSCR** (debt service needs Trepp, which we don't have) | 1.0 | `operating_metrics` (public disclosures) |
 | **X** cost squeeze | (expense growth − revenue growth since the best year) ÷ 15 pts | 0.6 | `operating_metrics` |
@@ -140,3 +140,13 @@ The older scorer (`python -m scorer`, `config/scoring.yaml`) still runs and writ
 
 ## Backtesting a real deal
 `python -m scorer.case_study data/cases/<deal>.yaml` loads a deal into a throwaway database, scores it on several past dates (only data disclosed by each date), and runs valuation scenarios (`scorer/valuation.py`). Real deal files stay in `data/` (git-ignored): this repository is public.
+
+## Where permits, inspections and certificates of occupancy come from
+NETR Online lists recorders, assessors and tax offices only, not building departments. Each county file has a
+`permits:` source pointing at the main city's building department (Ann Arbor A2Trak, Phoenix permit export,
+Austin open data, Miami-Dade open data hub, St. Petersburg permit service). Exports dropped in
+`data/inbox/permit/<ST>/<county>/{building_permit,permit_inspection,certificate_of_occupancy}/` (or fed by an
+open-data source) are loaded by `python -m collectors.permits` (part of `collectors.run_all`) into
+`permit_inspections` and `filing_fields`. That turns on **I** (site inactivity), the certificate-of-occupancy
+check behind "opened but construction loan still outstanding", and the stale-opening check. Column names follow
+the BLDS open permit-data standard, with aliases and per-county overrides. Residential permits are skipped.
