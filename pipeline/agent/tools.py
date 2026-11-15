@@ -344,6 +344,12 @@ def record_evidence(con, run_id: str, *, subject: str, claim: str,
       market_rent_index  value = the index; notes: city, state, period (YYYY-MM-DD)
       permit_inspection  notes: permit_number, city, state, inspection_date (YYYY-MM-DD),
                          inspection_type, result
+      occupancy_rate     value = occupancy 0-1 (or a %); notes: period_end (YYYY-MM-DD),
+                         period_months (12 or 3, default 12)
+      operating_noi / operating_revenue / operating_expenses
+                         value = the number; notes: period_end, period_months as above
+      market_occupancy   value = occupancy 0-1 (or a %); notes: state, property_type,
+                         period (YYYY-MM-DD)
     Every other claim stays narrative: it is shown as research, never scored."""
     if not subject.strip() or not claim.strip():
         return _err("record_evidence needs a subject and a claim.")
