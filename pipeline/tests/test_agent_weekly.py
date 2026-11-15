@@ -116,7 +116,8 @@ def test_token_cap_stops_pass_midway(con):
     assert s["status"] == "stopped:token_cap"
 
 
-def test_cost_cap_reserves_worst_case_before_goal(con):
+def test_advisory_dollar_landmark_does_not_stop_the_pass(con):
+    # The API account enforces the real dollar limit; max_est_cost_usd only logs a warning.
     _add_week(con, ["p1", "p2", "p3"])
 
     def fake_agent(c, goal):
@@ -126,8 +127,8 @@ def test_cost_cap_reserves_worst_case_before_goal(con):
         return {"status": "done", "evidence_rows": 0}
 
     s = aw.run_pass(con, limits=_limits(max_est_cost_usd=8.0), agent_run=fake_agent)
-    assert s["goals_run"] == 1                      # 7.9 spent + reserve > 8.0 -> second goal never starts
-    assert s["status"] == "stopped:cost_cap"
+    assert s["goals_run"] == 3                      # spend past the landmark is warned about, not blocked
+    assert "cost_cap" not in s["status"]
 
 
 def test_unscored_grouped_properties_are_queued(con):
