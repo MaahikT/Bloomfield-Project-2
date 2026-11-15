@@ -12,6 +12,13 @@ only when the evidence proves it:
                                concession_months (optional)
   claim "market_rent_index" -> market_rents        (signal R: the city comparison)
                                value = index number, notes: city, state, period (YYYY-MM-DD)
+  claim "occupancy_rate"   -> operating_metrics.occupancy (signal Q: occupancy slide)
+  claim "operating_noi"    -> operating_metrics.noi       (signal V: income erosion)
+  claim "operating_revenue" / "operating_expenses" -> operating_metrics (signal X: cost squeeze)
+                               value = the number (occupancy 0-1 or a %); notes: period_end (YYYY-MM-DD),
+                               period_months (12 or 3, default 12). Same property+period rows merge.
+  claim "market_occupancy" -> market_occupancy     (signal Q: the market comparison)
+                               value = occupancy 0-1 or a %, notes: state, property_type, period (YYYY-MM-DD)
   claim "permit_inspection" -> permit_inspections  (signal I: inspection gap)
                                notes: permit_number, city, state, inspection_date (YYYY-MM-DD),
                                inspection_type, result
@@ -38,7 +45,12 @@ from collectors.common.log import get_logger
 
 log = get_logger("agent.mapping")
 
-TYPES = ("asking_rent", "market_rent_index", "permit_inspection")
+TYPES = ("asking_rent", "market_rent_index", "permit_inspection",
+         "occupancy_rate", "operating_noi", "operating_revenue", "operating_expenses",
+         "market_occupancy")
+
+OPS_CLAIMS = {"occupancy_rate": "occupancy", "operating_noi": "noi",
+              "operating_revenue": "revenue", "operating_expenses": "expenses"}
 
 
 def _notes_dict(notes) -> dict:
@@ -199,6 +211,61 @@ def apply(con, since: date | None = None) -> dict:
                 con.execute("INSERT INTO market_rents (city, state, period, rent_index, source) "
                             "VALUES (?, ?, ?, ?, ?)",
                             [city, state, period, value, row["source_url"] or row["db_query"]])
+        elif why is None and claim in OPS_CLAIMS:
+            field = OPS_CLAIMS[claim]
+            period_end = _as_date(notes.get("period_end"))
+            period_months = int(_number(notes.get("period_months")) or 12)
+            if period_months not in (3, 12):
+                period_months = 12
+            if claim == "occupancy_rate":
+                if value is not None and 1 < value <= 100:
+                    value = value / 100.0           # a page says "87%"; the table stores 0-1
+                if value is None or not (0 < value <= 1):
+                    why = "occupancy_rate needs a value between 0 and 1 (or a percent 1-100)"
+            elif value is None or value <= 0:
+                why = f"{claim} needs a positive number"
+            if not why and not period_end:
+                why = f"{claim} needs period_end (YYYY-MM-DD) in notes; period_months 12 or 3 (default 12)"
+            projects = _project_ids(con, row["subject"]) if not why else []
+            if not why and len(projects) != 1:
+                why = f"property resolves to {len(projects)} projects, needs exactly 1"
+            if not why:
+                link = projects[0]
+                existing = con.execute(
+                    f"SELECT {field} FROM operating_metrics WHERE link_id = ? AND period_end = ? "
+                    "AND period_months = ?", [link, period_end, period_months]).fetchone()
+                if existing and existing[0] is not None:
+                    if abs(existing[0] - value) < 1e-9:
+                        skipped["already recorded"] = skipped.get("already recorded", 0) + 1
+                    else:
+                        skipped["existing reading kept"] = skipped.get("existing reading kept", 0) + 1
+                    continue                    # never overwrite a reading, same or different
+                if existing:
+                    con.execute(
+                        f"UPDATE operating_metrics SET {field} = ? WHERE link_id = ? AND period_end = ? "
+                        "AND period_months = ?", [value, link, period_end, period_months])
+                else:
+                    con.execute(
+                        "INSERT INTO operating_metrics (link_id, period_end, period_months, "
+                        f"{field}, source, file_id, disclosed_on) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        [link, period_end, period_months, value,
+                         row["source_url"] or "research", row["file_id"], observed])
+        elif why is None and claim == "market_occupancy":
+            state, ptype, period = notes.get("state"), notes.get("property_type"), _as_date(notes.get("period"))
+            if value is not None and 1 < value <= 100:
+                value = value / 100.0
+            if value is None or not (0 < value <= 1) or not (state and ptype and period):
+                why = ("market_occupancy needs a value between 0 and 1 (or a percent 1-100) plus "
+                       "state, property_type and period (YYYY-MM-DD) in notes")
+            if not why and _table_has(con, "market_occupancy",
+                                      "state = ? AND property_type = ? AND period = ?",
+                                      [state, ptype, period]):
+                skipped["already recorded"] = skipped.get("already recorded", 0) + 1
+                continue
+            if not why:
+                con.execute("INSERT INTO market_occupancy (state, property_type, period, occupancy, source) "
+                            "VALUES (?, ?, ?, ?, ?)",
+                            [state, ptype, period, value, row["source_url"] or row["db_query"]])
         elif why is None and claim == "permit_inspection":
             insp_date = _as_date(notes.get("inspection_date"))
             if not (notes.get("permit_number") and notes.get("city") and notes.get("state") and insp_date):
