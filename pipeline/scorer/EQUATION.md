@@ -28,7 +28,7 @@ Score = min(100, Early + Late)
 
 | Term | What it measures | Strength 0 → 1 | Weight | Data from |
 |---|---|---|---|---|
-| **L** loan clock | Construction loan still not paid off by a permanent loan or release | 0 before 30 months → 1 at 60 months. +0.1 per extension (max +0.2); +0.25 if the building opened with the loan still outstanding | 50 | Part A `recorded_loans` |
+| **L** loan clock | A **construction loan**, or any **short-term loan that has needed an extension/modification** (bridge, value-add), still not paid off by a permanent loan or release | 0 before 30 months → 1 at 60 months. +0.1 per extension (max +0.2); +0.25 if a construction loan's building opened with the loan still outstanding | 50 | Part A `recorded_loans` |
 | **O** opening delay | Months past the latest reasonable opening date, page still "coming soon" | 0 under 6 months (normal) → 1 at 18 months. +0.1 missed student move-in, +0.05 per date slip (max +0.1) | 20 | Part B `projects` |
 | **C** creative | All creative signals below, combined | 1 − Π(1 − q·s) | 30 | see below |
 | **C(k)** anti-fluke | k = L and O if ≥ 0.25, plus up to 2 creative signals with q·s ≥ 0.25 | 1 → 0.5 · 2 → 0.8 · 3+ → 1.0 | × | — |
@@ -42,7 +42,7 @@ Score = min(100, Early + Late)
 | **Q** occupancy slide | (peak occupancy in the last 36 months − occupancy now − market drop) ÷ 15 pts | 0.9 (×0.7 with no market data) | `operating_metrics` + `market_occupancy` |
 | **V** income erosion | (best-year NOI in the last 48 months − NOI now) ÷ best-year NOI ÷ 50%. **No DSCR** (debt service needs Trepp, which we don't have) | 1.0 | `operating_metrics` (public disclosures) |
 | **X** cost squeeze | (expense growth − revenue growth since the best year) ÷ 15 pts | 0.6 | `operating_metrics` |
-| **K** concession creep | (free months per lease now − a year ago) ÷ 2 months | 0.7 | B `rent_observations.concession_months` |
+| **K** concession creep | (free months **per year of lease term** now − 6+ months earlier) ÷ 1 month. Unknown term = 12 months | 0.7 | B `rent_observations` (free rent + lease term) |
 | **Lq** licensing / care | CMS 1-star 0.8, 2-star 0.5; abuse flag +0.2; state license distress 0.8 | 0.6 | A `licensing_records` |
 
 Related creative signals (e.g. falling occupancy and falling income) count as at most **2** anti-fluke confirmations, so one story can't confirm itself.
@@ -62,8 +62,13 @@ The weights of the terms that apply are scaled up to fill 100, **at most 2×**. 
 
 ## Valuation (any property type) — `scorer/valuation.py`
 ```
-Stabilized NOI = best full-year revenue (last 48 months) − latest 12-month expenses       (Bloomfield's method)
-Value          = Stabilized NOI ÷ cap rate for the property type                           (config: valuation.cap_rates)
+Stabilized occupancy = max(own best occupancy in the last 48 months, market occupancy)
+Rent                 = market rent per unit of space if known, else best-year revenue per occupied unit
+Stabilized revenue   = space × stabilized occupancy × rent
+Stabilized NOI       = stabilized revenue − latest 12-month expenses                        (Bloomfield's method)
+Cost to stabilize    = max(0, stabilized occ. − occupancy now) × space × (build-out per unit + commission % × rent × lease years)
+                       (office $40/SF + 6% × 5 yrs; housing, senior housing, hotels: 0)
+Value                = Stabilized NOI ÷ cap rate for the property type − cost to stabilize   (office 10%, senior housing 8%)
 Stress cases   = run-rate expenses at cap + 1%;  today's NOI at cap + 2%
 LTV            = what's owed ÷ value          → deal quality: ≤75% +15 · 75–100% +5 · >100% −10
 Recovery       = value × (1 − 3% closing) − $25K/month legal × 24 months + reserves held for lenders

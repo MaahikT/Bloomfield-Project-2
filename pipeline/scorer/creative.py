@@ -14,7 +14,7 @@ and C counts in the equation with weight 30:  Early = 50 L + 20 O + 30 C  (then 
     Q  occupancy slide         (peak occ. in last 36 mo - occ. now - market drop) / 15 pts   B/A operating_metrics + market_occupancy
     V  income erosion          (best-year NOI - NOI now) / best-year NOI / 50%  (no DSCR) A operating_metrics (public disclosures)
     X  cost squeeze            (expense growth - revenue growth since peak NOI) / 15 pts    A operating_metrics
-    K  concession creep        (free months per lease now - a year ago) / 2 months      B rent_observations.concession_months
+    K  concession creep        (free months per lease-YEAR now - 6+ mo ago) / 1 month   B rent_observations (concession, lease term)
     Lq licensing / care        CMS 1-star 0.8, 2-star 0.5; abuse flag +0.2; state distress 0.8   A licensing_records
 
 All thresholds live in config/equation.yaml under `creative:`.
@@ -53,7 +53,8 @@ CREATE TABLE IF NOT EXISTS market_occupancy (
     property_type  TEXT,
     period         DATE,
     occupancy      DOUBLE,
-    source         TEXT
+    source         TEXT,
+    rent_per_unit_year DOUBLE    -- market rent per unit of space per year ($/SF/yr office, $/unit/yr apartments); optional
 );
 """
 
@@ -177,16 +178,23 @@ def concession_creep(p, c, concessions, as_of) -> Sig:
     obs = []
     for pr in p.projects:
         obs += concessions.get(str(pr.get("project_id")), [])
-    obs = sorted((d, m) for d, m in obs if d and d <= as_of and m is not None)
-    if len(obs) < 2:
+    # Free months per YEAR of lease term, so a 7-year office lease and a 1-year apartment lease compare fairly.
+    per_year = []
+    for o in obs:
+        d, m = o[0], o[1]
+        term = (o[2] if len(o) > 2 else None) or c["default_term_months"]
+        if d and d <= as_of and m is not None:
+            per_year.append((d, m / (term / 12.0)))
+    per_year.sort()
+    if len(per_year) < 2:
         return Sig("K")
-    now_d, now_m = obs[-1]
-    prior = [m for d, m in obs if (now_d - d).days >= c["min_days_between"]]
+    now_d, now_m = per_year[-1]
+    prior = [m for d, m in per_year if (now_d - d).days >= c["min_days_between"]]
     if not prior:
         return Sig("K")
     then_m = prior[-1]
-    return Sig("K", clamp((now_m - then_m) / c["full_months"]), True,
-               f"free rent {then_m:.1f} -> {now_m:.1f} months per lease", c["reliability"])
+    return Sig("K", clamp((now_m - then_m) / c["full_per_year"]), True,
+               f"free rent {then_m:.2f} -> {now_m:.2f} months per lease-year", c["reliability"])
 
 
 # ---------------------------------------------------------------------------

@@ -171,8 +171,8 @@ def page_detail(con, run_id):
     c[2].metric("Deal quality", r["deal_quality"])
     c[3].metric("Loan", money(r["loan_amount"]))
     if r.get("est_value") and not pd.isna(r["est_value"]):
-        st.caption(f"Estimated stabilized value {money(r['est_value'])} (best-year revenue − latest 12-month expenses, "
-                   f"÷ the {r['property_type']} cap rate) · owed / value {r['ltv']:.0%}")
+        st.caption(f"Estimated stabilized value {money(r['est_value'])} (revenue at stabilized occupancy − latest "
+                   f"12-month expenses, ÷ the {r['property_type']} cap rate, − cost to stabilize) · owed / value {r['ltv']:.0%}")
     if not r["shown"]:
         st.warning(f"Filtered out by settings: {r['filter_reason']}")
     st.info(r["summary"])
@@ -347,7 +347,7 @@ def page_how(con, run_id):
     qo, iv, xs, kc, lq = (c["occupancy_slide"], c["income_erosion"], c["cost_squeeze"], c["concession_creep"],
                           c["licensing_quality"])
     st.dataframe(pd.DataFrame([
-        {"Term": "L · Loan clock", "Weight": w["loan_clock"], "0 → 1": f"{lc['start_months']} → {lc['full_months']} months unpaid, +{lc['per_extension']} per extension, +{lc.get('opened_still_unpaid_bonus', 0)} if the building opened with the loan still outstanding", "From": "Part A recorded_loans"},
+        {"Term": "L · Loan clock (construction, or any short-term loan that needed an extension)", "Weight": w["loan_clock"], "0 → 1": f"{lc['start_months']} → {lc['full_months']} months unpaid, +{lc['per_extension']} per extension, +{lc.get('opened_still_unpaid_bonus', 0)} if the building opened with the loan still outstanding", "From": "Part A recorded_loans"},
         {"Term": "O · Opening delay", "Weight": w["opening_delay"], "0 → 1": f"{od['start_months']} → {od['full_months']} months late (under {od['start_months']} is normal)", "From": "Part B projects"},
         {"Term": "C · Creative signals (combined)", "Weight": w["creative"], "0 → 1": "1 − Π(1 − q·s) over the signals below", "From": "see below"},
     ]), hide_index=True, use_container_width=True)
@@ -358,7 +358,7 @@ def page_how(con, run_id):
         {"Signal": "Q · Occupancy slide", "s = 0 → 1": f"(peak occ. last {qo['lookback_months']} mo − occ. now − market drop) ÷ {qo['full_gap']:.0%}", "q": qo["reliability"], "From": "operating_metrics + market_occupancy"},
         {"Signal": "V · Income erosion", "s = 0 → 1": f"NOI drop from its best year (last {iv['lookback_months']} mo) ÷ {iv['full_noi_drop']:.0%}", "q": iv["reliability"], "From": "operating_metrics (public disclosures; no DSCR / Trepp)"},
         {"Signal": "X · Cost squeeze", "s = 0 → 1": f"(expense growth − revenue growth since best year) ÷ {xs['full_gap']:.0%}", "q": xs["reliability"], "From": "operating_metrics"},
-        {"Signal": "K · Concession creep", "s = 0 → 1": f"(free months per lease now − a year ago) ÷ {kc['full_months']}", "q": kc["reliability"], "From": "B rent_observations"},
+        {"Signal": "K · Concession creep", "s = 0 → 1": f"(free months per lease-year now − 6+ months ago) ÷ {kc['full_per_year']}", "q": kc["reliability"], "From": "B rent_observations (free rent + lease term)"},
         {"Signal": "Lq · Licensing / care", "s = 0 → 1": "CMS 1-star 0.8 · 2-star 0.5 · abuse +0.2 · state distress 0.8", "q": lq["reliability"], "From": "A licensing_records"},
     ]), hide_index=True, use_container_width=True)
     cor = {int(k): v for k, v in cfg["corroboration"].items()}   # JSON turns the keys into text

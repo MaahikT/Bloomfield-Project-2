@@ -183,3 +183,14 @@ def test_terms_that_cannot_apply_are_rescaled_at_most_2x(cfg):
     building = Property("b", recorded_loans=[construction(date(2024, 1, 1))])
     assert all(eq.applicable_terms(building, cfg, AS_OF).values())      # no website yet = unknown, not inapplicable
     assert min(cfg["applicability"]["max_rescale"], 100 / 30) == 2.0
+
+
+def test_extended_short_term_loan_is_on_the_clock(cfg):
+    """Any mortgage that needed an extension counts (bridge / value-add), not only construction loans."""
+    plain = Property("a", recorded_loans=[construction(date(2021, 1, 1), "unknown")])
+    assert eq.loan_clock(plain, cfg["loan_clock"], AS_OF).value == 0          # never extended: not on the clock
+    extended = Property("b", recorded_loans=[construction(date(2021, 1, 1), "unknown"),
+                                             construction(date(2024, 1, 1), "extension")])
+    r = eq.loan_clock(extended, cfg["loan_clock"], AS_OF)
+    assert r.value == 1.0 and "short-term loan" in r.why
+    assert eq.applicable_terms(extended, cfg, AS_OF)["loan_clock"] is True

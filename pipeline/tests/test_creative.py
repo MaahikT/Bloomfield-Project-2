@@ -47,10 +47,14 @@ def test_cost_squeeze(c):
     assert x.value == 1.0 and "expenses +10.0%" in x.why
 
 
-def test_concession_creep(c):
+def test_concession_creep_is_per_year_of_lease(c):
+    # 3 free months on a 60-month lease (0.6/yr) -> 11 on an 83-month lease (1.59/yr): +0.99/yr
     k = cr.concession_creep(prop(), c["concession_creep"],
-                            {"x": [(date(2021, 6, 1), 0.0), (date(2022, 6, 1), 1.0)]}, AS_OF)
-    assert k.value == pytest.approx(0.5)
+                            {"x": [(date(2021, 6, 1), 3.0, 60), (date(2022, 6, 1), 11.0, 83)]}, AS_OF)
+    assert k.value == pytest.approx(11 / (83 / 12) - 3 / 5, abs=0.01)
+    apt = cr.concession_creep(prop(), c["concession_creep"], {"x": [(date(2021, 6, 1), 0.0, None),
+                                                                     (date(2022, 6, 1), 1.0, None)]}, AS_OF)
+    assert apt.value == 1.0                       # 1-year lease: +1 free month = full strength
 
 
 def test_licensing_quality_from_cms_stars_and_abuse_flag(c):
