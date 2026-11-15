@@ -201,27 +201,27 @@ def test_estimate_tokens_is_chars_over_four():
     assert cost.estimate_tokens("a" * 400, make_cfg()) == 100
 
 
-def test_weekly_cap_stops_before_calling(bcon, monkeypatch):
+def test_weekly_advisory_cap_does_not_stop_the_call(bcon, monkeypatch):
+    # The provider account enforces its own dollar limit; the code-level cap is advisory only.
     api = use_api(monkeypatch, [ok_anthropic(i=500_000, o=100_000)])
     cfg = make_cfg(weekly_cost_cap_usd=0.01, run_cost_cap_usd=100)
-    with pytest.raises(cost.CostCapExceeded, match="weekly AI cost cap"):
-        client.call_llm("extract", "s", "t", 1000, con=bcon, cfg=cfg)
-    assert api.calls == []
+    client.call_llm("extract", "s", "t", 1000, con=bcon, cfg=cfg)
+    assert len(api.calls) == 1
 
 
-def test_cap_counts_money_already_spent_this_week(bcon, monkeypatch):
-    use_api(monkeypatch, [ok_anthropic(i=1_000_000, o=0)])          # costs $3 at the default sonnet price
+def test_advisory_cap_counts_money_already_spent_this_week(bcon, monkeypatch):
+    api = use_api(monkeypatch, [ok_anthropic(i=1_000_000, o=0), ok_anthropic(i=1_000, o=10)])
     cfg = make_cfg(weekly_cost_cap_usd=3.5, run_cost_cap_usd=100)
     client.call_llm("extract", "s", "t", 10, con=bcon, cfg=cfg, file_hash="a")
-    with pytest.raises(cost.CostCapExceeded):
-        client.call_llm("extract", "s", "t", 100_000, con=bcon, cfg=cfg, file_hash="b")
+    client.call_llm("extract", "s", "t", 100_000, con=bcon, cfg=cfg, file_hash="b")
+    assert len(api.calls) == 2   # spend past the advisory cap is warned about, not blocked
 
 
-def test_run_cap_is_separate_from_weekly_cap(bcon, monkeypatch):
-    use_api(monkeypatch, [ok_anthropic(i=1_000_000, o=0)])
+def test_run_advisory_cap_is_separate_from_weekly_cap(bcon, monkeypatch):
+    api = use_api(monkeypatch, [ok_anthropic(i=1_000_000, o=0), ok_anthropic(i=1_000, o=10), ok_anthropic(i=1_000, o=10)])
     cfg = make_cfg(weekly_cost_cap_usd=100, run_cost_cap_usd=3.5)
     client.call_llm("extract", "s", "t", 10, con=bcon, cfg=cfg, file_hash="a")
-    with pytest.raises(cost.CostCapExceeded, match="per-run"):
-        client.call_llm("extract", "s", "t", 100_000, con=bcon, cfg=cfg, file_hash="b")
+    client.call_llm("extract", "s", "t", 100_000, con=bcon, cfg=cfg, file_hash="b")
     cost.reset_run_spend()                       # a new run starts fresh
     client.call_llm("extract", "s", "t", 10, con=bcon, cfg=cfg, file_hash="c")
+    assert len(api.calls) == 3
