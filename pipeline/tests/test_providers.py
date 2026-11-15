@@ -155,7 +155,9 @@ def test_rate_limit_hint_in_the_error_body_is_honoured(gemini, monkeypatch, bcon
     body = {"error": {"code": 429, "message": "quota", "details": [{"@type": "type.googleapis.com/google.rpc.RetryInfo",
                                                                       "retryDelay": "34s"}]}}
     api = use(monkeypatch, (429, body, {}), gemini_ok())
-    assert client.call_llm("extract", "s", "t", 100, con=bcon, cfg=make_cfg())[0] == '{"a": 1}'
+    cfg = make_cfg()
+    cfg.setdefault("llm", {})["max_retries"] = 5       # exercise the mechanism, not the shipped default
+    assert client.call_llm("extract", "s", "t", 100, con=bcon, cfg=cfg)[0] == '{"a": 1}'
     assert len(api.calls) == 2 and waits and waits[0] >= 34
 
 
