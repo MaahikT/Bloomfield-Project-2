@@ -20,9 +20,10 @@ All numbers live in `config/equation.yaml`. Code: `scorer/equation.py`. Tests: `
 
 ```
 C     = 1 − Π (1 − q_j · s_j)        over the creative signals j        (noisy-or: several weak signals add up, never past 1)
-Early = Σ  weight × strength × (1.2 if STANDOUT else C(k))      over L (50), O (20), C (30)
+rescale = min(2.0, 100 ÷ weights of the terms that CAN apply)          (applicability)
+Early = Σ  weight × strength × ( max(1.2, rescale) if STANDOUT else C(k) × rescale )   over L (50), O (20), C (30)
 Early = Early × 0.85 ^ (number of COUNTER-SIGNALS)
-Early = Early × min(2.0, 100 ÷ weights of the terms that CAN apply)      (applicability)
+(a standout's 1.2 boost and the rescale do not stack: it gets whichever is larger)
 Score = min(100, Early + Late)
 ```
 

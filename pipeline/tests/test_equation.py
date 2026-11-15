@@ -200,3 +200,13 @@ def test_loan_records_after_the_scoring_date_are_ignored(cfg):
     p = Property("a", recorded_loans=[construction(date(2021, 1, 1), "unknown"),
                                       construction(date(2027, 1, 1), "extension")])
     assert eq.loan_clock(p, cfg["loan_clock"], AS_OF).value == 0       # the extension hasn't happened yet
+
+
+def test_standout_boost_and_rescale_do_not_stack(cfg):
+    """A standout gets max(1.2 boost, rescale), never both multiplied."""
+    filings = [{"file_id": "co", "filing_type": "certificate_of_occupancy", "filing_date": date(2015, 1, 1)}]
+    p = Property("a", recorded_loans=[construction(date(2019, 1, 1), "unknown"),
+                                      construction(date(2023, 1, 1), "extension")], filings=filings)
+    r = score(p, cfg)
+    assert r.rescale == pytest.approx(100 / 80) and r.standouts            # L applies, O doesn't; L is a standout
+    assert r.early == pytest.approx(50 * 1.0 * max(1.2, 100 / 80))          # 62.5, not 50 x 1.2 x 1.25 = 75

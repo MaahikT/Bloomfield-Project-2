@@ -425,24 +425,24 @@ def score_property(p: Property, cfg: dict, as_of: date, rents: dict, market: dic
     r.corroboration = float(cfg["corroboration"][min(r.showing, 4)])
     so = cfg["standout"]
     early = 0.0
-    for name, part in parts.items():
-        if part.value >= so["at_strength"]:
-            # Upside extreme: counts in full, plus a boost, whatever the other signals say.
-            early += w[name] * part.value * so["boost"]
-            r.standouts.append(f"{STANDOUT_LABEL[name]}: {part.why}")
-        else:
-            early += w[name] * part.value * r.corroboration
-        if part.counter:
-            r.counters.append(part.counter)
-    r.counters += counters
-    # Downside extreme: each counter-signal cuts the early points.
-    early *= cfg["counter_signal"]["factor"] ** len(r.counters)
     # Rescale for terms that cannot apply (e.g. no construction financing on a long-open building), at most x max_rescale.
     r.applicable = applicable_terms(p, cfg, as_of)
     w_all = sum(w[k] for k in parts)
     w_app = sum(w[k] for k in parts if r.applicable[k])
     r.rescale = min(cfg["applicability"]["max_rescale"], w_all / w_app) if w_app else 1.0
-    r.early = early * r.rescale
+    for name, part in parts.items():
+        if part.value >= so["at_strength"]:
+            # Upside extreme: counts in full and skips the anti-fluke discount. Its boost and the rescale
+            # do NOT stack: it gets whichever is larger.
+            early += w[name] * part.value * max(so["boost"], r.rescale)
+            r.standouts.append(f"{STANDOUT_LABEL[name]}: {part.why}")
+        else:
+            early += w[name] * part.value * r.corroboration * r.rescale
+        if part.counter:
+            r.counters.append(part.counter)
+    r.counters += counters
+    # Downside extreme: each counter-signal cuts the early points.
+    r.early = early * cfg["counter_signal"]["factor"] ** len(r.counters)
     r.late, r.late_why = late_points(p, facts, cfg["late"], as_of)
     r.score = round(min(cfg["max_score"], r.early + r.late), 1)
     t = cfg["tiers"]

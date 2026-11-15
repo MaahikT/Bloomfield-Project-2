@@ -197,7 +197,7 @@ def page_detail(con, run_id):
     with a:
         st.markdown(f"**Anti-fluke:** {ex['anti_fluke']}")
         for s in ex.get("standouts", []):
-            st.markdown(f"⭐ **Standout** (counts ×{cfg['standout']['boost']}, skips anti-fluke): {esc(s)}")
+            st.markdown(f"⭐ **Standout** (counts ×max({cfg['standout']['boost']}, rescale), skips anti-fluke): {esc(s)}")
         for s in ex.get("counter_signals", []):
             st.markdown(f"↩ **Counter-signal** (×{cfg['counter_signal']['factor']}): {esc(s)}")
         st.markdown(f"**Early points:** {ex['early_points']}")
@@ -339,8 +339,9 @@ def page_how(con, run_id):
 - County records are found through **NETR Online** (`python -m collectors.discover`), recorders first because they feed the loan clock.
 """)
     st.latex(r"C = 1-\prod_{j\in\{R,I,Q,V,X,K,L_q\}}\left(1-q_j\,s_j\right)")
-    st.latex(r"\text{Early}=\sum_{L,O,C} w_i\, s_i \times \begin{cases}%s & s_i\ge %s\ (\text{STANDOUT})\\ C(k) & \text{otherwise}\end{cases}"
+    st.latex(r"\text{Early}=\sum_{L,O,C} w_i\, s_i \times \begin{cases}\max(%s,\ \text{rescale}) & s_i\ge %s\ (\text{STANDOUT})\\ C(k)\times\text{rescale} & \text{otherwise}\end{cases}"
              % (so["boost"], so["at_strength"]))
+    st.latex(r"\text{rescale}=\min\!\left(%s,\ \frac{100}{\text{weights of terms that can apply}}\right)" % cfg["applicability"]["max_rescale"])
     st.latex(r"\text{Score}=\min\!\left(100,\ \text{Early}\times %s^{\,\#\text{counter-signals}}+\text{Late}\right)" % cs["factor"])
     lc, od, rd, ig = cfg["loan_clock"], cfg["opening_delay"], cfg["rent_decline"], cfg["inspection_gap"]
     c = cfg["creative"]
@@ -364,7 +365,7 @@ def page_how(con, run_id):
     cor = {int(k): v for k, v in cfg["corroboration"].items()}   # JSON turns the keys into text
     st.markdown(f"""
 - **Anti-fluke C(k):** k = early signals at ≥ {cfg['shows_at']:.0%}. 1 → {cor[1]:.0%}, 2 → {cor[2]:.0%}, 3+ → {cor[3]:.0%}.
-- **⭐ STANDOUT:** a signal at ≥ {so['at_strength']:.0%} counts ×{so['boost']} and skips the anti-fluke discount.
+- **⭐ STANDOUT:** a signal at ≥ {so['at_strength']:.0%} counts ×max({so['boost']}, rescale) and skips the anti-fluke discount (the boost and the rescale don't stack).
 - **↩ COUNTER-SIGNAL:** strong evidence the other way (rent beating its city by {cs['rent_beats_city_by']:.0%}+, or a city inspection in the last {cs['inspected_within_days']} days) multiplies early points by {cs['factor']} each.
 - **Ready to act (max {late['max_points']}):** court/legal filing {late['court_points']}, contractor liens {late['lien_points']} each up to {late['max_lien_points']}. Older than {late['recent_days']} days count half.
 - **Not scored:** Ten-X auctions and Trepp/CMBS data are shown as context only.
