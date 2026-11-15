@@ -64,6 +64,7 @@ DEFAULTS = {
     "max_minutes": 45,
     "max_passes": 1,
     "max_est_cost_usd": 8.0,
+    "max_lifetime_est_usd": None,   # hard stop: total agent est. spend across ALL passes
 }
 
 # Worst-case dollars one goal can cost, reserved BEFORE the goal starts. A goal is at most
@@ -282,6 +283,16 @@ def run_pass(con, *, cfg: dict | None = None, limits: dict | None = None,
             stop = _budget_stop(limits, usage, started_clock, goals_run, reserve)
             if stop:
                 break
+            lifetime_cap = limits.get("max_lifetime_est_usd")
+            if lifetime_cap:
+                # Every chargeable task on the account counts, not just this pass, and the
+                # next goal's WORST-CASE reserve must still fit under the cap: a goal can
+                # overshoot, so the stop is lifetime + reserve >= cap, never lifetime alone.
+                lifetime_usd = float(con.execute(
+                    "SELECT COALESCE(sum(est_cost_usd), 0) FROM llm_usage").fetchone()[0])
+                if lifetime_usd + reserve >= float(lifetime_cap):
+                    stop = "lifetime_cost_cap"
+                    break
             before = con.execute("SELECT count(*) FROM evidence").fetchone()[0]
             try:
                 result = agent_run(con, _goal_for(c))
