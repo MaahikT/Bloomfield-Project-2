@@ -30,6 +30,7 @@ sys.path.insert(0, str(PIPELINE))
 from scorer import equation as eq  # noqa: E402
 from scorer import weekly  # noqa: E402
 from scorer.schema import open_db  # noqa: E402
+from dashboard import scheduler as _scheduler  # noqa: E402
 
 st.set_page_config(page_title="Bloomfield Flags", page_icon="🏚️", layout="wide")
 
@@ -46,10 +47,21 @@ def db_path():
     return os.environ.get("BLOOMFIELD_DB") or None
 
 
+@st.cache_resource
+def _scheduler_status():
+    """Optional weekly collector, OFF unless BLOOMFIELD_SCHEDULER=1. See dashboard/scheduler.py.
+    Runs as a thread in THIS process because DuckDB allows only one read-write process."""
+    return _scheduler.ensure_started(db_path())
+
+
+_scheduler_status()
+
+
 def get_con():
     if "con" not in st.session_state:
         con = open_db(db_path())
-        weekly.create_tables(con)
+        # The scheduler thread can be creating the same tables right now; retry its catalog conflicts.
+        _scheduler.with_catalog_retry(lambda: weekly.create_tables(con))
         st.session_state.con = con
     return st.session_state.con
 
