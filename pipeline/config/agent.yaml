@@ -11,13 +11,15 @@ enabled: true
 
 # Most think-act steps in one run. Each step is one AI call plus its tool calls, so this is also
 # the brake on cost (the reader.yaml spending cap still applies on top).
-max_steps: 12
+# 2026-11-15 user decision ("reduce cost as much as possible"): 12 -> 6. The goal already asks
+# for two or three searches and one or two fetches; 6 steps cover that with headroom.
+max_steps: 6
 
 # Longest single reply the AI may write per step (tokens).
-max_output_tokens: 2000
+max_output_tokens: 1200   # 2026-11-15: trimmed 2000 -> 1200 (cost); answers stay short per agent.md
 
 # Tool results handed back to the AI are cut to this many characters (pages can be huge).
-max_tool_result_chars: 6000
+max_tool_result_chars: 4000   # 2026-11-15: trimmed 6000 -> 4000 (cost); quotes stay verifiable
 
 # Which tools the agent may use (agent/tools.py). Remove a name to take that tool away.
 tools: [web_search, fetch_page, run_collector, query_db, record_evidence]
@@ -31,11 +33,17 @@ tools: [web_search, fetch_page, run_collector, query_db, record_evidence]
 # live universe (857+ properties) in a few hours; every real call is still accounted.
 weekly_loop:
   max_goals: 1000        # one research goal per candidate property, at most this many
-  max_model_calls: 2000  # total LLM calls across the whole pass
-  max_total_tokens: 15000000   # total input+output tokens across the whole pass
-  max_search_calls: 5000 # total web searches (1 search = 1 search-provider credit)
-  max_minutes: 240       # wall-clock limit per pass
+  max_model_calls: 10000 # total LLM calls across the whole pass (2026-11-15: sized for the
+                         # 761-flag shortlist at ~12 calls/goal, shortlist runs first)
+  max_total_tokens: 30000000   # total input+output tokens across the whole pass
+  max_search_calls: 3000 # total web searches (1 search = 1 search-provider credit; the free
+                         # Tavily monthly quota binds first and failures surface explicitly)
+  max_minutes: 1440      # wall-clock limit per pass (2026-11-15: 761 goals need 4-19h)
   max_passes: 2          # sweeps over the candidate list per run
-  max_est_cost_usd: 9.0  # ADVISORY landmark only, NOT enforced (user decision 2026-11-15:
-                         # the API account enforces its own dollar limit). Passing it logs
+  max_est_cost_usd: 9.0  # ADVISORY landmark only, NOT enforced. Passing it logs
                          # a warning; llm_usage keeps the full accounting either way.
+  max_lifetime_est_usd: 8.50   # HARD stop (2026-11-15 user decisions, phonemsg trail): stop
+                         # before the next goal once lifetime est. spend across ALL chargeable
+                         # tasks plus the next goal's worst-case reserve reaches this. Binding
+                         # constraint = min($8.50 total incl. ~$3.81 used, $5.00 additional,
+                         # $1.00 of the account preserved).
