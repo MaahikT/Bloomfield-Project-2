@@ -19,3 +19,15 @@ max_tool_result_chars: 6000
 
 # Which tools the agent may use (agent/tools.py). Remove a name to take that tool away.
 tools: [web_search, fetch_page, run_collector, query_db, record_evidence]
+
+# Bounded weekly research pass (agent/weekly.py). A person starts each pass; it researches
+# this week's ranking candidates one goal at a time and stops at the FIRST limit reached,
+# or when a full sweep finds no new verified evidence. Model calls/tokens are counted from
+# the llm_usage ledger, searches from the step log - enforced in code, never by the model.
+weekly_loop:
+  max_goals: 20          # one research goal per candidate property, at most this many
+  max_model_calls: 60    # total LLM calls across the whole pass
+  max_total_tokens: 400000   # total input+output tokens across the whole pass
+  max_search_calls: 100  # total web searches (1 search = 1 search-provider credit)
+  max_minutes: 45        # wall-clock limit
+  max_passes: 1          # sweeps over the candidate list per run
