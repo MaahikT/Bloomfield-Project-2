@@ -165,3 +165,15 @@ def test_blocked_sec_falls_back_to_manual_inbox_and_says_so(con, env):
     session.pages["https://www.sec.gov/robots.txt"] = FakeResponse("", 404)
     run = collect(con, session)
     assert run.status == "failed" and any("sec_edgar" in s for s, _ in run.fallbacks)
+
+
+def test_occupancy_reports_also_fill_operating_metrics(con, env):
+    """Signal Q (occupancy slide) reads occupancy HISTORY from operating_metrics; every ABS-EE report
+    adds one row per loan, and reruns replace instead of duplicating."""
+    run = collect(con, FakeSession(pages()))
+    rows = con.execute("SELECT link_id, period_end, period_months, occupancy, source "
+                       "FROM operating_metrics ORDER BY link_id").fetchall()
+    assert [(r[0], str(r[1]), r[2], round(r[3], 4), r[4]) for r in rows] == [
+        (f"edgar:{TRUST3}:1", "2026-10-16", 12, 0.78, "sec_edgar")]   # the fixture's second loan reports no occupancy
+    collect(con, FakeSession(pages()))                       # rerun: same rows, no duplicates
+    assert con.execute("SELECT count(*) FROM operating_metrics").fetchone()[0] == 1
