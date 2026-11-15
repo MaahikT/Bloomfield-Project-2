@@ -183,6 +183,17 @@ def test_web_search_is_honest_without_a_service(bcon):
     assert out["ok"] is False and "No search service" in out["error"]
 
 
+def test_web_search_fails_loudly_when_the_key_is_missing(bcon, monkeypatch):
+    # A configured provider without its key is NOT an empty result: the agent and the weekly
+    # pass must see "not searched" (ok: false), never confuse it with "searched, found nothing".
+    from bot.search import Budget
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    cfg = {"search": {"provider": "tavily", "tavily": {"api_key_env": "TAVILY_API_KEY"}}}
+    out = tools.web_search("anything", bot_cfg=cfg, budget=Budget({}))
+    assert out["ok"] is False
+    assert "TAVILY_API_KEY" in out["error"] and "not set" in out["error"]
+
+
 def test_tool_schemas_match_dispatch(bcon):
     """Every schema the AI sees has a working branch in run_tool, and vice versa."""
     assert set(tools.TOOL_NAMES) == {"web_search", "fetch_page", "run_collector", "query_db", "record_evidence"}
