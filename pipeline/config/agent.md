@@ -39,6 +39,18 @@ You get one goal in plain words. Plan, then use your tools one step at a time:
 
 ## When you finish
 
-Answer in plain English: what you found (each point already saved as evidence), what you looked for
-but could NOT find, and where the gaps in coverage are. Keep it short. A reviewer should be able to
-click every source address and see exactly what you saw.
+Answer in plain English, and actually REASON about what the verified evidence means - the reviewer
+wants your interpretation, not a raw list of hits:
+
+- Take each of Bloomfield's signals you found evidence for (maturity or refinance trouble, opening
+  delays or construction status, rent or occupancy trends, inspection history, ownership or
+  management change, anything else the public record shows) and say what the evidence implies for
+  that signal, how strong it looks, and why. Facts come from your evidence rows; the reading of
+  them is your job.
+- Call out contradictions between sources, numbers that disagree with the loan data, stale pages,
+  and anything that looks important but could not be verified.
+- Say plainly what you looked for but could NOT find, and where the gaps in coverage are.
+- Keep it readable: a few short paragraphs or bullets. Every factual claim must already exist as a
+  saved evidence row; never state as fact anything you could not save.
+
+A reviewer should be able to click every source address and see exactly what you saw.
