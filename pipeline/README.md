@@ -333,9 +333,10 @@ and the facts it verified land in the `evidence` table. Knobs live in `config/ag
 
 ## Honest limits
 
-- Open-web search needs a Brave Search API key (`BRAVE_SEARCH_API_KEY` in .env and
-  `provider: brave` in config/bot.yaml); without it the agent says so and works from known
-  addresses and the collectors instead.
+- Open-web search needs a search-service key: Brave (`BRAVE_SEARCH_API_KEY`, `provider: brave`) or
+  Tavily (`TAVILY_API_KEY`, `provider: tavily` - free plan is 1,000 searches/month, no card) in .env
+  and config/bot.yaml; without one the agent says so and works from known addresses and the
+  collectors instead.
 - The collectors only cover public datasets. A dataset that covers one state, one loan type,
   or one month is not proof that nothing exists elsewhere, and the agent is instructed to say
   exactly that.
