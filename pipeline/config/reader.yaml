@@ -42,14 +42,14 @@ task_models:
 prices_per_million_tokens:
   claude-haiku-5-5:  { input: 1.00, output: 5.00 }
   claude-sonnet-5-5: { input: 3.00, output: 15.00 }
-  # Gemini 3.5 Flash / Flash-Lite: NO PRICE LISTED YET, so the (higher) default below is used for the cost cap.
-  # Look up Google's current prices and add lines like:   gemini-3.5-flash: { input: ..., output: ... }
+  # Gemini 3.5 Flash / Flash-Lite: NO PRICE LISTED BY GOOGLE YET, and this reader REFUSES
+  # unpriced models rather than guessing. Add Google's exact prices here before using gemini.
   # (thinking tokens are billed as output tokens)
   codex-mini-latest:     { input: 1.50, output: 6.00 }    # PLACEHOLDER: check the price list
   gpt-5-codex:           { input: 1.25, output: 10.00 }   # PLACEHOLDER: check the price list
   gpt-4o-mini:           { input: 0.15, output: 0.60 }    # VERIFIED vs U-M Toolkit pricing 2026-11-15: https://its.umich.edu/computing/ai/pricing
   gpt-4o:                { input: 2.50, output: 10.00 }   # VERIFIED vs U-M Toolkit pricing 2026-11-15: https://its.umich.edu/computing/ai/pricing
-  default:           { input: 3.00, output: 15.00 }   # used for any model not listed above
+  # NO 'default' catch-all on purpose: a model with no exact price above is refused (llm/cost.py).
 
 # Spending limits (US dollars). The reader stops with a clear message instead of going over.
 weekly_cost_cap_usd: 9.0    # HARD ceiling: user's rule is 'under $10 for U-M'. 9.0 leaves margin
