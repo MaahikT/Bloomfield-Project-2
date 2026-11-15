@@ -22,8 +22,11 @@ import re
 from datetime import date
 
 from collectors.common import db
+from collectors.common.log import get_logger
 
 from . import equation as eq
+
+log = get_logger("scorer.weekly")
 from .schema import open_db
 from .signals import filing_kind
 
@@ -286,6 +289,13 @@ def run(con, cfg: dict | None = None, as_of: date | None = None, include_demo: b
     include_demo = include_demo_data() if include_demo is None else include_demo
     as_of = as_of or date.today()
     create_tables(con)
+    try:
+        from agent import mapping
+        applied = mapping.apply(con)          # fold new VERIFIED evidence into the scorer's inputs
+        if applied["mapped"]:
+            log.info("evidence mapped into scorer inputs: %s", applied)
+    except Exception:
+        log.exception("evidence mapping skipped")
     rents, market, inspections, extra = eq.load_inputs(con)
     from .group import group_properties
     props = group_properties(con)
@@ -295,13 +305,16 @@ def run(con, cfg: dict | None = None, as_of: date | None = None, include_demo: b
         if not include_demo and is_demo_property(p):
             continue                                  # sample data never appears in a real list
         r = eq.score_property(p, cfg, as_of, rents, market, inspections, extra)
-        if r.score <= 0 and not context_facts(p):
-            continue                              # nothing to show
         fx = r.facts
         ptype = property_type(p)
         current = [ln.get("current_balance") for ln in p.cmbs_loans if ln.get("current_balance")]
         amount = max(current) if current else fx.get("loan_amount")   # what's owed now, not the original amount
         shown, reason = passes_filters(ptype, fx.get("state"), amount, cfg["filters"])
+        if r.score <= 0 and not context_facts(p):
+            # Score EVERY property and keep the row: a zero-signal property is a real,
+            # honest result ("nothing found yet"), never silently dropped. It just does
+            # not appear on the ranked list.
+            shown, reason = False, "no distress signals or context yet (missing data is not proof of absence)"
         from . import creative as cr
         from . import valuation as val
         capacity, series = val.property_inputs(p, ptype, fx.get("state"), extra)
