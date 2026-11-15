@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS weekly_flags (
     o_opening       DOUBLE,
     r_rent          DOUBLE,
     i_inspection    DOUBLE,
+    c_creative      DOUBLE,     -- all creative signals combined (0-1)
     signals_showing INTEGER,
     corroboration   DOUBLE,
     early_points    DOUBLE,
@@ -100,6 +101,7 @@ _CMBS_CODES = {"MF": "Multifamily", "OF": "Office", "RT": "Retail", "LO": "Hotel
 def create_tables(con) -> None:
     eq.create_equation_tables(con)
     con.execute(SCHEMA)
+    con.execute("ALTER TABLE weekly_flags ADD COLUMN IF NOT EXISTS c_creative DOUBLE")
 
 
 def clean_type(raw) -> str | None:
@@ -149,7 +151,9 @@ def context_facts(p) -> list[str]:
         if ln.get("payment_status"):
             bits.append(str(ln["payment_status"]))
         if bits:
-            out.append(f"{ln.get('source') or 'CMBS'} loan data: " + ", ".join(bits) + " (everyone has this)")
+            src = (ln.get("source") or "CMBS").lower()
+            note = "everyone has this" if src in ("trepp", "sec_edgar", "cmbs") else "public disclosure"
+            out.append(f"{ln.get('source') or 'CMBS'} loan data: " + ", ".join(bits) + f" ({note})")
     return out
 
 
@@ -167,8 +171,10 @@ def deal_quality(r: eq.Result, ptype, amount, public, cfg) -> tuple[int, list[di
     if r.L.value > 0 or r.O.value > 0:
         parts.append({"part": "Fixable problem", "points": q["fixable_problem"],
                       "why": "Loan on the clock / late opening: a delay or stuck refinance, not a lack of demand"})
-    if r.R.value >= 0.5:
-        parts.append({"part": "Demand", "points": q["demand_problem"], "why": "Rent is falling faster than its city"})
+    by = {s.code: s for s in r.creative}
+    if r.R.value >= 0.5 or (by.get("Q") and by["Q"].value >= 0.5 and by["Q"].known):
+        parts.append({"part": "Demand", "points": q["demand_problem"],
+                      "why": "Rent or occupancy is falling faster than its market"})
     if public:
         parts.append({"part": "Visibility", "points": q["public_sale"], "why": "Already public (auction / sale notice)"})
     else:
@@ -189,14 +195,26 @@ def deal_angles(r: eq.Result, p, ptype) -> list[str]:
         a.append("Include money to clear contractor liens so the project can finish.")
     if r.I.value > 0.5 and r.L.value == 0:
         a.append("Site has gone quiet: completion financing may get it moving again.")
+    by = {s.code: s for s in r.creative}
+    if by.get("V") and by["V"].effective >= 0.5:
+        a.append("Income no longer covers the debt: buy the loan/bonds at a discount, or offer rescue capital "
+                 "sized to the coverage gap.")
+    if by.get("Q") and by["Q"].effective >= 0.25 or by.get("X") and by["X"].effective >= 0.25:
+        a.append("Operating fix (occupancy / staffing costs): pair the capital with an operator or affiliation plan.")
+    if by.get("Lq") and by["Lq"].effective >= 0.25:
+        a.append("Care-quality / licensing issue: price in operator replacement and regulatory cure.")
+    if "default_notice" in kinds:
+        a.append("Lender or bond trustee has issued a default notice: approach holders about selling the debt.")
     if r.counters:
         a.append("Counter-signal present: confirm the distress before calling.")
     return a
 
 
 def summary(r: eq.Result, name) -> str:
-    terms = [("loan clock", r.L), ("opening delay", r.O), ("rent decline", r.R), ("site inactivity", r.I)]
+    from .creative import CREATIVE_LABELS
+    terms = [("loan clock", r.L), ("opening delay", r.O)]
     on = [f"{n} ({part.value:.0%})" for n, part in terms if part.value > 0]
+    on += [f"{CREATIVE_LABELS[s.code].lower()} ({s.effective:.0%})" for s in r.creative if s.effective > 0]
     text = f"{name}: " + (", ".join(on) if on else "no early signals")
     if r.standouts:
         text += ". STANDOUT"
@@ -211,18 +229,19 @@ def run(con, cfg: dict | None = None, as_of: date | None = None) -> str:
     cfg = cfg or eq.load_equation_config()
     as_of = as_of or date.today()
     create_tables(con)
-    rents, market, inspections = eq.load_inputs(con)
+    rents, market, inspections, extra = eq.load_inputs(con)
     from .group import group_properties
     props = group_properties(con)
     run_id = f"week-{as_of.isoformat()}"
     rows = []
     for p in props:
-        r = eq.score_property(p, cfg, as_of, rents, market, inspections)
+        r = eq.score_property(p, cfg, as_of, rents, market, inspections, extra)
         if r.score <= 0 and not context_facts(p):
             continue                              # nothing to show
         fx = r.facts
         ptype = property_type(p)
-        amount = fx.get("loan_amount")
+        current = [ln.get("current_balance") for ln in p.cmbs_loans if ln.get("current_balance")]
+        amount = max(current) if current else fx.get("loan_amount")   # what's owed now, not the original amount
         shown, reason = passes_filters(ptype, fx.get("state"), amount, cfg["filters"])
         dq, dparts = deal_quality(r, ptype, amount, is_public(p), cfg)
         name = fx.get("property_name") or fx.get("property_address") or p.property_id
@@ -231,7 +250,7 @@ def run(con, cfg: dict | None = None, as_of: date | None = None) -> str:
             "address": fx.get("property_address"), "city": fx.get("city"), "state": fx.get("state"),
             "property_type": ptype, "borrower": fx.get("borrower_name"), "lender": fx.get("lender_name"),
             "loan_amount": amount, "score": r.score, "tier": r.tier, "stage": r.stage, "flags": eq.flag_text(r),
-            "l_loan_clock": r.L.value, "o_opening": r.O.value, "r_rent": r.R.value, "i_inspection": r.I.value,
+            "l_loan_clock": r.L.value, "o_opening": r.O.value, "r_rent": r.R.value, "i_inspection": r.I.value, "c_creative": r.C.value,
             "signals_showing": r.showing, "corroboration": r.corroboration, "early_points": round(r.early, 2),
             "late_points": round(r.late, 2), "deal_quality": dq, "rank": None, "shown": shown,
             "filter_reason": reason, "explanation": json.dumps(eq.explain(r, cfg)), "deal_parts": json.dumps(dparts),

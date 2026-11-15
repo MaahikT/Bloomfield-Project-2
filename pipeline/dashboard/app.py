@@ -34,7 +34,8 @@ from scorer.schema import open_db  # noqa: E402
 st.set_page_config(page_title="Bloomfield Flags", page_icon="🏚️", layout="wide")
 
 TERMS = [("l_loan_clock", "L", "Loan clock", "loan_clock"), ("o_opening", "O", "Opening delay", "opening_delay"),
-         ("r_rent", "R", "Rent vs. city", "rent_decline"), ("i_inspection", "I", "Site inactivity", "inspection_gap")]
+         ("c_creative", "C", "Creative signals", "creative")]
+EX_KEY = {"L": "L_loan_clock", "O": "O_opening", "C": "C_creative"}
 TIER_ICON = {"hot": "🔴 Hot", "watch": "🟠 Watch", "low": "⚪ Low"}
 
 
@@ -132,7 +133,7 @@ def page_ranked(con, run_id):
             b.markdown(f"**{esc(r['property_name'])}** — {esc(r['property_type'] or 'type unknown')} · "
                        f"{esc(place)} · {money(r['loan_amount'])}")
             b.markdown(tags(r))
-            parts = [f"{code} {r[col]:.0%}" for col, code, _, _ in TERMS if r[col] > 0]
+            parts = [f"{code} {r[col]:.0%}" for col, code, _, _ in TERMS if r.get(col) and r[col] > 0]
             b.caption(("Early signals: " + " · ".join(parts)) if parts else "No early signals (late filings only)")
             if not r["shown"]:
                 b.markdown(f":gray[Hidden: {esc(r['filter_reason'])}]")
@@ -176,11 +177,19 @@ def page_detail(con, run_id):
     st.subheader("The equation for this property")
     rows = []
     for col, code, label, key in TERMS:
-        t = ex[{"L": "L_loan_clock", "O": "O_opening", "R": "R_rent", "I": "I_inspection"}[code]]
+        t = ex[EX_KEY[code]]
         rows.append({"Term": f"{code} · {label}", "Strength": t["strength"], "Weight": w[key],
                      "Points before anti-fluke": round(w[key] * t["strength"], 1), "Why": t["why"]})
     st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True,
                  column_config={"Strength": st.column_config.ProgressColumn(min_value=0, max_value=1, format="%.2f")})
+    cs_rows = ex.get("creative_signals", [])
+    if cs_rows:
+        st.markdown("**Inside C: each creative signal** — C = 1 − Π(1 − reliability × strength)")
+        st.dataframe(pd.DataFrame([{"Signal": f"{x['code']} · {x['name']}", "Strength": x["strength"],
+                                    "Reliability": x["reliability"], "Counts as": x["effective"],
+                                    "Why": x["why"] if x["known"] else "no data yet"} for x in cs_rows]),
+                     hide_index=True, use_container_width=True,
+                     column_config={"Strength": st.column_config.ProgressColumn(min_value=0, max_value=1, format="%.2f")})
     a, b = st.columns(2)
     with a:
         st.markdown(f"**Anti-fluke:** {ex['anti_fluke']}")
@@ -326,15 +335,28 @@ def page_how(con, run_id):
 - Auctions and Trepp/CMBS are shown as context only, never scored.
 - County records are found through **NETR Online** (`python -m collectors.discover`), recorders first because they feed the loan clock.
 """)
-    st.latex(r"\text{Early}=\sum_{L,O,R,I} w_i\, s_i \times \begin{cases}%s & s_i\ge %s\ (\text{STANDOUT})\\ C(k) & \text{otherwise}\end{cases}"
+    st.latex(r"C = 1-\prod_{j\in\{R,I,Q,V,X,K,L_q\}}\left(1-q_j\,s_j\right)")
+    st.latex(r"\text{Early}=\sum_{L,O,C} w_i\, s_i \times \begin{cases}%s & s_i\ge %s\ (\text{STANDOUT})\\ C(k) & \text{otherwise}\end{cases}"
              % (so["boost"], so["at_strength"]))
     st.latex(r"\text{Score}=\min\!\left(100,\ \text{Early}\times %s^{\,\#\text{counter-signals}}+\text{Late}\right)" % cs["factor"])
     lc, od, rd, ig = cfg["loan_clock"], cfg["opening_delay"], cfg["rent_decline"], cfg["inspection_gap"]
+    c = cfg["creative"]
+    qo, iv, xs, kc, lq = (c["occupancy_slide"], c["income_coverage"], c["cost_squeeze"], c["concession_creep"],
+                          c["licensing_quality"])
     st.dataframe(pd.DataFrame([
         {"Term": "L · Loan clock", "Weight": w["loan_clock"], "0 → 1": f"{lc['start_months']} → {lc['full_months']} months unpaid, +{lc['per_extension']} per extension, +{lc.get('opened_still_unpaid_bonus', 0)} if the building opened with the loan still outstanding", "From": "Part A recorded_loans"},
         {"Term": "O · Opening delay", "Weight": w["opening_delay"], "0 → 1": f"{od['start_months']} → {od['full_months']} months late (under {od['start_months']} is normal)", "From": "Part B projects"},
-        {"Term": "R · Rent vs. city", "Weight": w["rent_decline"], "0 → 1": f"0 → {rd['full_gap']:.0%} worse than the city", "From": "Part B rent_observations + Part A market_rents"},
-        {"Term": "I · Site inactivity", "Weight": w["inspection_gap"], "0 → 1": f"{ig['start_days']} → {ig['full_days']} days since a city inspection", "From": "Part A permit_inspections"},
+        {"Term": "C · Creative signals (combined)", "Weight": w["creative"], "0 → 1": "1 − Π(1 − q·s) over the signals below", "From": "see below"},
+    ]), hide_index=True, use_container_width=True)
+    st.markdown(f"**Creative signals** (weight {w['creative']} combined; each counts as reliability q × strength s; together at most {c['max_confirmations']} anti-fluke confirmations)")
+    st.dataframe(pd.DataFrame([
+        {"Signal": "R · Rent vs. city", "s = 0 → 1": f"(city rent change − property rent change) ÷ {rd['full_gap']:.0%}", "q": rd["reliability"], "From": "B rent_observations + A market_rents"},
+        {"Signal": "I · Site inactivity", "s = 0 → 1": f"{ig['start_days']} → {ig['full_days']} days since a city inspection", "q": ig["reliability"], "From": "A permit_inspections"},
+        {"Signal": "Q · Occupancy slide", "s = 0 → 1": f"(peak occ. last {qo['lookback_months']} mo − occ. now − market drop) ÷ {qo['full_gap']:.0%}", "q": qo["reliability"], "From": "operating_metrics + market_occupancy"},
+        {"Signal": "V · Income coverage", "s = 0 → 1": f"max((DSCR {iv['dscr_ok']} − DSCR) ÷ {iv['dscr_ok'] - iv['dscr_full']:.2f}, NOI drop from peak ÷ {iv['full_noi_drop']:.0%})", "q": iv["reliability"], "From": "operating_metrics (EMMA / public disclosures)"},
+        {"Signal": "X · Cost squeeze", "s = 0 → 1": f"(expense growth − revenue growth since best year) ÷ {xs['full_gap']:.0%}", "q": xs["reliability"], "From": "operating_metrics"},
+        {"Signal": "K · Concession creep", "s = 0 → 1": f"(free months per lease now − a year ago) ÷ {kc['full_months']}", "q": kc["reliability"], "From": "B rent_observations"},
+        {"Signal": "Lq · Licensing / care", "s = 0 → 1": "CMS 1-star 0.8 · 2-star 0.5 · abuse +0.2 · state distress 0.8", "q": lq["reliability"], "From": "A licensing_records"},
     ]), hide_index=True, use_container_width=True)
     cor = {int(k): v for k, v in cfg["corroboration"].items()}   # JSON turns the keys into text
     st.markdown(f"""

@@ -19,19 +19,32 @@ All numbers live in `config/equation.yaml`. Code: `scorer/equation.py`. Tests: `
 ## The equation
 
 ```
-Early = Σ  weight × strength × (1.2 if STANDOUT else C(k))      over L, O, R, I
+C     = 1 − Π (1 − q_j · s_j)        over the creative signals j        (noisy-or: several weak signals add up, never past 1)
+Early = Σ  weight × strength × (1.2 if STANDOUT else C(k))      over L (50), O (20), C (30)
 Early = Early × 0.85 ^ (number of COUNTER-SIGNALS)
 Score = min(100, Early + Late)
 ```
 
 | Term | What it measures | Strength 0 → 1 | Weight | Data from |
 |---|---|---|---|---|
-| **L** loan clock | Construction loan still not paid off by a permanent loan or release | 0 before 30 months → 1 at 60 months (5 years). +0.1 per extension (max +0.2); +0.25 if the building opened with the loan still outstanding | 50 | Part A `recorded_loans` |
+| **L** loan clock | Construction loan still not paid off by a permanent loan or release | 0 before 30 months → 1 at 60 months. +0.1 per extension (max +0.2); +0.25 if the building opened with the loan still outstanding | 50 | Part A `recorded_loans` |
 | **O** opening delay | Months past the latest reasonable opening date, page still "coming soon" | 0 under 6 months (normal) → 1 at 18 months. +0.1 missed student move-in, +0.05 per date slip (max +0.1) | 20 | Part B `projects` |
-| **R** rent decline | Property's asking-rent change **minus** its city's rent change, same dates | 0 if keeping up with the city → 1 at 15 points worse | 15 | Part B `rent_observations` vs. Part A `market_rents` |
-| **I** inspection gap | Days since the last city inspection on a permit with no certificate of occupancy | 0 under 60 days → 1 at 180 days | 15 | Part A `permit_inspections` + Part B permits in `filing_fields` |
-| **C(k)** anti-fluke | k = how many of L, O, R, I are at least 0.25 | 1 signal → 0.5 · 2 → 0.8 · 3 or 4 → 1.0 | × | — |
-| **Late** | Court/legal filing (foreclosure, receiver, lis pendens, lender lawsuit, UCC sale, tax sale): 6. Contractor liens: 2 each, max 4 (a lien ≥ 2% of the loan counts twice). Older than 180 days counts half | — | max 10 | Part B `filing_fields` |
+| **C** creative | All creative signals below, combined | 1 − Π(1 − q·s) | 30 | see below |
+| **C(k)** anti-fluke | k = L and O if ≥ 0.25, plus up to 2 creative signals with q·s ≥ 0.25 | 1 → 0.5 · 2 → 0.8 · 3+ → 1.0 | × | — |
+| **Late** | Court/legal filing or lender/trustee default notice: 6. Contractor liens: 2 each, max 4. Older than 180 days counts half; filings dated after the scoring date are ignored | — | max 10 | Part B `filing_fields` |
+
+### Creative signals: each one is measurable (code: `scorer/creative.py`)
+| Signal | s = 0 → 1 | Reliability q | Data from |
+|---|---|---|---|
+| **R** rent vs. city | (city rent change − property rent change) ÷ 15 pts | 0.9 | B `rent_observations` + A `market_rents` |
+| **I** site inactivity | 60 → 180 days since a city inspection on an open permit | 0.8 | A `permit_inspections` |
+| **Q** occupancy slide | (peak occupancy in the last 36 months − occupancy now − market drop) ÷ 15 pts | 0.9 (×0.7 with no market data) | `operating_metrics` + `market_occupancy` |
+| **V** income coverage | max( (1.20 − DSCR) ÷ 0.60 , NOI drop from its best year ÷ 50% ) | 1.0 | `operating_metrics` (EMMA / public disclosures, not Trepp) |
+| **X** cost squeeze | (expense growth − revenue growth since the best year) ÷ 15 pts | 0.6 | `operating_metrics` |
+| **K** concession creep | (free months per lease now − a year ago) ÷ 2 months | 0.7 | B `rent_observations.concession_months` |
+| **Lq** licensing / care | CMS 1-star 0.8, 2-star 0.5; abuse flag +0.2; state license distress 0.8 | 0.6 | A `licensing_records` |
+
+Related creative signals (e.g. falling occupancy and falling income) count as at most **2** anti-fluke confirmations, so one story can't confirm itself.
 
 **Not scored** (Bloomfield: public, forced, or everyone already has it): Ten-X auctions, Trepp / CMBS DSCR and watchlists.
 
@@ -98,3 +111,6 @@ On real data, after Parts A, B and C have run: `python -m scorer.weekly`, then `
 | Demo data (uses the team's fake-data scripts and matcher, plus extra FAKE properties) | `scorer/demo_week.py` |
 
 The older scorer (`python -m scorer`, `config/scoring.yaml`) still runs and writes `property_scores`. The dashboard uses the equation.
+
+## Backtesting a real deal
+`python -m scorer.case_study data/cases/<deal>.yaml` loads a deal into a throwaway database, scores it on several past dates (only data disclosed by each date), and runs valuation scenarios (`scorer/valuation.py`). Real deal files stay in `data/` (git-ignored): this repository is public.

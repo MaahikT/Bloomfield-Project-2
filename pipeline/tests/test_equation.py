@@ -167,3 +167,8 @@ def test_opened_but_construction_loan_still_outstanding_is_boosted(cfg):
                            cfg["loan_clock"], AS_OF)
     assert opened.value == pytest.approx(min(1.0, still_building.value + 0.25))
     assert "OPENED" in opened.why
+
+
+def test_filings_after_the_scoring_date_are_ignored(cfg):
+    p = Property("a", filings=[{"file_id": "f1", "filing_type": "foreclosure_notice", "filing_date": date(2027, 1, 1)}])
+    assert score(p, cfg).late == 0

@@ -31,6 +31,7 @@ import yaml
 
 from collectors.common import config, db
 
+from . import creative as cr
 from .group import Property, group_properties
 from .schema import open_db, table_exists
 from .score import property_facts
@@ -45,6 +46,7 @@ CREATE TABLE IF NOT EXISTS rent_observations (
     project_id    TEXT,        -- links to projects
     observed_at   DATE,
     asking_rent   DOUBLE,      -- lowest advertised rent, $/month
+    concession_months DOUBLE,  -- free rent offered per lease, in months (0 if none)
     unit_basis    TEXT,        -- unit / bed / sqft
     source_url    TEXT,
     file_id       TEXT         -- the saved page in raw_files
@@ -94,12 +96,14 @@ CREATE TABLE IF NOT EXISTS equation_scores (
 """
 
 STANDOUT_LABEL = {"loan_clock": "Standout loan clock", "opening_delay": "Standout opening delay",
+                  "creative": "Standout creative signals",
                   "rent_decline": "Standout rent decline", "inspection_gap": "Standout site inactivity"}
 
 COURT_KINDS = {"foreclosure_notice", "receivership", "lis_pendens", "lender_lawsuit", "ucc_sale_notice",
-               "tax_delinquency"}
+               "tax_delinquency", "default_notice"}
 COURT_TAGS = {"foreclosure_scheduled", "receiver_appointed", "lis_pendens", "lender_lawsuit",
-              "ucc_sale_scheduled", "tax_delinquent"}
+              "ucc_sale_scheduled", "tax_delinquent", "payment_default", "maturity_default",
+              "technical_default", "covenant_default", "forbearance"}
 
 
 def load_equation_config(path: str | Path | None = None) -> dict:
@@ -109,6 +113,9 @@ def load_equation_config(path: str | Path | None = None) -> dict:
 
 def create_equation_tables(con) -> None:
     con.execute(INPUT_SCHEMA)
+    con.execute(cr.INPUT_SCHEMA)
+    con.execute("ALTER TABLE rent_observations ADD COLUMN IF NOT EXISTS concession_months DOUBLE")
+    con.execute("ALTER TABLE operating_metrics ADD COLUMN IF NOT EXISTS disclosed_on DATE")
 
 
 def ramp(x: float | None, start: float, full: float) -> float:
@@ -134,6 +141,8 @@ class Result:
     O: Part = field(default_factory=Part)
     R: Part = field(default_factory=Part)
     I: Part = field(default_factory=Part)
+    C: Part = field(default_factory=Part)          # all creative signals combined
+    creative: list = field(default_factory=list)   # the individual creative signals (creative.Sig)
     showing: int = 0
     corroboration: float = 0.0
     early: float = 0.0
@@ -296,18 +305,25 @@ def late_points(p: Property, facts: dict, c: dict, as_of: date) -> tuple[float, 
         d = filing_date(f)
         return 1.0 if d and (as_of - d).days <= c["recent_days"] else 0.5
 
+    def known_by(f):          # a filing dated after as_of didn't exist yet (matters for backtests)
+        d = filing_date(f)
+        return d is None or d <= as_of
+
     why, court = [], 0.0
     for f in p.filings:
+        if not known_by(f):
+            continue
         tags = set(f.get("distress_tags") or []) if isinstance(f.get("distress_tags"), list) else set(
             json.loads(f["distress_tags"]) if isinstance(f.get("distress_tags"), str) and f["distress_tags"].startswith("[") else [])
         if filing_kind(f) in COURT_KINDS or tags & COURT_TAGS:
             pts = c["court_points"] * weight(f)
             if pts > court:
                 court = pts
-                why = [f"court/legal filing: {filing_kind(f).replace('_', ' ')}"]
+                kind = sorted(tags & COURT_TAGS)[0] if tags & COURT_TAGS else filing_kind(f)
+                why = [f"court/legal filing: {kind.replace('_', ' ')}" + ("" if weight(f) == 1 else " (old: counted at half)")]
     liens = 0.0
     for f in p.filings:
-        if filing_kind(f) != "mechanics_lien":
+        if filing_kind(f) != "mechanics_lien" or not known_by(f):
             continue
         n = 2 if (f.get("lien_amount") and facts.get("loan_amount")
                   and f["lien_amount"] >= c["big_lien_share"] * facts["loan_amount"]) else 1
@@ -320,16 +336,41 @@ def late_points(p: Property, facts: dict, c: dict, as_of: date) -> tuple[float, 
 # ---------------------------------------------------------------------------
 # The equation
 # ---------------------------------------------------------------------------
-def score_property(p: Property, cfg: dict, as_of: date, rents: dict, market: dict, inspections: dict) -> Result:
+def creative_signals(p: Property, facts: dict, cfg: dict, as_of: date, rents, market, inspections, extra) -> list:
+    from .weekly import property_type          # (weekly imports this module; import here to avoid a loop)
+    c = cfg["creative"]
+    R = rent_decline(p, facts, cfg["rent_decline"], rents, market, as_of, cfg["counter_signal"])
+    I = inspection_gap(p, cfg["inspection_gap"], inspections, as_of, cfg["counter_signal"])
+    ptype = property_type(p)
+    return [
+        cr.Sig("R", R.value, R.known, R.why, cfg["rent_decline"]["reliability"], R.counter),
+        cr.Sig("I", I.value, I.known, I.why, cfg["inspection_gap"]["reliability"], I.counter),
+        cr.occupancy_slide(p, ptype, facts.get("state"), c["occupancy_slide"], extra.get("ops", {}),
+                           extra.get("mkt_occ", {}), as_of),
+        cr.income_coverage(p, c["income_coverage"], extra.get("ops", {}), as_of),
+        cr.cost_squeeze(p, c["cost_squeeze"], extra.get("ops", {}), as_of),
+        cr.concession_creep(p, c["concession_creep"], extra.get("concessions", {}), as_of),
+        cr.licensing_quality(p, c["licensing_quality"], extra.get("licenses", {}), as_of),
+    ]
+
+
+def score_property(p: Property, cfg: dict, as_of: date, rents: dict, market: dict, inspections: dict,
+                   extra: dict | None = None) -> Result:
     facts = property_facts(p)
     r = Result(p.property_id, facts)
     r.L = loan_clock(p, cfg["loan_clock"], as_of)
     r.O = opening_delay(p, cfg["opening_delay"], as_of)
-    r.R = rent_decline(p, facts, cfg["rent_decline"], rents, market, as_of, cfg["counter_signal"])
-    r.I = inspection_gap(p, cfg["inspection_gap"], inspections, as_of, cfg["counter_signal"])
+    r.creative = creative_signals(p, facts, cfg, as_of, rents, market, inspections, extra or {})
+    by = {s.code: s for s in r.creative}
+    r.R = Part(by["R"].value, by["R"].known, by["R"].why, by["R"].counter)
+    r.I = Part(by["I"].value, by["I"].known, by["I"].why, by["I"].counter)
+    cval, cshow, cwhy = cr.combine(r.creative, cfg["creative"])
+    r.C = Part(cval, any(s.known for s in r.creative), cwhy)
+    counters = [s.counter for s in r.creative if s.counter]
     w = cfg["weights"]
-    parts = {"loan_clock": r.L, "opening_delay": r.O, "rent_decline": r.R, "inspection_gap": r.I}
-    r.showing = sum(1 for part in parts.values() if part.value >= cfg["shows_at"])
+    parts = {"loan_clock": r.L, "opening_delay": r.O, "creative": r.C}
+    r.showing = (sum(1 for part in (r.L, r.O) if part.value >= cfg["shows_at"])
+                 + min(cfg["creative"]["max_confirmations"], cshow))
     r.corroboration = float(cfg["corroboration"][min(r.showing, 4)])
     so = cfg["standout"]
     early = 0.0
@@ -342,6 +383,7 @@ def score_property(p: Property, cfg: dict, as_of: date, rents: dict, market: dic
             early += w[name] * part.value * r.corroboration
         if part.counter:
             r.counters.append(part.counter)
+    r.counters += counters
     # Downside extreme: each counter-signal cuts the early points.
     r.early = early * cfg["counter_signal"]["factor"] ** len(r.counters)
     r.late, r.late_why = late_points(p, facts, cfg["late"], as_of)
@@ -353,24 +395,50 @@ def score_property(p: Property, cfg: dict, as_of: date, rents: dict, market: dic
 
 
 def load_inputs(con):
+    """Returns (rents, market, inspections, extra) where extra holds the other creative-signal inputs."""
     rents, market, inspections = {}, {}, {}
+    extra = {"ops": {}, "mkt_occ": {}, "concessions": {}, "licenses": {}}
     if table_exists(con, "rent_observations"):
-        for pid, d, rent in con.execute("SELECT project_id, observed_at, asking_rent FROM rent_observations").fetchall():
-            rents.setdefault(str(pid), []).append((as_date(d), rent))
+        cols = {r[0] for r in con.execute("SELECT column_name FROM information_schema.columns "
+                                          "WHERE table_name = 'rent_observations'").fetchall()}
+        conc = "concession_months" if "concession_months" in cols else "NULL"
+        for pid, d, rent, cm in con.execute(f"SELECT project_id, observed_at, asking_rent, {conc} FROM rent_observations").fetchall():
+            if rent is not None:
+                rents.setdefault(str(pid), []).append((as_date(d), rent))
+            if cm is not None:
+                extra["concessions"].setdefault(str(pid), []).append((as_date(d), cm))
+    if table_exists(con, "operating_metrics"):
+        cur = con.execute("SELECT * FROM operating_metrics")
+        names = [x[0] for x in cur.description]
+        for row in cur.fetchall():
+            d = dict(zip(names, row))
+            extra["ops"].setdefault(str(d["link_id"]), []).append(d)
+    if table_exists(con, "market_occupancy"):
+        from .weekly import clean_type
+        for st, pt, d, occ in con.execute("SELECT state, property_type, period, occupancy FROM market_occupancy").fetchall():
+            extra["mkt_occ"].setdefault(((st or "").upper(), clean_type(pt)), []).append((as_date(d), occ))
+    if table_exists(con, "licensing_records"):
+        cur = con.execute("SELECT * FROM licensing_records")
+        names = [x[0] for x in cur.description]
+        for row in cur.fetchall():
+            d = dict(zip(names, row))
+            k = cr.license_key(d.get("address"), d.get("state"))
+            if k:
+                extra["licenses"].setdefault(k, []).append(d)
     if table_exists(con, "market_rents"):
         for city, st, d, idx in con.execute("SELECT city, state, period, rent_index FROM market_rents").fetchall():
             market.setdefault(((city or "").strip().lower(), (st or "").strip().upper()), []).append((as_date(d), idx))
     if table_exists(con, "permit_inspections"):
         for num, d in con.execute("SELECT permit_number, inspection_date FROM permit_inspections").fetchall():
             inspections.setdefault(str(num), []).append(as_date(d))
-    return rents, market, inspections
+    return rents, market, inspections, extra
 
 
 def score_all(con, cfg: dict | None = None, as_of: date | None = None) -> list[Result]:
     cfg = cfg or load_equation_config()
     as_of = as_of or date.today()
-    rents, market, inspections = load_inputs(con)
-    out = [score_property(p, cfg, as_of, rents, market, inspections) for p in group_properties(con)]
+    rents, market, inspections, extra = load_inputs(con)
+    out = [score_property(p, cfg, as_of, rents, market, inspections, extra) for p in group_properties(con)]
     out.sort(key=lambda r: (-r.score, -(r.facts.get("loan_amount") or 0), r.property_id))
     return out
 
@@ -380,8 +448,10 @@ def explain(r: Result, cfg: dict) -> dict:
     return {
         "L_loan_clock": {"strength": round(r.L.value, 3), "points": round(w["loan_clock"] * r.L.value, 1), "why": r.L.why},
         "O_opening": {"strength": round(r.O.value, 3), "points": round(w["opening_delay"] * r.O.value, 1), "why": r.O.why},
-        "R_rent": {"strength": round(r.R.value, 3), "points": round(w["rent_decline"] * r.R.value, 1), "why": r.R.why},
-        "I_inspection": {"strength": round(r.I.value, 3), "points": round(w["inspection_gap"] * r.I.value, 1), "why": r.I.why},
+        "C_creative": {"strength": round(r.C.value, 3), "points": round(w["creative"] * r.C.value, 1), "why": r.C.why},
+        "creative_signals": [{"code": s.code, "name": cr.CREATIVE_LABELS[s.code], "strength": round(s.value, 3),
+                              "reliability": s.q, "effective": round(s.effective, 3), "known": s.known, "why": s.why}
+                             for s in r.creative],
         "anti_fluke": f"{r.showing} early signal(s) showing -> keeps {r.corroboration:.0%} of early points",
         "standouts": r.standouts,
         "counter_signals": r.counters,
@@ -434,10 +504,10 @@ def main(argv=None):
                 return
         print("No property matched.")
         return
-    print(f"\n{'#':>3}  score  tier   stage       L    O    R    I   property")
+    print(f"\n{'#':>3}  score  tier   stage          L    O    C   property")
     for i, r in enumerate(results[: args.top], 1):
-        print(f"{i:>3}  {r.score:>5.1f}  {r.tier:<5}  {r.stage:<10} {r.L.value:.2f} {r.O.value:.2f} "
-              f"{r.R.value:.2f} {r.I.value:.2f}  {r.facts.get('property_name') or r.property_id}"
+        print(f"{i:>3}  {r.score:>5.1f}  {r.tier:<5}  {r.stage:<13} {r.L.value:.2f} {r.O.value:.2f} "
+              f"{r.C.value:.2f}  {r.facts.get('property_name') or r.property_id}"
               + (f"  [{flag_text(r)}]" if flag_text(r) else ""))
 
 
