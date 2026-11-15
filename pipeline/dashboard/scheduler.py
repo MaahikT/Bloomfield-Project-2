@@ -117,7 +117,12 @@ def with_catalog_retry(fn, tries: int = 30, wait_seconds: float = 1.0):
             time.sleep(wait_seconds)
 
 
-def ensure_started(db_path: str | None = None) -> dict:
+def _say(msg: str) -> None:
+    """One timestamped line on stdout so the host log shows what the scheduler did and when."""
+    print(f"[scheduler {datetime.now(timezone.utc).isoformat(timespec='seconds')}] {msg}", flush=True)
+
+
+def ensure_started(db_path: str | None = None, source: str = "page") -> dict:
     """
     Start the weekly collector thread if BLOOMFIELD_SCHEDULER=1 and it is not
     already running. Safe to call on every Streamlit rerun. db_path is the
@@ -133,6 +138,7 @@ def ensure_started(db_path: str | None = None) -> dict:
             return dict(_status)
         _stop.clear()
         _status["started"] = True
+        _say(f"starting weekly collector thread (trigger: {source}; first run in {_first_delay_seconds():.0f}s; collectors: {_only() or 'all'})")
         _thread = threading.Thread(target=_loop, args=(db_path,),
                                    name="bloomfield-weekly-collector", daemon=True)
         _thread.start()
@@ -187,13 +193,17 @@ def _loop(db_path: str | None) -> None:
         return
     while not _stop.is_set():
         try:
+            _say("cycle start")
             out = run_cycle(db_path)
+            _say(f"cycle done: run {out['run_id']}, {out['errors']} collector error(s), "
+                 f"{out['matcher'].get('records_linked', 0)} records into {out['matcher'].get('properties', 0)} properties")
             with _lock:
                 _status.update(cycles=_status["cycles"] + 1,
                                last_run_at=datetime.now(timezone.utc).isoformat(),
                                last_ok=True, last_error=None, last_run_id=out["run_id"])
         except Exception as e:                       # a bad week must not kill the dashboard
             log.exception("weekly cycle failed")
+            _say(f"cycle FAILED: {e}")
             with _lock:
                 _status.update(cycles=_status["cycles"] + 1,
                                last_run_at=datetime.now(timezone.utc).isoformat(),
