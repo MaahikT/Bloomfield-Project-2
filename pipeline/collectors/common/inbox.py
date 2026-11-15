@@ -9,7 +9,7 @@ downloads the documents by hand and drops them in:
     data/inbox/<source>/                              (national sources)
 
   <source> is one of: county_court, recorder, public_notice, permit, state_license,
-           cms, sec_edgar, ffiec, manual_upload   (trepp has its own loader, trepp.py)
+           cms, sec_edgar, ffiec, manual_upload
 
 Optional extras:
   * Put a category folder one level deeper (e.g. .../washtenaw/mechanics_lien/lien1.pdf)
@@ -40,7 +40,7 @@ from .log import get_logger
 log = get_logger("inbox")
 
 # Folders inside the inbox that the loader itself manages or that other code handles.
-SKIP_TOP_FOLDERS = {"_duplicates", "_rejected", "trepp", "ffiec"}   # trepp.py and ffiec.py have their own loaders
+SKIP_TOP_FOLDERS = {"_duplicates", "_rejected", "ffiec"}   # ffiec.py has its own loader
 NATIONAL_STATE_NAMES = {"US", "_NATIONAL", "_ALL"}
 
 # Private Bloomfield material: its raw_files.notes start with this marker (Part B checks for it).

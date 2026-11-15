@@ -1,0 +1,12 @@
+# FL statewide links from NETR Online (pulled Nov 14, 2026). No collected sources yet: reference links only.
+statewide: true
+state: FL
+notes: "Statewide UCC and business-entity searches. TODO verify terms of use before automating anything."
+sources: {}
+
+reference_sites:
+  - {office: "UCC Search", url: "https://www.floridaucc.com/uccweb/SearchDisclaimer.aspx",
+     feeds: "UCC-1s on LLC membership interests = mezzanine loans; the lender who could run a UCC sale (READY TO ACT context)"}
+  - {office: "Corporation Document Searches (Sunbiz)", url: "https://dos.myflorida.com/sunbiz/search/",
+     feeds: "Part C contacts: the developer's principals and registered agent, to reach the borrower directly"}
+  - {office: "Official State Website", url: "https://www.myflorida.com/", feeds: "-"}

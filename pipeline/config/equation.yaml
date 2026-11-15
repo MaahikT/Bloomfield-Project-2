@@ -21,8 +21,8 @@ version: "eq-2.0"
 #     -> rent_decline and inspection_gap (15 each), plus the anti-fluke check.
 # * Court and lien filings come late: the situation is already actionable, not an early warning.
 #     -> "late" adds at most 10 points and tags the flag READY TO ACT.
-# * Forced / public sales are not really a signal; Trepp gives little edge (everyone has it).
-#     -> auctions and Trepp/CMBS are shown as context only, never scored.
+# * Forced / public sales are not really a signal; CMBS data gives little edge (everyone has it).
+#     -> auctions and CMBS are shown as context only, never scored.
 # * Records are found through NETR Online (config/discovery.yaml), recorders first.
 max_score: 100
 
@@ -75,7 +75,7 @@ creative:
     no_market_penalty: 0.70     # no market data: compare with its own peak only, trusted 70% as much
     counter_rise: 0.05          # occupancy UP 5+ points = counter-signal
   income_erosion:               # V = (best-year NOI in lookback - NOI now) / best-year NOI / full_noi_drop
-                                # (no DSCR: debt service needs Trepp, which we don't have)
+                                # (no DSCR: debt service is not available)
     lookback_months: 48
     full_noi_drop: 0.50         # NOI down 50% from its best year = 1
     reliability: 1.00           # disclosed / audited numbers
@@ -141,7 +141,7 @@ late:
   recent_days: 180        # late events older than this count at half
 
 # ---- NOT SCORED (Bloomfield: public / forced, or everyone already has it) ----
-# Auctions (Ten-X), Trepp / CMBS DSCR and watchlists are shown as context only.
+# Auctions (Ten-X), CMBS DSCR and watchlists are shown as context only.
 
 # ---- TIERS ------------------------------------------------------------------
 tiers:
@@ -155,8 +155,8 @@ tiers:
 # ---- FILTERS: which flags show on the ranked list (team decision) -----------
 filters:
   property_types_excluded: [Office]   # Bloomfield buys everything except office
-  min_loan_size: 5000000              # flags with no known loan size are kept, marked "size unknown"
-  max_loan_size: 50000000
+  min_loan_size: 2500000              # flags with no known loan size are kept, marked "size unknown"
+  max_loan_size: null                 # no upper limit: Bloomfield wants deals of any size above the minimum
   states: []                          # empty = the whole U.S.
 
 # ---- HOW GOOD THE DEAL COULD BE (0-100), shown next to the score ---------------

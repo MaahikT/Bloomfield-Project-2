@@ -1,18 +1,42 @@
-# Travis County, TX. Status: manual_inbox until a person checks the sites below and their terms of use.
+# Travis County, TX. Links from NETR Online (pulled Nov 14, 2026). Status: manual_inbox until a person checks
+# each site's terms of use / robots.txt (NETR itself is approved; every county site is still screened).
 county: Travis County
 state: TX
 fips: "48453"
 status: manual_inbox
 priority: 2
-notes: "Austin (UT). Texas non-judicial foreclosure sale notices are posted with the County Clerk before each monthly (first Tuesday) sale. TODO verify each site below (terms of use, robots.txt, whether a login or CAPTCHA is needed); then switch a source to scrape or open_data_api (see _template.yaml) and set status: configured."
+netr_page: "https://publicrecords.netronline.com/state/TX/county/travis"
+notes: "Austin (UT). Texas non-judicial foreclosure sale notices are posted with the County Clerk before each monthly (first Tuesday) sale. NETR lists no separate GIS office for Travis."
 
 sources:
+  recorder:                       # PRIORITY 1 -> L loan clock + READY TO ACT (foreclosure postings, liens)
+    access: manual_inbox
+    url: "http://www.tccsearch.org/"
+    phone: "(512) 854-9188"
+    notes: >-
+      Travis County Clerk records search. Pull: construction deeds of trust; modifications and extensions
+      (any short-term loan); assignments; releases and new permanent deeds of trust (stop the clock);
+      mechanic's liens, lis pendens and posted notices of foreclosure sale (READY TO ACT).
+      Until checked, drop documents into data/inbox/recorder/TX/<county>/.
   court:
     access: manual_inbox
-    notes: "Travis County District Clerk civil case search. Not checked yet: a person downloads filings by hand into data/inbox/county_court/TX/<county>/."
-  recorder:
-    access: manual_inbox
-    notes: "Travis County Clerk, official public records search. Not checked yet: drop documents into data/inbox/recorder/TX/<county>/."
+    notes: "Travis County District Clerk civil case search (not on NETR). Drop filings into data/inbox/county_court/TX/<county>/."
   public_notice:
     access: manual_inbox
-    notes: "Texas Press Association public notice site and Travis County foreclosure sale postings. Not checked yet: drop notices into data/inbox/public_notice/TX/<county>/."
+    notes: "Texas Press Association public notice site and County Clerk foreclosure postings. Drop notices into data/inbox/public_notice/TX/<county>/."
+  permits:                        # PRIORITY 2 -> I site inactivity + certificates of occupancy (NOT on NETR)
+    access: manual_inbox          # CANDIDATE for open_data_api: City of Austin "Issued Construction Permits" (BLDS)
+    url: "https://data.austintexas.gov"
+    notes: >-
+      City of Austin "Issued Construction Permits" open dataset (BLDS standard: PermitNum, IssuedDate,
+      CompletedDate, ...). To automate: confirm the dataset id, its terms and field names on data.austintexas.gov,
+      then set access: open_data_api with api: {format: socrata, url: https://data.austintexas.gov/resource/<id>.json}
+      and default_doc_category: building_permit. Until then drop exports into data/inbox/permit/TX/<county>/.
+
+reference_sites:
+  - {office: "Travis Central Appraisal District", phone: "(512) 834-9317", url: "https://www.traviscad.org/propertysearch",
+     feeds: "Part C: parcel numbers and owner names; a new building's value appearing = it was finished"}
+  - {office: "Tax Office", phone: "(512) 854-9473", url: "https://tax-office.traviscountytx.gov/",
+     feeds: "READY TO ACT: delinquent property taxes"}
+  - {office: "NETR Mapping and GIS", url: "https://map.netronline.com/texas-travis/48453", feeds: "Part C: parcel lookups"}
+  - {office: "Historic Aerials", url: "https://www.historicaerials.com/", feeds: "Checking construction progress by hand"}

@@ -1,4 +1,4 @@
-"""Fails if private data (databases, spreadsheets, inbox files, Trepp data, secrets) is tracked by git."""
+"""Fails if private data (databases, spreadsheets, inbox files, licensed exports, secrets) is tracked by git."""
 import subprocess
 from pathlib import Path
 
@@ -18,8 +18,7 @@ def test_blocks_private_paths():
 
 
 def test_allows_our_own_code():
-    ok = ["pipeline/collectors/trepp.py", "pipeline/config/trepp_columns.yaml",
-          "pipeline/.env.example", "pipeline/collectors/county.py", "pipeline/README.md"]
+    ok = ["pipeline/.env.example", "pipeline/collectors/county.py", "pipeline/README.md"]
     for p in ok:
         assert check.problem_with(p) is None, p
 

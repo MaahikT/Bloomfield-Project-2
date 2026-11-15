@@ -33,14 +33,14 @@ def built(tmp_path_factory):
 
 def test_the_page_embeds_the_data_and_nothing_is_left_to_fill_in(built):
     assert "/*__DEMO_DATA__*/" not in built["html"]
-    assert built["embedded"]["summary"]["properties"] == 49 and built["out"].stat().st_size > 50_000
+    assert built["embedded"]["summary"]["properties"] == 47 and built["out"].stat().st_size > 50_000
 
 
 def test_the_ann_arbor_project_is_the_top_hot_flag_with_quoted_evidence(built):
     props = built["embedded"]["properties"]
     top = props[0]
     assert top["name"] == "FAKE Maize Row Student Lofts" and top["tier"] == "hot" and top["score"] == 100
-    assert [p["tier"] for p in props].count("hot") == 10 and [p["tier"] for p in props].count("watch") >= 12 and top["type"] == "student_housing"
+    assert [p["tier"] for p in props].count("hot") == 9 and [p["tier"] for p in props].count("watch") >= 12 and top["type"] == "student_housing"
     names = {s["signal"] for s in top["signals"]}
     assert {"construction_loan_no_takeout", "stale_opening", "mechanics_lien", "lender_nonaccruals_rising"} <= names
     lien = next(s for s in top["signals"] if s["signal"] == "mechanics_lien")
@@ -74,7 +74,6 @@ def test_sources_tab_is_honest_about_what_is_manual_or_unverified(built):
     assert counties["status"] == "manual" and "Washtenaw County" in counties["note"]
     assert by_name["SEC EDGAR (CMBS loans)"]["status"] == "unverified"
     assert by_name["FFIEC call reports (bank health)"]["status"] == "unverified"
-    assert by_name["Trepp screen (DSCR under 1.0x)"]["status"] == "manual"
 
 
 def test_the_page_works_offline_and_loads_nothing_from_the_internet(built):
@@ -87,7 +86,7 @@ def test_no_secret_or_real_data_leaks_into_the_page(built):
     html = built["html"]
     assert "not-a-real-key" not in html and "API_KEY" not in html
     assert not re.search(r"AIza[0-9A-Za-z_-]{20,}|sk-[A-Za-z0-9]{20,}", html)
-    assert "FAKE" in html and built["embedded"]["summary"]["documents"] == 117
+    assert "FAKE" in html and built["embedded"]["summary"]["documents"] == 111
 
 
 def test_data_cannot_break_out_of_the_script_tag(tmp_path):

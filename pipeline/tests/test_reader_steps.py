@@ -302,19 +302,10 @@ def test_batch_reads_a_file_and_saves_a_row(bcon, fake_llm):
 
 
 def test_files_part_a_already_parses_are_skipped(bcon, fake_llm):
-    for src, cat in [("sec_edgar", "other"), ("ffiec", "other"), ("cms", "other"), ("trepp", "other")]:
+    for src, cat in [("sec_edgar", "other"), ("ffiec", "other"), ("cms", "other")]:
         add_raw(bcon, f"{src} file", source=src, category=cat)
     s = batch.run(con=bcon, progress=False, quiet=True)
     assert s["candidates"] == 0 and fake_llm.calls == []
-
-
-def test_trepp_files_are_read_only_if_config_allows(bcon, fake_llm):
-    add_raw(bcon, "trepp loan commentary text goes here, long enough", source="trepp", category="other")
-    fake_llm.reply = lien_reply()
-    batch.run(con=bcon, progress=False, quiet=True)
-    assert fake_llm.calls == []
-    batch.run(con=bcon, cfg=make_cfg(trepp_ai_allowed=True), progress=False, quiet=True)
-    assert len(fake_llm.calls) == 1
 
 
 def test_confidential_files_are_never_sent(bcon, fake_llm, env):
@@ -475,10 +466,10 @@ def test_ai_service_down_stops_after_three_errors_and_saves_nothing(bcon, fake_l
 
 def test_filters_by_state_and_source(bcon, fake_llm):
     files.store_file(bcon, LIEN_TEXT.encode(), source="recorder", doc_category="mechanics_lien",
-                     collector_name="t", state="IL", county="Cook County", ext="txt")
+                     collector_name="t", state="FL", county="Pinellas County", ext="txt")
     add_raw(bcon, LIEN_TEXT + "x")
     fake_llm.reply = lien_reply()
-    assert batch.run(state="IL", con=bcon, progress=False, quiet=True)["processed"] == 1
+    assert batch.run(state="FL", con=bcon, progress=False, quiet=True)["processed"] == 1
     assert batch.run(source="permit", con=bcon, progress=False, quiet=True)["candidates"] == 0
     assert batch.run(source="recorder", con=bcon, progress=False, quiet=True)["processed"] == 1
 

@@ -1,0 +1,12 @@
+# TX statewide links from NETR Online (pulled Nov 14, 2026). No collected sources yet: reference links only.
+statewide: true
+state: TX
+notes: "Statewide UCC and business-entity searches. TODO verify terms of use before automating anything."
+sources: {}
+
+reference_sites:
+  - {office: "UCC Search (free by subscription)", url: "http://www.sos.state.tx.us/ucc/index.shtml",
+     feeds: "UCC-1s on LLC membership interests = mezzanine loans; the lender who could run a UCC sale (READY TO ACT context)"}
+  - {office: "Corporation Search (Comptroller)", url: "https://ourcpa.cpa.state.tx.us/coa/Index.html",
+     feeds: "Part C contacts: the developer's principals and registered agent, to reach the borrower directly"}
+  - {office: "Official State Website", url: "https://texas.gov/", feeds: "-"}

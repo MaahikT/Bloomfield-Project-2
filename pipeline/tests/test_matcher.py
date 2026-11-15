@@ -291,16 +291,16 @@ def _cmbs(con, key, source, deal, bal, addr="9 Plaza Dr"):
                                  "property_city": "Phoenix", "property_state": "AZ", "original_balance": bal})
 
 
-def test_same_loan_from_edgar_and_trepp_is_linked(mcon, cfg):
+def test_same_loan_from_two_sources_is_linked(mcon, cfg):
     _cmbs(mcon, "edgar:A:1", "sec_edgar", "BANK 2019-BNK20", 10e6)
-    _cmbs(mcon, "trepp:A:1", "trepp", "Bank 2019-BNK20", 10.1e6)
+    _cmbs(mcon, "feed2:A:1", "cmbs_feed2", "Bank 2019-BNK20", 10.1e6)
     _cmbs(mcon, "edgar:B:9", "sec_edgar", "OTHER 2020-C1", 3e6)            # same property, other loan
-    _cmbs(mcon, "trepp:C:5", "trepp", "THIRD 2021-X", 3.03e6)              # matches B by balance only
+    _cmbs(mcon, "feed2:C:5", "cmbs_feed2", "THIRD 2021-X", 3.03e6)              # matches B by balance only
     run_matcher(mcon, cfg, AS_OF)
     g = {r["loan_key"]: r for r in rows(mcon, "SELECT * FROM loan_links")}
-    assert g["edgar:A:1"]["loan_group_id"] == g["trepp:A:1"]["loan_group_id"]
+    assert g["edgar:A:1"]["loan_group_id"] == g["feed2:A:1"]["loan_group_id"]
     assert g["edgar:A:1"]["match_method"] == "same_deal_and_property"
-    assert g["edgar:B:9"]["loan_group_id"] == g["trepp:C:5"]["loan_group_id"]
+    assert g["edgar:B:9"]["loan_group_id"] == g["feed2:C:5"]["loan_group_id"]
     assert g["edgar:B:9"]["match_method"] == "same_property_balance"
     assert g["edgar:A:1"]["loan_group_id"] != g["edgar:B:9"]["loan_group_id"]
 
@@ -334,7 +334,7 @@ def test_fake_data_end_to_end(fake_db, cfg):
     con = open_db(fake_db)
     s = run_matcher(con, cfg)
     assert s["properties"] == 24 and s["open_construction_loans"] == 1
-    assert s["cmbs_cross_source_groups"] == 1 and s["lenders_linked"] == s["lender_names"]
+    assert s["cmbs_cross_source_groups"] == 0 and s["lenders_linked"] == s["lender_names"]
     assert s["pending_reviews"] == 1                       # the "Exmaple Drive" typo
 
     maize = rows(con, "SELECT * FROM properties WHERE property_name LIKE '%Maize Row%'")

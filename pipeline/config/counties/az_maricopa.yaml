@@ -1,18 +1,44 @@
-# Maricopa County, AZ. Status: manual_inbox until a person checks the sites below and their terms of use.
+# Maricopa County, AZ. Links from NETR Online (pulled Nov 14, 2026). Status: manual_inbox until a person checks
+# each site's terms of use / robots.txt (NETR itself is approved; every county site is still screened).
 county: Maricopa County
 state: AZ
 fips: "04013"
 status: manual_inbox
 priority: 2
-notes: "Phoenix / Tempe (ASU). Arizona trustee sale notices are recorded with the County Recorder. TODO verify each site below (terms of use, robots.txt, whether a login or CAPTCHA is needed); then switch a source to scrape or open_data_api (see _template.yaml) and set status: configured."
+netr_page: "https://publicrecords.netronline.com/state/AZ/county/maricopa"
+notes: "Phoenix / Tempe (ASU). Arizona trustee sale notices are RECORDED with the County Recorder, so the recorder covers both the loan clock and ready-to-act notices."
 
 sources:
+  recorder:                       # PRIORITY 1 -> L loan clock + READY TO ACT (trustee sale notices)
+    access: manual_inbox
+    url: "https://recorder.maricopa.gov/recording/document-search.html"
+    phone: "(602) 506-3535"
+    notes: >-
+      Maricopa County Recorder document search. Pull: construction deeds of trust; modifications and extensions
+      (any short-term loan); assignments; releases / reconveyances and new permanent deeds of trust (stop the clock);
+      mechanic's liens, lis pendens and notices of trustee's sale (READY TO ACT).
+      Until checked, drop documents into data/inbox/recorder/AZ/<county>/.
   court:
     access: manual_inbox
-    notes: "Maricopa County Superior Court case search. Not checked yet: a person downloads filings by hand into data/inbox/county_court/AZ/<county>/."
-  recorder:
-    access: manual_inbox
-    notes: "Maricopa County Recorder document search. Not checked yet: drop documents into data/inbox/recorder/AZ/<county>/."
+    notes: "Maricopa County Superior Court case search (not on NETR). Drop filings into data/inbox/county_court/AZ/<county>/."
   public_notice:
     access: manual_inbox
-    notes: "Arizona Newspapers Association public notices site. Not checked yet: drop notices into data/inbox/public_notice/AZ/<county>/."
+    notes: "Arizona Newspapers Association public notices site. Drop notices into data/inbox/public_notice/AZ/<county>/."
+  permits:                        # PRIORITY 2 -> I site inactivity + certificates of occupancy (NOT on NETR)
+    access: manual_inbox
+    url: "https://phoenixopendata.com"
+    notes: >-
+      City of Phoenix Planning & Development keeps permits, inspections and certificates of occupancy; its online
+      research tool has an "Issued Permit Data Export" spreadsheet, and the ShapePHX permits layer is at
+      https://mapportal.phoenix.gov/pds/rest/services/ShapePHX/ShapePHXPermitsPoints/MapServer . Tempe has its own
+      building department. Save exports as CSV and drop them into data/inbox/permit/AZ/<county>/ (building_permit / permit_inspection /
+      certificate_of_occupancy). permits.py loads them.
+
+reference_sites:
+  - {office: "Assessor", phone: "(602) 506-3406", url: "https://mcassessor.maricopa.gov/",
+     feeds: "Part C: parcel numbers and owner names; a new building's value appearing = it was finished"}
+  - {office: "Treasurer", phone: "(602) 506-8511", url: "https://treasurer.maricopa.gov/",
+     feeds: "READY TO ACT: delinquent property taxes"}
+  - {office: "Assessor maps (GIS)", url: "https://maps.mcassessor.maricopa.gov/", feeds: "Part C: parcels for matching"}
+  - {office: "NETR Mapping and GIS", url: "https://map.netronline.com/arizona-maricopa/04013", feeds: "Part C: parcel lookups"}
+  - {office: "Historic Aerials", url: "https://www.historicaerials.com/", feeds: "Checking construction progress by hand"}

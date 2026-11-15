@@ -11,7 +11,7 @@ version: "d-1.1"
 #   2. Opening-date watch: good but weaker. A 3-6 month slip is normal, so short delays earn little or nothing.
 #   3. Court and lien filings come LATE. They are a "ready to act" confirmation, not an early warning, so they
 #      carry modest points and also switch on the ready_to_act flag.
-#   4. Forced and public sales (UCC, auctions) and Trepp-style CMBS data give little edge (everyone has them),
+#   4. Forced and public sales (UCC, auctions) and CMBS data give little edge (everyone has them),
 #      so they carry the lowest weights.
 #   5. Creative signals are promising but have no reliable detector yet, so they are not scored.
 
@@ -43,7 +43,7 @@ family_caps:
   opening: 30               # second strongest
   permits: 20
   lender: 15
-  cmbs: 15                  # everyone has Trepp: low edge
+  cmbs: 15                  # everyone has CMBS data: low edge
   liens: 12                 # late: confirmation
   legal: 15                 # late: confirmation
 
@@ -93,7 +93,7 @@ signals:
     ratio: 0.03                 # CRE nonaccrual ratio at or above 3%
   lender_name_match_threshold: 90   # 0-100 fuzzy match score to link a lender name to a bank
 
-  # --- CMBS loan data (Part A loans: EDGAR + Trepp) ---
+  # --- CMBS loan data (Part A loans: SEC EDGAR) ---
   cmbs_dscr_below_1:
     family: cmbs
     points: 6

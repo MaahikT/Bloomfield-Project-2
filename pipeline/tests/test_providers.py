@@ -190,7 +190,7 @@ def test_missing_gemini_key_names_the_variables_to_set(monkeypatch, bcon, fake_l
 
 def test_private_material_is_still_refused_with_gemini(gemini, bcon):
     with pytest.raises(client.RestrictedMaterialError):
-        client.call_llm("extract", "s", "t", 50, con=bcon, restricted="trepp", cfg=make_cfg())
+        client.call_llm("extract", "s", "t", 50, con=bcon, restricted="bloomfield", cfg=make_cfg())
     assert gemini.requests == []
 
 

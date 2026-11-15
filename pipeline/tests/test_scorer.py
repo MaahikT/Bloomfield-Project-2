@@ -261,7 +261,7 @@ def test_troubled_ann_arbor_project_ranks_first(fake_db, cfg):
     families = {s.family for s in top.signals}
     assert {"construction_loan", "permits", "liens", "lender", "opening"} <= families
     # the two middle properties are on the watch list, the 20 healthy ones are low
-    # Trepp-style CMBS data gives little edge (low); a lis pendens is a late "ready to act" confirmation (watch)
+    # CMBS data gives little edge (low); a lis pendens is a late "ready to act" confirmation (watch)
     assert sorted(sp.tier for sp in ranked[1:3]) == ["low", "watch"]
     assert all(sp.tier == "low" for sp in ranked[3:])
     assert len(ranked) == 24
@@ -313,7 +313,7 @@ def test_construction_clock_outweighs_every_other_single_signal(cfg):
                        and v.get("family") not in ("construction_loan",))
 
 
-def test_late_filings_and_trepp_style_data_carry_the_lowest_weights(cfg):
+def test_late_filings_and_cmbs_data_carry_the_lowest_weights(cfg):
     legal = cfg["signals"]["legal_event"]["points_by_tag"]
     assert legal["ucc_sale_scheduled"] <= 5 and legal["listed_for_auction"] <= 5     # forced sales: not really a signal
     assert max(legal.values()) < cfg["signals"]["construction_loan_no_takeout"]["points"]

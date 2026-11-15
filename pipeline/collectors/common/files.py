@@ -28,7 +28,7 @@ KIND_BY_CATEGORY = {
     "lender_lawsuit": "lawsuit", "lis_pendens": "lispendens",
     "recorded_loan": "recorded", "mechanics_lien": "lien",
     "tax_delinquency": "taxdelinq", "building_permit": "permit",
-    "certificate_of_occupancy": "co", "license_action": "license",
+    "certificate_of_occupancy": "co", "permit_inspection": "inspection", "license_action": "license",
     "business_record": "bizrecord", "other": "doc",
     # added by Part B (the scout):
     "project_website": "projectsite", "news_article": "news",

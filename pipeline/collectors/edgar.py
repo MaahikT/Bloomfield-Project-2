@@ -199,8 +199,8 @@ def parse_asset_xml(path: Path, cfg: dict, *, deal_name: str, file_id: str) -> P
             "occupancy": _fraction(get("occupancy"), pct_threshold),
             "payment_status": clean_str(get("payment_status")),
             "servicer_name": clean_str(get("servicer_name")),
-            "watchlist_flag": None,          # not in ABS-EE; only Trepp has it
-            "servicer_commentary": None,     # not in ABS-EE; only Trepp has it
+            "watchlist_flag": None,          # not in ABS-EE
+            "servicer_commentary": None,     # not in ABS-EE
             "report_period": period, "file_id": file_id, "collected_at": now,
         }
         elem.clear()
