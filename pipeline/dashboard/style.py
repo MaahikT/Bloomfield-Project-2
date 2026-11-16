@@ -5,6 +5,11 @@ Pure presentation: typography, color, spacing, card and sidebar styling.
 No scoring, data, or content logic lives here. app.py calls inject() once,
 right after st.set_page_config(...). Palette mirrors .streamlit/config.toml;
 the CSS here covers what the config cannot (fonts, sidebar, cards, metrics).
+
+v4 design direction: an institutional research product, not a demo.
+Typography carries the hierarchy; color is reserved for meaning (tier,
+severity). No emoji anywhere in the interface - tier and status are set as
+small uppercase engraved chips with restrained tints.
 """
 from __future__ import annotations
 
@@ -22,6 +27,12 @@ SIDEBAR = "#10233B"    # deep navy sidebar
 SIDEBAR_EDGE = "#0B1A2D"
 SIDEBAR_TEXT = "#D8DEE8"
 SIDEBAR_MUTE = "#A9BAD0"
+# Tier tints - desaturated, meaning-bearing only:
+TIER_HOT = "#9C2F28"
+TIER_WATCH = "#8A6A1C"
+TIER_LOW = "#54667A"
+MUTE = "#6E7681"
+RANK = "#B9AE97"       # muted brass-gray for ordinal numerals
 
 CSS = """
 <style>
@@ -52,11 +63,13 @@ code, .stCode, kbd { font-family: 'JetBrains Mono', 'SFMono-Regular', Consolas, 
 /* hairline rules instead of heavy default dividers */
 hr { border-color: %(LINE)s !important; }
 
-/* ---------- header chrome: quiet, not gone ---------- */
+/* ---------- header chrome: a shipped product, not a Streamlit app ---------- */
 header[data-testid="stHeader"] {
   background: rgba(250, 248, 244, 0.85) !important;
   backdrop-filter: blur(6px);
 }
+[data-testid="stDecoration"] { display: none; }
+.stAppDeployButton, [data-testid="stAppDeployButton"] { display: none !important; }
 [data-testid="stToolbar"] { opacity: 0.55; }
 [data-testid="stToolbar"]:hover { opacity: 1; }
 
@@ -81,21 +94,34 @@ header[data-testid="stHeader"] {
 }
 [data-testid="stSidebar"] hr { border-color: #26405E !important; }
 
-/* nav radio -> quiet list with a gold active marker */
-[data-testid="stSidebar"] [data-testid="stRadio"] label {
-  padding: 2px 0;
+/* widget labels in the sidebar read as micro-captions */
+[data-testid="stSidebar"] [data-testid="stWidgetLabel"] p {
+  text-transform: uppercase; letter-spacing: 0.14em;
+  font-size: 0.64rem !important; font-weight: 600; color: %(SIDEBAR_MUTE)s !important;
 }
-[data-testid="stSidebar"] [data-testid="stRadio"] label p {
+
+/* nav radio -> product navigation list (circles hidden, brass active rail).
+   Streamlit >= 1.65 renders the radio as react-aria labels with data-selected. */
+[data-testid="stSidebar"] [data-testid="stRadioOption"] > div > div:first-child {
+  display: none !important;
+}
+[data-testid="stSidebar"] [data-testid="stRadioOption"] {
+  border-left: 2px solid transparent;
+  border-radius: 4px;
+  padding: 6px 10px !important;
+  margin: 1px 0;
+  transition: background-color 140ms ease;
+}
+[data-testid="stSidebar"] [data-testid="stRadioOption"]:hover { background: rgba(255,255,255,0.06); }
+[data-testid="stSidebar"] [data-testid="stRadioOption"] p {
   font-size: 0.92rem; font-weight: 500; color: %(SIDEBAR_TEXT)s;
 }
-[data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked) p {
+[data-testid="stSidebar"] [data-testid="stRadioOption"][data-selected="true"] {
+  background: rgba(255,255,255,0.07);
+  border-left: 2px solid %(GOLD)s;
+}
+[data-testid="stSidebar"] [data-testid="stRadioOption"][data-selected="true"] p {
   color: #FFFFFF;
-}
-[data-testid="stSidebar"] [data-testid="stRadio"] [data-baseweb="radio"] > div:first-child {
-  border-color: %(SIDEBAR_MUTE)s !important;
-}
-[data-testid="stSidebar"] [data-testid="stRadio"] [data-baseweb="radio"] > div:first-child > div {
-  background-color: %(GOLD)s !important;
 }
 
 /* sidebar selectbox & inputs stay legible on navy (react-aria combobox, streamlit >= 1.65) */
@@ -146,6 +172,43 @@ header[data-testid="stHeader"] {
   box-shadow: 0 4px 14px rgba(21, 42, 66, 0.09);
 }
 
+/* rank ordinal: quiet serif numeral, not a heading */
+.bf-rank {
+  font-family: 'Source Serif 4', Georgia, serif;
+  font-size: 1.45rem; font-weight: 600; color: %(RANK)s;
+  line-height: 1; padding-top: 3px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* score readout: large serif figure with a small denominator */
+.bf-score { display: flex; align-items: baseline; gap: 5px; margin-bottom: 2px; }
+.bf-score-num {
+  font-family: 'Source Serif 4', Georgia, serif;
+  font-size: 1.55rem; font-weight: 650; color: %(INK)s;
+  font-variant-numeric: tabular-nums; line-height: 1.05;
+}
+.bf-score-den { font-size: 0.72rem; color: %(INK_SOFT)s; }
+.bf-score-na { color: %(RANK)s; }
+
+/* ---------- engraved signal chips (replace emoji pills) ---------- */
+.bf-chip {
+  display: inline-block;
+  font-family: 'Inter', sans-serif;
+  font-size: 0.64rem; font-weight: 600;
+  letter-spacing: 0.09em; text-transform: uppercase;
+  padding: 2px 7px 1px;
+  border-radius: 3px;
+  border: 1px solid transparent;
+  margin: 0 6px 2px 0;
+  white-space: nowrap;
+}
+.bf-chip-hot      { color: %(TIER_HOT)s;   background: rgba(156, 47, 40, 0.07);  border-color: rgba(156, 47, 40, 0.35); }
+.bf-chip-watch    { color: %(TIER_WATCH)s; background: rgba(168, 132, 53, 0.10); border-color: rgba(168, 132, 53, 0.40); }
+.bf-chip-low      { color: %(TIER_LOW)s;   background: rgba(84, 102, 122, 0.08); border-color: rgba(84, 102, 122, 0.30); }
+.bf-chip-unscored { color: %(MUTE)s;       background: transparent;              border-color: #C9CDD3; border-style: dashed; }
+.bf-chip-standout { color: %(GOLD_DEEP)s;  background: rgba(168, 132, 53, 0.12); border-color: rgba(168, 132, 53, 0.45); }
+.bf-chip-counter  { color: #2F5D8A;        background: rgba(47, 93, 138, 0.08);  border-color: rgba(47, 93, 138, 0.30); }
+
 /* ---------- buttons ---------- */
 .stButton > button, [data-testid="stFormSubmitButton"] > button,
 [data-testid="stDownloadButton"] > button {
@@ -165,10 +228,9 @@ header[data-testid="stHeader"] {
   border-color: %(GOLD)s !important; color: #FFFFFF !important;
 }
 
-/* ---------- progress bars: brass fill ---------- */
-[data-testid="stProgress"] > div > div > div {
-  background-color: %(GOLD)s !important;
-}
+/* ---------- progress bars: thin brass fill ---------- */
+[data-testid="stProgress"] > div > div { height: 4px !important; }
+[data-testid="stProgress"] > div > div > div { background-color: %(GOLD)s !important; }
 
 /* ---------- expanders & info boxes: softer ---------- */
 [data-testid="stExpander"] {
@@ -178,17 +240,24 @@ header[data-testid="stHeader"] {
 }
 [data-testid="stAlert"] { border-radius: 10px; }
 
-/* ---------- multiselect pills: navy instead of alarm red ---------- */
-[data-baseweb="tag"] {
-  background-color: %(INK)s !important;
+/* ---------- multiselect chips: neutral stone, never alarm colors ---------- */
+[data-testid="stMultiSelect"] [data-testid="stMultiSelectTagsContainer"],
+[data-testid="stMultiSelect"] .react-aria-ComboBox {
+  background-color: %(CARD)s !important;
+  border-color: %(LINE)s !important;
+  border-radius: 8px !important;
 }
-[data-baseweb="tag"] span, [data-baseweb="tag"] svg { color: #FFFFFF !important; }
+[data-testid="stMultiSelect"] span[data-tag] {
+  background-color: #F0EDE5 !important;
+  border: 1px solid #DED8C9 !important;
+  border-radius: 4px !important;
+}
+[data-testid="stMultiSelect"] span[data-tag] span { color: %(INK)s !important; font-weight: 500; }
+[data-testid="stMultiSelect"] span[data-tag] button { color: %(MUTE)s !important; }
+[data-testid="stMultiSelect"] input { caret-color: %(INK)s; }
 
 /* ---------- dataframes ---------- */
 [data-testid="stDataFrame"] { border-radius: 10px; overflow: hidden; }
-
-/* ---------- badges keep their semantics; just refine spacing ---------- */
-[data-testid="stMarkdownContainer"] [class*="st-emotion-cache-badge"] { letter-spacing: 0.01em; }
 
 /* main column breathing room */
 [data-testid="stMain"] .block-container {
@@ -196,7 +265,7 @@ header[data-testid="stHeader"] {
   max-width: 1180px;
 }
 
-/* ---------- v2: metric labels wrap instead of ellipsizing ---------- */
+/* ---------- metric labels wrap instead of ellipsizing ---------- */
 [data-testid="stMetricLabel"], [data-testid="stMetricLabel"] p {
   white-space: normal !important;
   overflow: visible !important;
@@ -206,7 +275,7 @@ header[data-testid="stHeader"] {
 }
 [data-testid="stMetric"] { min-width: 0; }
 
-/* ---------- v2: tables - editorial grid ---------- */
+/* ---------- tables - editorial grid ---------- */
 [data-testid="stTable"] th, .stTable th {
   text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.68rem;
   font-weight: 600; color: %(INK_SOFT)s !important;
@@ -215,18 +284,16 @@ header[data-testid="stHeader"] {
 [data-testid="stTable"] td, .stTable td { font-variant-numeric: tabular-nums; }
 [data-testid="stTable"] tbody tr:hover td { background: #F4F0E8; }
 
-/* ---------- v2: fluid feel - soft entrance, smoother controls ---------- */
+/* ---------- fluid feel - soft entrance, smoother controls ---------- */
 [data-testid="stMain"] .block-container { animation: bfFade 240ms ease-out; }
-@keyframes bfFade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@keyframes bfFade { from { opacity: 0; } to { opacity: 1; } }
 .stButton > button, [data-testid="stFormSubmitButton"] > button,
 [data-testid="stDownloadButton"] > button { transition: background-color 160ms ease, border-color 160ms ease; }
-[data-testid="stSidebar"] [data-testid="stRadio"] label { border-radius: 6px; padding: 4px 6px; transition: background-color 140ms ease; }
-[data-testid="stSidebar"] [data-testid="stRadio"] label:hover { background: rgba(255,255,255,0.06); }
 button:focus-visible, input:focus-visible, [role="combobox"]:focus-visible {
   outline: 2px solid %(GOLD)s !important; outline-offset: 1px;
 }
 
-/* ---------- v3: metric values wrap instead of ellipsizing (long tier words) ---------- */
+/* ---------- metric values wrap instead of ellipsizing (long tier words) ---------- */
 [data-testid="stMetricValue"] [class*="stMarkdownEllipsis"] {
   white-space: normal !important;
   overflow: visible !important;
@@ -240,7 +307,8 @@ button:focus-visible, input:focus-visible, [role="combobox"]:focus-visible {
 """ % {"INK": INK, "INK_SOFT": INK_SOFT, "PAPER": PAPER, "CARD": CARD, "LINE": LINE,
        "GOLD": GOLD, "GOLD_DEEP": GOLD_DEEP, "SIDEBAR": SIDEBAR,
        "SIDEBAR_EDGE": SIDEBAR_EDGE, "SIDEBAR_TEXT": SIDEBAR_TEXT,
-       "SIDEBAR_MUTE": SIDEBAR_MUTE}
+       "SIDEBAR_MUTE": SIDEBAR_MUTE, "TIER_HOT": TIER_HOT, "TIER_WATCH": TIER_WATCH,
+       "TIER_LOW": TIER_LOW, "MUTE": MUTE, "RANK": RANK}
 
 BRAND = """
 <div style="padding: 0.35rem 0 1.1rem 0; border-bottom: 1px solid #26405E; margin-bottom: 1.1rem;">
