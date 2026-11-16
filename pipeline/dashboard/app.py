@@ -42,6 +42,8 @@ EX_KEY = {"L": "L_loan_clock", "O": "O_opening", "C": "C_creative"}
 TIER_ICON = {"hot": "🔴 Priority Review", "watch": "🟠 Monitor", "low": "⚪ Limited Signals"}
 # Presentation-only labels for stored tier words; suffixes like "(pre-default ...)" survive.
 TIER_LABEL = {"Hot": "Priority Review", "Watch": "Monitor", "Low": "Limited Signals"}
+# Words-only variant for tight spots (metric values) where the emoji dot crowds the fit.
+TIER_WORDS = {"hot": "Priority Review", "watch": "Monitor", "low": "Limited Signals"}
 
 def tier_label(t):
     if not t:
@@ -520,7 +522,7 @@ def page_detail(con, run_id):
     c = st.columns(4)
     if ra_head:
         c[0].metric("Research score (provisional)", f"{ra_head[0]:.0f}")
-        c[1].metric("Tier (reviewed)", TIER_ICON.get(ra_head[1].lower().split(" ")[0], tier_label(ra_head[1])))
+        c[1].metric("Tier (reviewed)", TIER_WORDS.get(ra_head[1].lower().split(" ")[0], tier_label(ra_head[1])))
     else:
         c[0].metric("Research score (provisional)", "—")
         c[1].metric("Tier", "⚪ Unscored")
@@ -864,14 +866,17 @@ def page_all(con, run_id):
         "State": df["state"],
         "Loan": df["loan_amount"],
         "Score": df["property_id"].map(lambda p: rassess.get(p, (pd.NA, ""))[0]),
-        "Tier": df["property_id"].map(lambda p: (rassess.get(p, (pd.NA, ""))[1] or "unscored")),
+        "Tier": df["property_id"].map(lambda p: TIER_LABEL.get((rassess.get(p, (pd.NA, ""))[1] or "unscored").split(" ")[0], "unscored")),
         "Listed": df["shown"].map({True: "yes", False: "no"}),
         "Why hidden": df["filter_reason"].fillna(""),
     }).sort_values(["Score", "Rank"], ascending=[False, True], na_position="last")   # research scores first; columns stay user-sortable
     c1, c2 = st.columns(2)
-    tier_pick = c1.multiselect("Tiers", ["Hot", "Watch", "Low", "unscored"],
-                               default=["Hot", "Watch", "Low", "unscored"],
-                               format_func=lambda t: TIER_ICON.get(t.lower(), "⚪ Unscored (not researched yet)"),
+    _ALL_TIERS = ["Priority Review", "Monitor", "Limited Signals", "unscored"]
+    _TIER_DISP = {"Priority Review": TIER_ICON["hot"], "Monitor": TIER_ICON["watch"],
+                  "Limited Signals": TIER_ICON["low"]}
+    tier_pick = c1.multiselect("Tiers", _ALL_TIERS,
+                               default=_ALL_TIERS,
+                               format_func=lambda t: _TIER_DISP.get(t, "⚪ Unscored (not researched yet)"),
                                key="all_tiers")
     listed_pick = c2.multiselect("Listed status", ["yes", "no"], default=["yes", "no"], key="all_listed")
     out = out[out["Tier"].isin(tier_pick) & out["Listed"].isin(listed_pick)]
