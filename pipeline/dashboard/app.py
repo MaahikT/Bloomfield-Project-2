@@ -124,12 +124,51 @@ def maybe_ingest_console():
         dest.write_bytes(up.getvalue())
         st.success(f"Saved {dest.name}. The ingest thread verifies and stores each row within about "
                    "a minute; refusals and fetch failures are listed in the ingest_rows table.")
+    st.subheader("Recent ingest rows")
+    st.caption("Assessment rows (type=research_assessment) store the research-lane judgment; evidence "
+               "rows are stored only after the quote is found verbatim on the fetched page.")
+    try:
+        led = con.execute(
+            "SELECT id, property_id, status, detail, processed_at FROM ingest_rows "
+            "ORDER BY processed_at DESC LIMIT 60").fetchall()
+        if led:
+            st.dataframe(pd.DataFrame(led, columns=["id", "property_id", "status", "detail", "processed_at"]),
+                         hide_index=True, use_container_width=True)
+        else:
+            st.caption("Nothing ingested yet.")
+    except Exception as e:
+        st.caption(f"Could not read the ingest ledger: {e}")
     st.stop()
 
 
 def esc(x):
     """Records come from outside documents: escape before showing."""
     return "" if x is None or (isinstance(x, float) and pd.isna(x)) else html.escape(str(x))
+
+
+def research_assessments(con) -> dict:
+    """Latest research-lane assessment per property: {property_id: (score, tier)}.
+    Provisional judgment under rubric v2 - never the deterministic formula score."""
+    try:
+        rows = con.execute(
+            "SELECT property_id, research_score, research_tier FROM research_assessments").fetchall()
+        # tier stored may carry a flag suffix ("Low (pre-default ...)"); the word is the tier
+        return {r[0]: (r[1], (r[2] or "").split(" ")[0]) for r in rows}
+    except Exception:
+        return {}
+
+
+def _evidence_caveat(claim) -> str:
+    """Inline honesty label: quote-matching proves the words are on the page, not that
+    the claim is current or true. Allegations, leads and dated news stay labeled."""
+    c = (claim or "").lower()
+    if "allegation" in c:
+        return "  :orange[allegation - a request or claim, not an adjudicated finding]"
+    if "lead" in c:
+        return "  :orange[unconfirmed lead - identity or facts not fully established]"
+    if "news" in c:
+        return "  :gray[dated news report - may not reflect current conditions]"
+    return ""
 
 
 def open_flag(pid):
@@ -266,20 +305,36 @@ def page_ranked(con, run_id):
     if len(ranked) and not (ranked["score"] > 0).any():
         st.info("None of these properties has an early warning sign yet. They are listed because they pass the filters; "
                 "they are known only from public loan data. Add county records or run the web bot to find signals.")
+    # Displayed scores/tiers/ranking come from the reviewed research assessments
+    # (provisional judgment, rubric v2) where one exists. The deterministic formula
+    # still runs underneath (its rows are untouched); unresearched properties are
+    # unscored - never zero and never Low.
+    rassess = research_assessments(con)
+    ranked = ranked.assign(
+        _eff_score=ranked["property_id"].map(lambda p: rassess.get(p, (None, None))[0]),
+        _eff_tier=ranked["property_id"].map(lambda p: (rassess.get(p, (None, None))[1] or "unscored").lower().split(" ")[0]))
     c = st.columns(5)
     c[0].metric("Listed", len(ranked))
-    c[1].metric("Hot (call this week)", int((ranked["tier"] == "hot").sum()))
-    c[2].metric("Watch", int((ranked["tier"] == "watch").sum()))
-    c[3].metric("Early warning (no filing yet)", int(((ranked["stage"] == "early") & (ranked["score"] > 0)).sum()))
+    c[1].metric("Hot (call this week)", int((ranked["_eff_tier"] == "hot").sum()))
+    c[2].metric("Watch", int((ranked["_eff_tier"] == "watch").sum()))
+    c[3].metric("Researched (provisional scores)", int(ranked["_eff_score"].notna().sum()))
     c[4].metric("Filtered out", int((~df["shown"]).sum()))
+    if rassess:
+        st.caption("Scores and tiers are the reviewed research assessments (provisional judgment, "
+                   "rubric v2). Unresearched properties show as unscored - missing research is not a "
+                   "clean bill of health. The deterministic formula still runs underneath for audit.")
+
     if len(ranked) == 0 and len(df) and not df["shown"].any():
         why = df["filter_reason"].fillna("unknown").value_counts()
         st.warning("Every flag is hidden by the filters. Reasons: " + "; ".join(f"{n} × {r}" for r, n in why.items())
                    + ". Turn on 'Show filtered-out' to see them, or change `filters:` in config/equation.yaml.")
 
-    tier_pick = st.multiselect("Tiers", ["hot", "watch", "low"], default=["hot", "watch", "low"],
-                               format_func=lambda t: TIER_ICON[t])
-    view = ranked[ranked["tier"].isin(tier_pick)]
+    assessed_first = ranked.assign(_a=ranked["_eff_score"].notna()).sort_values(
+        ["_a", "_eff_score", "score"], ascending=[False, False, False])
+    tier_pick = st.multiselect("Tiers", ["hot", "watch", "low", "unscored"],
+                               default=["hot", "watch", "low", "unscored"],
+                               format_func=lambda t: TIER_ICON.get(t, "⚪ Unscored (not researched yet)"))
+    view = assessed_first[assessed_first["_eff_tier"].isin(tier_pick)]
     # Cards are expensive to render; hundreds of rows kept the script "Running" for
     # minutes and every button stayed a skeleton. Show the strongest flags as cards
     # and point to the All properties table for the full scored universe.
@@ -291,10 +346,10 @@ def page_ranked(con, run_id):
     if (df["rank"].isna()).any():
         st.caption(f"{int(df['rank'].isna().sum())} more properties were scored but have no distress signals or context yet "
                    "(missing data is not proof of absence). They are on the **All properties** page.")
-    for r in view.to_dict("records"):
+    for pos, r in enumerate(view.to_dict("records"), start=1):
         with st.container(border=True):
             a, b, c3 = st.columns([0.7, 5, 1.8])
-            a.markdown(f"### {int(r['rank']) if pd.notna(r['rank']) else '—'}")
+            a.markdown(f"### {pos}")
             place = ", ".join(x for x in [r["city"], r["state"]] if x and not pd.isna(x))
             b.markdown(f"**{esc(r['property_name'])}** — {esc(r['property_type'] or 'type unknown')} · "
                        f"{esc(place)} · {money(r['loan_amount'])}")
@@ -305,8 +360,14 @@ def page_ranked(con, run_id):
                 b.markdown(f":gray[Hidden: {esc(r['filter_reason'])}]")
             if r["property_id"] in status:
                 b.markdown(f":green[Research: {weekly.STATUS_LABELS[status[r['property_id']]]}]")
-            c3.markdown(f"**{r['score']:.0f}** / 100 · {TIER_ICON[r['tier']]}")
-            c3.progress(min(1.0, r["score"] / 100))
+            eff_score, eff_tier = r["_eff_score"], r["_eff_tier"]
+            if pd.notna(eff_score) and eff_score is not None:
+                c3.markdown(f"**{eff_score:.0f}** / 100 · {TIER_ICON[eff_tier]}")
+                c3.progress(min(1.0, eff_score / 100))
+            else:
+                c3.markdown("**—** / 100 · ⚪ Unscored")
+                c3.progress(0.0)
+                c3.caption("Not researched yet - not a clean bill of health")
             c3.caption(f"Deal quality {r['deal_quality']}")
             c3.button("Open", key=f"open-{r['property_id']}", on_click=open_flag, args=(r["property_id"],),
                       use_container_width=True)
@@ -331,11 +392,19 @@ def page_detail(con, run_id):
     st.caption(f"{esc(r['property_type'] or 'type unknown')} · {esc(r['address'] or '')} · "
                f"borrower {esc(r['borrower']) or 'unknown'} · lender {esc(r['lender']) or 'unknown'}")
     st.markdown(tags(r))
+    ra_head = research_assessments(con).get(pid)
     c = st.columns(4)
-    c[0].metric("Opportunity score", f"{r['score']:.1f}")
-    c[1].metric("Tier", TIER_ICON[r["tier"]])
+    if ra_head:
+        c[0].metric("Research score (provisional)", f"{ra_head[0]:.0f}")
+        c[1].metric("Tier (research lane)", TIER_ICON.get(ra_head[1].lower(), ra_head[1]))
+    else:
+        c[0].metric("Research score (provisional)", "—")
+        c[1].metric("Tier", "⚪ Unscored")
     c[2].metric("Deal quality", r["deal_quality"])
     c[3].metric("Loan", money(r["loan_amount"]))
+    st.caption("Displayed score/tier is the reviewed research assessment (provisional judgment, "
+               "rubric v2); unresearched properties are unscored. The deterministic formula's signal "
+               "breakdown below is kept as the audit view, not the displayed score.")
     if r.get("est_value") and not pd.isna(r["est_value"]):
         st.caption(f"Estimated stabilized value {money(r['est_value'])} (revenue at stabilized occupancy − latest "
                    f"12-month expenses, ÷ the {r['property_type']} cap rate, − cost to stabilize) · owed / value {r['ltv']:.0%}")
@@ -397,7 +466,7 @@ def page_detail(con, run_id):
     if not aruns:
         st.caption("The research agent has not covered this property yet.")
     for a_status, a_started, a_final in aruns:
-        when = pd.Timestamp(a_started).strftime("%b %d %H:%M")
+        when = pd.Timestamp(a_started).strftime("%b %d %H:%M") + " UTC"
         if a_status == "running":
             st.markdown(f"**Researcher is working on this property now** (started {when}).")
         elif a_final:
@@ -410,18 +479,20 @@ def page_detail(con, run_id):
         "WHERE r.goal LIKE '%[property_id=' || ? || ']%' "
         "ORDER BY e.observed_at DESC", [pid]).fetchall()
     if ev_rows:
-        st.markdown(f"**Verified evidence ({len(ev_rows)}):** every row was checked against the saved "
-                    "source - the quote appears verbatim on the page at the address shown.")
+        st.markdown(f"**Source-matched evidence ({len(ev_rows)}):** the quote appears verbatim on the "
+                    "saved page at the address shown. That proves the words are on that page - it does "
+                    "NOT by itself prove the claim is current or true. Allegations, unconfirmed leads "
+                    "and dated reports are labeled next to each row.")
         for e_claim, e_value, e_kind, e_url, e_quote, e_obs in ev_rows:
             val = f" = **{esc(str(e_value))}**" if e_value not in (None, "") else ""
-            st.markdown(f"- {esc(e_claim)}{val}")
+            st.markdown(f"- {esc(e_claim)}{val}{_evidence_caveat(e_claim)}")
             if e_kind == "web_page":
                 if isinstance(e_url, str) and e_url.startswith(("https://", "http://")):
-                    st.caption(f'web proof: "{esc(e_quote)}" - {esc(e_url)} · {pd.Timestamp(e_obs):%b %d %H:%M}')
+                    st.caption(f'web proof: "{esc(e_quote)}" - {esc(e_url)} · {pd.Timestamp(e_obs):%b %d %H:%M} UTC')
                 else:
-                    st.caption(f'web proof: "{esc(e_quote)}" (source address on file) · {pd.Timestamp(e_obs):%b %d %H:%M}')
+                    st.caption(f'web proof: "{esc(e_quote)}" (source address on file) · {pd.Timestamp(e_obs):%b %d %H:%M} UTC')
             else:
-                st.caption(f"database proof: {esc(e_url)} · {pd.Timestamp(e_obs):%b %d %H:%M}")
+                st.caption(f"database proof: {esc(e_url)} · {pd.Timestamp(e_obs):%b %d %H:%M} UTC")
     elif aruns:
         latest = aruns[0][0]
         if latest == "done":
@@ -433,6 +504,45 @@ def page_detail(con, run_id):
         else:
             st.caption(f"The last research run ended with status '{esc(latest)}' and saved no "
                        "verified evidence. The property stays pending and will be retried.")
+
+    # Research-lane provisional assessment (rubric v2): a structured review of the evidence,
+    # kept strictly separate from the deterministic formula score above.
+    try:
+        ra_row = con.execute(
+            "SELECT research_score, research_tier, confidence, coverage, score_breakdown, "
+            "score_reasons, artifact, generated_at FROM research_assessments "
+            "WHERE property_id = ? ORDER BY ingested_at DESC LIMIT 1", [pid]).fetchone()
+    except Exception:
+        ra_row = None
+    if ra_row:
+        r_score, r_tier, r_conf, r_cov, r_bd, r_reasons, r_artifact, r_gen = ra_row
+        st.subheader("Research assessment (provisional)")
+        st.caption("A structured research-lane judgment under rubric v2, separate from the formula "
+                   "score above. Research-lane thresholds (Hot 60+, Watch 20-59, Low under 20) are not "
+                   "the formula's Hot 50+ / Watch 25+. Versioned provisional judgment, not a "
+                   "probability. Unchecked lanes are unknowns, never counted as healthy.")
+        r_color = {"Hot": "red", "Watch": "orange", "Low": "gray"}.get((r_tier or "").split(" ")[0], "gray")
+        st.markdown(f"**Research score {r_score:.0f} / 100 · :{r_color}[{esc(r_tier)} (research lane)]**")
+        if r_conf:
+            st.markdown(f"**Confidence:** {esc(r_conf)}")
+        if r_cov:
+            st.markdown(f"**Coverage:** {esc(r_cov)}")
+        try:
+            bd = json.loads(r_bd or "{}")
+            if isinstance(bd, dict) and bd:
+                st.markdown("**Score breakdown:** " + " · ".join(f"{esc(k)} {v}" for k, v in bd.items()))
+        except Exception:
+            pass
+        try:
+            reasons = json.loads(r_reasons or "[]")
+            if isinstance(reasons, list) and reasons:
+                with st.expander("Reasons, qualifications and counter-evidence", expanded=True):
+                    for reason in reasons:
+                        st.markdown(f"- {esc(str(reason))}")
+        except Exception:
+            pass
+        if r_gen:
+            st.caption(f"Research lane · assessment generated {esc(r_gen)}")
 
     st.subheader("Research log")
     with st.form(f"log-{pid}", clear_on_submit=True):
@@ -596,6 +706,10 @@ def page_all(con, run_id):
         "Every property scored in this run, including the ones with no distress signals yet. "
         "A missing or zero score means we found no signals in the data we have - "
         "missing data is not proof of absence.")
+    # Displayed Score/Tier are the reviewed research assessments (provisional judgment,
+    # rubric v2) where one exists; unresearched properties are blank/unscored, never 0/Low.
+    # The deterministic formula's rows are untouched underneath (audit trail in the export).
+    rassess = research_assessments(con)
     out = pd.DataFrame({
         "Rank": df["rank"],
         "Property": df["property_name"],
@@ -603,14 +717,16 @@ def page_all(con, run_id):
         "City": df["city"],
         "State": df["state"],
         "Loan": df["loan_amount"],
-        "Score": df["score"],
-        "Tier": df["tier"],
+        "Score": df["property_id"].map(lambda p: rassess.get(p, (pd.NA, ""))[0]),
+        "Tier": df["property_id"].map(lambda p: (rassess.get(p, (pd.NA, ""))[1] or "unscored")),
         "Listed": df["shown"].map({True: "yes", False: "no"}),
         "Why hidden": df["filter_reason"].fillna(""),
-    }).sort_values("Rank", na_position="last")   # default view follows the ranked list (unranked last); columns stay user-sortable
+    }).sort_values(["Score", "Rank"], ascending=[False, True], na_position="last")   # research scores first; columns stay user-sortable
     c1, c2 = st.columns(2)
-    tier_pick = c1.multiselect("Tiers", ["hot", "watch", "low"], default=["hot", "watch", "low"],
-                               format_func=lambda t: TIER_ICON[t], key="all_tiers")
+    tier_pick = c1.multiselect("Tiers", ["Hot", "Watch", "Low", "unscored"],
+                               default=["Hot", "Watch", "Low", "unscored"],
+                               format_func=lambda t: TIER_ICON.get(t.lower(), "⚪ Unscored (not researched yet)"),
+                               key="all_tiers")
     listed_pick = c2.multiselect("Listed status", ["yes", "no"], default=["yes", "no"], key="all_listed")
     out = out[out["Tier"].isin(tier_pick) & out["Listed"].isin(listed_pick)]
     st.caption(f"{len(out)} of {len(df)} properties shown")
