@@ -510,9 +510,28 @@ def page_detail(con, run_id):
     extra = assessed_only_properties(con, set(ids))
     names.update(extra)
     ids = ids + sorted(extra, key=lambda p: names[p].lower())
+    # Same-name properties (e.g. two Harborside rows) must stay distinct: label by address,
+    # then short id, and key the picker on property_id state, never on the display name.
+    addrs = dict(zip(df["property_id"], df["address"].fillna("")))
+    from collections import Counter
+    _n = Counter((names[p] or "").strip().lower() for p in ids)
+    labels = {}
+    for p in ids:
+        lab = names[p] or p
+        if _n[(names[p] or "").strip().lower()] > 1:
+            lab = f"{lab} - {addrs.get(p) or 'address not filed'}"
+        labels[p] = lab
+    _l = Counter(labels.values())
+    for p in ids:
+        if _l[labels[p]] > 1:
+            labels[p] = f"{labels[p]} [{p[-6:]}]"
     sel = st.session_state.get("selected")
-    pid = st.selectbox("Property", ids, index=ids.index(sel) if sel in ids else 0, format_func=lambda k: names[k])
+    if st.session_state.get("detail_pid") not in ids or (sel in ids and sel != st.session_state.get("detail_pid_synced")):
+        st.session_state["detail_pid"] = sel if sel in ids else ids[0]
+    st.session_state["detail_pid_synced"] = sel
+    pid = st.selectbox("Property", ids, key="detail_pid", format_func=lambda k: labels[k])
     st.session_state.selected = pid
+    st.session_state["detail_pid_synced"] = pid
     if pid in extra:
         # Reviewed property outside the weekly run: no formula audit row exists.
         # The reviewed assessment and evidence sections below work off property_id alone.
