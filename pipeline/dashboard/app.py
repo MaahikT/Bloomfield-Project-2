@@ -218,7 +218,7 @@ def tags(r, assessed=False, r_tier=""):
         out.append({"hot": ":red-badge[Reviewed: Hot]",
                     "watch": ":orange-badge[Reviewed: Watch]",
                     "low": ":gray-badge[Reviewed: Low]"}.get(
-                        r_tier, ":gray-badge[Reviewed in depth]"))
+                        r_tier, ":gray-badge[Reviewed]"))
         return " ".join(out)
     if r["stage"] == "ready_to_act":
         out.append(":red-badge[✅ READY TO ACT (formula, unreviewed)]")
@@ -243,8 +243,8 @@ def research_status(con) -> str:
     except Exception:
         goals, ev, usd = 0, 0, 0.0
     reviewed = len(research_assessments(con))
-    tail = (f" · Reviewed in depth: {reviewed} propert{'y' if reviewed == 1 else 'ies'} "
-            "(these reviewed scores drive the list)" if reviewed else "")
+    tail = (f" · Properties with reviewed research: {reviewed} propert{'y' if reviewed == 1 else 'ies'} "
+            "(reviewed scores drive the list; depth varies - each page shows its coverage)" if reviewed else "")
     if not goals:
         return ("🔎 Automated first pass (earlier, unreviewed): has not run on this database yet "
                 "(0 properties researched, 0 evidence records)." + tail)
@@ -365,6 +365,7 @@ def page_ranked(con, run_id):
         st.caption("Scores and tiers are the reviewed research assessments (provisional judgment, "
                    "rubric v3.3). Unreviewed properties show as unscored - missing research is not a "
                    "clean bill of health. The deterministic formula still runs underneath for audit. "
+                   "Coverage depth varies by property; each assessment lists its checked lanes. "
                    f"Hot/Watch/Reviewed counts cover this flagged list; {len(rassess)} properties have "
                    "been reviewed in total, including unflagged senior-housing properties (open them "
                    "from the Flag details page).")
@@ -404,7 +405,7 @@ def page_ranked(con, run_id):
             b.markdown(tags(r, assessed, eff_tier))
             if assessed:
                 one = rassess.get(r["property_id"], (None, None, ""))[2]
-                b.caption(esc(one) if one else "Reviewed in depth - see the assessment on the property page.")
+                b.caption(esc(one) if one else "Reviewed research on file - see the assessment on the property page.")
             else:
                 parts = [f"{code} {r[col]:.0%}" for col, code, _, _ in TERMS if r.get(col) and r[col] > 0]
                 b.caption(("Formula signals (unreviewed): " + " · ".join(parts)) if parts else ("No formula signals (late filings only)" if r["score"] and r["score"] > 0 else "No formula signals found; not yet reviewed in depth"))
