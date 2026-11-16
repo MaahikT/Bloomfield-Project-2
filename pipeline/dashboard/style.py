@@ -328,7 +328,16 @@ button:focus-visible, input:focus-visible, [role="combobox"]:focus-visible {
 [data-testid="stMetricValue"] [class*="stMarkdownEllipsis"] p,
 [data-testid="stMetricValue"] [data-testid="stMarkdownContainer"] p {
   white-space: normal !important;
-  overflow-wrap: break-word;
+  overflow-wrap: normal !important;  /* never split a word like "Unscored" mid-word */
+  word-break: normal !important;
+  hyphens: none !important;
+}
+
+/* ---------- tier word card: fit the longest word to the card, other cards untouched ---------- */
+[data-testid="stElementContainer"]:has(.bf-tier-marker) { display: none; }
+[data-testid="stColumn"]:has(.bf-tier-marker) [data-testid="stMetric"] { container-type: inline-size; }
+[data-testid="stColumn"]:has(.bf-tier-marker) [data-testid="stMetricValue"] {
+  font-size: min(2.25rem, 21cqw) !important;  /* "Unscored" is ~4.7em wide; 21cqw keeps it inside the card */
 }
 </style>
 """ % {"INK": INK, "INK_SOFT": INK_SOFT, "PAPER": PAPER, "CARD": CARD, "LINE": LINE,
