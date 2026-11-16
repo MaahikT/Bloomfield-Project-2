@@ -112,6 +112,23 @@ def maybe_ingest_console():
                            f"flagged-{run_id}.csv", "text/csv")
         st.download_button(f"Download FULL universe (CSV, {len(df)} rows)", df[cols].to_csv(index=False),
                            f"universe-{run_id}.csv", "text/csv")
+    st.subheader("Research ledger (latest assessment per property)")
+    try:
+        ra = con.execute(
+            "SELECT property_id, research_score, research_tier, confidence, coverage, "
+            "one_line, generated_at, ingested_at FROM research_assessments "
+            "QUALIFY row_number() OVER (PARTITION BY property_id ORDER BY ingested_at DESC) = 1 "
+            "ORDER BY property_id").fetchall()
+        if ra:
+            radf = pd.DataFrame(ra, columns=["property_id", "research_score", "research_tier",
+                                             "confidence", "coverage", "one_line", "generated_at",
+                                             "ingested_at"])
+            st.download_button(f"Download research ledger (CSV, {len(radf)} properties)",
+                               radf.to_csv(index=False), "research-ledger.csv", "text/csv")
+        else:
+            st.caption("No research assessments yet.")
+    except Exception as e:
+        st.caption(f"Could not read the research ledger: {e}")
     st.subheader("Upload a verified-evidence batch (JSONL)")
     st.caption("One JSON object per line: id, property_id, claim, value, url, quote, notes, summary. "
                "The ingest thread fetches each cited page and stores the claim only if the quote "
