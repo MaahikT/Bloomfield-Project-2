@@ -195,6 +195,36 @@ header[data-testid="stHeader"] {
   padding-top: 3.2rem;
   max-width: 1180px;
 }
+
+/* ---------- v2: metric labels wrap instead of ellipsizing ---------- */
+[data-testid="stMetricLabel"], [data-testid="stMetricLabel"] p {
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  line-height: 1.35 !important;
+  min-height: 2.2em;
+}
+[data-testid="stMetric"] { min-width: 0; }
+
+/* ---------- v2: tables - editorial grid ---------- */
+[data-testid="stTable"] th, .stTable th {
+  text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.68rem;
+  font-weight: 600; color: %(INK_SOFT)s !important;
+  border-bottom: 2px solid %(LINE)s !important;
+}
+[data-testid="stTable"] td, .stTable td { font-variant-numeric: tabular-nums; }
+[data-testid="stTable"] tbody tr:hover td { background: #F4F0E8; }
+
+/* ---------- v2: fluid feel - soft entrance, smoother controls ---------- */
+[data-testid="stMain"] .block-container { animation: bfFade 240ms ease-out; }
+@keyframes bfFade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.stButton > button, [data-testid="stFormSubmitButton"] > button,
+[data-testid="stDownloadButton"] > button { transition: background-color 160ms ease, border-color 160ms ease; }
+[data-testid="stSidebar"] [data-testid="stRadio"] label { border-radius: 6px; padding: 4px 6px; transition: background-color 140ms ease; }
+[data-testid="stSidebar"] [data-testid="stRadio"] label:hover { background: rgba(255,255,255,0.06); }
+button:focus-visible, input:focus-visible, [role="combobox"]:focus-visible {
+  outline: 2px solid %(GOLD)s !important; outline-offset: 1px;
+}
 </style>
 """ % {"INK": INK, "INK_SOFT": INK_SOFT, "PAPER": PAPER, "CARD": CARD, "LINE": LINE,
        "GOLD": GOLD, "GOLD_DEEP": GOLD_DEEP, "SIDEBAR": SIDEBAR,
