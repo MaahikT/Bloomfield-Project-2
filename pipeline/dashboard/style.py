@@ -335,9 +335,15 @@ button:focus-visible, input:focus-visible, [role="combobox"]:focus-visible {
 
 /* ---------- tier word card: fit the longest word to the card, other cards untouched ---------- */
 [data-testid="stElementContainer"]:has(.bf-tier-marker) { display: none; }
-[data-testid="stColumn"]:has(.bf-tier-marker) [data-testid="stMetric"] { container-type: inline-size; }
+[data-testid="stMetric"] { container-type: inline-size; }
+/* numeric values: unchanged at full width (36px), scale down only when the card is too narrow (e.g. "$15.0M" spilling at ~1024px) */
+[data-testid="stMetricValue"] { font-size: min(2.25rem, 26cqw) !important; }
 [data-testid="stColumn"]:has(.bf-tier-marker) [data-testid="stMetricValue"] {
   font-size: min(2.25rem, 21cqw) !important;  /* "Unscored" is ~4.7em wide; 21cqw keeps it inside the card */
+}
+@media (max-width: 900px) {
+  [data-testid="stMetricValue"] { font-size: min(1.6rem, 26cqw) !important; }
+  [data-testid="stColumn"]:has(.bf-tier-marker) [data-testid="stMetricValue"] { font-size: min(1.6rem, 21cqw) !important; }
 }
 </style>
 """ % {"INK": INK, "INK_SOFT": INK_SOFT, "PAPER": PAPER, "CARD": CARD, "LINE": LINE,
