@@ -125,3 +125,38 @@ def test_market_occupancy_maps(con):
     assert applied["mapped"] == 1, applied
     row = con.execute("SELECT occupancy FROM market_occupancy WHERE state = 'FL'").fetchone()
     assert abs(row[0] - 0.82) < 1e-9
+
+
+ASSESSMENT = {"id": "t-ra-1", "type": "research_assessment", "property_id": "prop-1",
+              "research_score": 65, "research_tier": "Hot",
+              "confidence": "medium-high", "coverage": "payment + financials checked",
+              "score_breakdown": {"payment_default": 40, "financial_deterioration": 25},
+              "score_reasons": ["90+ days delinquent, special servicing"],
+              "artifact": "test artifact", "generated_at": "2026-11-15"}
+
+
+def test_research_assessment_stored_without_fetch(con):
+    def boom(c, url):
+        raise AssertionError("assessment rows must not fetch anything")
+    out = ingest.process_rows(con, [ASSESSMENT], fetcher=boom)
+    assert out["saved"] == 1 and out["invalid"] == 0
+    row = con.execute("SELECT property_id, research_score, research_tier, score_breakdown "
+                      "FROM research_assessments WHERE id = 't-ra-1'").fetchone()
+    assert row[0] == "prop-1" and row[1] == 65.0 and row[2] == "Hot"
+    assert "payment_default" in row[3]
+    led = con.execute("SELECT status FROM ingest_rows WHERE id = 't-ra-1'").fetchone()
+    assert led[0] == "saved"
+
+
+def test_research_assessment_validation(con):
+    bad_tier = dict(ASSESSMENT, id="t-ra-2", research_tier="hot")   # case-sensitive: research-lane label
+    out = ingest.process_rows(con, [bad_tier], fetcher=fake_fetcher)
+    assert out["invalid"] == 1
+    bad_score = dict(ASSESSMENT, id="t-ra-3", research_score=140)
+    out = ingest.process_rows(con, [bad_score], fetcher=fake_fetcher)
+    assert out["invalid"] == 1
+    unknown = dict(ASSESSMENT, id="t-ra-4", property_id="prop-nope")
+    out = ingest.process_rows(con, [unknown], fetcher=fake_fetcher)
+    assert out["invalid"] == 1
+    # assessments never touch the formula's input tables
+    assert mapping.apply(con)["mapped"] == 0
