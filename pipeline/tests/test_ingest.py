@@ -132,6 +132,7 @@ ASSESSMENT = {"id": "t-ra-1", "type": "research_assessment", "property_id": "pro
               "confidence": "medium-high", "coverage": "payment + financials checked",
               "score_breakdown": {"payment_default": 40, "financial_deterioration": 25},
               "score_reasons": ["90+ days delinquent, special servicing"],
+              "one_line": "90+ days delinquent, in special servicing, valuation cut to $18.1M.",
               "artifact": "test artifact", "generated_at": "2026-11-15"}
 
 
@@ -144,6 +145,7 @@ def test_research_assessment_stored_without_fetch(con):
                       "FROM research_assessments WHERE id = 't-ra-1'").fetchone()
     assert row[0] == "prop-1" and row[1] == 65.0 and row[2] == "Hot"
     assert "payment_default" in row[3]
+    assert con.execute("SELECT one_line FROM research_assessments WHERE id = 't-ra-1'").fetchone()[0].startswith("90+ days")
     led = con.execute("SELECT status FROM ingest_rows WHERE id = 't-ra-1'").fetchone()
     assert led[0] == "saved"
 
