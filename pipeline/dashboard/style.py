@@ -202,7 +202,7 @@ header[data-testid="stHeader"] {
   overflow: visible !important;
   text-overflow: clip !important;
   line-height: 1.35 !important;
-  min-height: 2.2em;
+  min-height: 1.9rem;  /* reserve two label lines so metric value baselines align */
 }
 [data-testid="stMetric"] { min-width: 0; }
 
@@ -224,6 +224,17 @@ header[data-testid="stHeader"] {
 [data-testid="stSidebar"] [data-testid="stRadio"] label:hover { background: rgba(255,255,255,0.06); }
 button:focus-visible, input:focus-visible, [role="combobox"]:focus-visible {
   outline: 2px solid %(GOLD)s !important; outline-offset: 1px;
+}
+
+/* ---------- v3: metric values wrap instead of ellipsizing (long tier words) ---------- */
+[data-testid="stMetricValue"] [class*="stMarkdownEllipsis"] {
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+}
+[data-testid="stMetricValue"] [class*="stMarkdownEllipsis"] p {
+  white-space: normal !important;
+  overflow-wrap: break-word;
 }
 </style>
 """ % {"INK": INK, "INK_SOFT": INK_SOFT, "PAPER": PAPER, "CARD": CARD, "LINE": LINE,
