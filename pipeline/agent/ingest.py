@@ -51,10 +51,15 @@ def create_tables(con) -> None:
             coverage        TEXT,
             score_breakdown TEXT,               -- JSON object
             score_reasons   TEXT,               -- JSON array of strings
+            one_line        TEXT,               -- one-line reason shown on the ranked-list card
             artifact        TEXT,
             generated_at    TEXT,
             ingested_at     TIMESTAMP
         )""")
+    try:
+        con.execute("ALTER TABLE research_assessments ADD COLUMN one_line TEXT")
+    except Exception:
+        pass   # column already there
 
 
 def _save_assessment(con, row: dict, rid: str, ledger) -> bool:
@@ -80,12 +85,13 @@ def _save_assessment(con, row: dict, rid: str, ledger) -> bool:
     bd, reasons = row.get("score_breakdown"), row.get("score_reasons")
     con.execute(
         "INSERT INTO research_assessments (id, property_id, research_score, research_tier, "
-        "confidence, coverage, score_breakdown, score_reasons, artifact, generated_at, ingested_at) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        "confidence, coverage, score_breakdown, score_reasons, one_line, artifact, generated_at, ingested_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
         [rid, pid, score, tier,
          str(row.get("confidence") or ""), str(row.get("coverage") or ""),
          json.dumps(bd) if isinstance(bd, (dict, list)) else str(bd or ""),
          json.dumps(reasons) if isinstance(reasons, (dict, list)) else str(reasons or ""),
+         str(row.get("one_line") or ""),
          str(row.get("artifact") or ""), str(row.get("generated_at") or ""), _utcnow()])
     ledger("saved", f"research assessment stored: {tier} {score:.0f} (research lane, not the formula)")
     return True
