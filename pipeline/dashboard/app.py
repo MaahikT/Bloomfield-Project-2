@@ -33,6 +33,9 @@ from scorer.schema import open_db  # noqa: E402
 
 st.set_page_config(page_title="Bloomfield Flags", page_icon="🏚️", layout="wide")
 
+from dashboard import style as _style  # noqa: E402
+_style.inject()  # visual theme only; no data or scoring logic
+
 TERMS = [("l_loan_clock", "L", "Loan clock", "loan_clock"), ("o_opening", "O", "Opening delay", "opening_delay"),
          ("c_creative", "C", "Creative signals", "creative")]
 EX_KEY = {"L": "L_loan_clock", "O": "O_opening", "C": "C_creative"}
@@ -870,7 +873,7 @@ def main():
     con = get_con()
     all_runs = runs(con)
     with st.sidebar:
-        st.markdown("## 🏚️ Bloomfield Flags")
+        # brand block is rendered by dashboard/style.py at inject() time
         st.session_state.setdefault("page", "Ranked flags")
         st.radio("Page", list(PAGES), key="page")
         run_id = st.selectbox("Week", all_runs, format_func=lambda x: x.replace("week-", "Week of ")) if all_runs else None
