@@ -554,6 +554,7 @@ def page_detail(con, run_id):
     ra_head = research_assessments(con).get(pid)
     conflict = pid in conflict_properties(con)
     c = st.columns(4)
+    c[1].markdown('<span class="bf-tier-marker"></span>', unsafe_allow_html=True)
     if ra_head:
         c[0].metric("Research score (provisional)", f"{ra_head[0]:.0f}")
         c[1].metric("Tier (reviewed)", TIER_WORDS.get(ra_head[1].lower().split(" ")[0], tier_label(ra_head[1])))
