@@ -154,9 +154,24 @@ def research_assessments(con) -> dict:
             "SELECT property_id, research_score, research_tier, one_line FROM research_assessments "
             "QUALIFY row_number() OVER (PARTITION BY property_id ORDER BY ingested_at DESC) = 1").fetchall()
         # tier stored may carry a flag suffix ("Low (pre-default ...)"); the word is the tier
-        return {r[0]: (r[1], (r[2] or "").split(" ")[0], r[3] or "") for r in rows}
+        # null-score rows are explicit unscored/conflict markers: researched properties whose
+        # filings cannot yet be reconciled into one honest number. Visible on the property
+        # page; never counted as reviewed research and never a displayed score.
+        return {r[0]: (r[1], (r[2] or "").split(" ")[0], r[3] or "") for r in rows if r[1] is not None}
     except Exception:
         return {}
+
+
+def conflict_properties(con) -> set:
+    """property_ids whose latest research assessment is an explicit unscored/conflict marker."""
+    try:
+        rows = con.execute(
+            "SELECT property_id FROM research_assessments "
+            "QUALIFY row_number() OVER (PARTITION BY property_id ORDER BY ingested_at DESC) = 1 "
+            "AND research_score IS NULL").fetchall()
+        return {r[0] for r in rows}
+    except Exception:
+        return set()
 
 
 def assessed_only_properties(con, flag_ids: set) -> dict:
@@ -352,6 +367,7 @@ def page_ranked(con, run_id):
     # still runs underneath (its rows are untouched); unresearched properties are
     # unscored - never zero and never Low.
     rassess = research_assessments(con)
+    conflicts = conflict_properties(con)
     ranked = ranked.assign(
         _eff_score=ranked["property_id"].map(lambda p: rassess.get(p, (None, None))[0]),
         _eff_tier=ranked["property_id"].map(lambda p: (rassess.get(p, (None, None))[1] or "unscored").lower()))
@@ -406,6 +422,8 @@ def page_ranked(con, run_id):
             if assessed:
                 one = rassess.get(r["property_id"], (None, None, ""))[2]
                 b.caption(esc(one) if one else "Reviewed research on file - see the assessment on the property page.")
+            elif r["property_id"] in conflicts:
+                b.caption("Conflicting filings under review - no honest single score yet; see the property page.")
             else:
                 parts = [f"{code} {r[col]:.0%}" for col, code, _, _ in TERMS if r.get(col) and r[col] > 0]
                 b.caption(("Formula signals (unreviewed): " + " · ".join(parts)) if parts else ("No formula signals (late filings only)" if r["score"] and r["score"] > 0 else "No formula signals found; not yet reviewed in depth"))
@@ -417,6 +435,10 @@ def page_ranked(con, run_id):
                 c3.markdown(f"**{eff_score:.0f}** / 100 · {TIER_ICON[eff_tier]}")
                 c3.progress(min(1.0, eff_score / 100))
                 c3.caption("Research score (provisional)")
+            elif r["property_id"] in conflicts:
+                c3.markdown("**—** / 100 · ⚪ Unscored (conflict)")
+                c3.progress(0.0)
+                c3.caption("Filings conflict - under review")
             else:
                 c3.markdown("**—** / 100 · ⚪ Unscored")
                 c3.progress(0.0)
@@ -597,7 +619,10 @@ def page_detail(con, run_id):
                    "the formula's Hot 50+ / Watch 25+. Versioned provisional judgment, not a "
                    "probability. Unchecked lanes are unknowns, never counted as healthy.")
         r_color = {"Hot": "red", "Watch": "orange", "Low": "gray"}.get((r_tier or "").split(" ")[0], "gray")
-        st.markdown(f"**Research score {r_score:.0f} / 100 · :{r_color}[{esc(r_tier)} (reviewed)]**")
+        if r_score is None:
+            st.markdown(f"**Unscored - conflicting filings under review · :gray[{esc(r_tier)}]**")
+        else:
+            st.markdown(f"**Research score {r_score:.0f} / 100 · :{r_color}[{esc(r_tier)} (reviewed)]**")
         if r_conf:
             st.markdown(f"**Confidence:** {esc(r_conf)}")
         if r_cov:
