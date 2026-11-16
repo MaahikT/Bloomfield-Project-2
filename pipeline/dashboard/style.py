@@ -202,7 +202,7 @@ header[data-testid="stHeader"] {
   overflow: visible !important;
   text-overflow: clip !important;
   line-height: 1.35 !important;
-  min-height: 1.9rem;  /* reserve two label lines so metric value baselines align */
+  min-height: 2.45rem;  /* reserve two full label lines (measured 38px) so metric value baselines align */
 }
 [data-testid="stMetric"] { min-width: 0; }
 
