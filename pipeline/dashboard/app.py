@@ -511,8 +511,16 @@ def page_detail(con, run_id):
         m = money(v) if isinstance(v, (int, float)) and not pd.isna(v) else ""
         parts = [base] + ([a] if a else []) + ([m] if m else [])
         return " - ".join(parts)
+    # Widget keyed on property_id; an external "Open" button sets selected first and
+    # is applied to the widget state before the widget is created this run. Without a
+    # key + this sync, passing index= every rerun would force the widget back to the
+    # stale session value and swallow the user's pick.
     sel = st.session_state.get("selected")
-    pid = st.selectbox("Property", ids, index=ids.index(sel) if sel in ids else 0, format_func=_flag_label)
+    if sel in ids and st.session_state.get("flag_pid") != sel:
+        st.session_state["flag_pid"] = sel
+    if st.session_state.get("flag_pid") not in ids:
+        st.session_state["flag_pid"] = ids[0]
+    pid = st.selectbox("Property", ids, key="flag_pid", format_func=_flag_label)
     st.session_state.selected = pid
     if pid in extra:
         # Reviewed property outside the weekly run: no formula audit row exists.
