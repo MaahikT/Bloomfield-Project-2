@@ -481,6 +481,7 @@ def page_detail(con, run_id):
                f"borrower {esc(r['borrower']) or 'unknown'} · lender {esc(r['lender']) or 'unknown'}")
     st.markdown(tags(r))
     ra_head = research_assessments(con).get(pid)
+    conflict = pid in conflict_properties(con)
     c = st.columns(4)
     if ra_head:
         c[0].metric("Research score (provisional)", f"{ra_head[0]:.0f}")
@@ -490,22 +491,30 @@ def page_detail(con, run_id):
         c[1].metric("Tier", "⚪ Unscored")
     c[2].metric("Deal quality", r["deal_quality"] or "-")
     c[3].metric("Loan", money(r["loan_amount"]) if r.get("loan_amount") else "-")
-    st.caption("Displayed score/tier is the reviewed research assessment (provisional judgment, "
-               "rubric v3.3); unreviewed properties are unscored. Where a formula audit row exists "
-               "it is kept below as the audit view, not the displayed score.")
+    if conflict:
+        st.warning("Conflicting filings under review - no honest single score yet. This is NOT a "
+                   "scored or cleared review: the unreconciled debt scopes are laid out in the research "
+                   "assessment below. The formula summary and equation further down are the automated "
+                   "audit view only, not a reviewed score.")
+    else:
+        st.caption("Displayed score/tier is the reviewed research assessment (provisional judgment, "
+                   "rubric v3.3); unreviewed properties are unscored. Where a formula audit row exists "
+                   "it is kept below as the audit view, not the displayed score.")
     if r.get("est_value") and not pd.isna(r["est_value"]):
         st.caption(f"Estimated stabilized value {money(r['est_value'])} (revenue at stabilized occupancy − latest "
                    f"12-month expenses, ÷ the {r['property_type']} cap rate, − cost to stabilize) · owed / value {r['ltv']:.0%}")
     if not r["shown"]:
         st.warning(f"Filtered out by settings: {r['filter_reason']}")
     if ex:
-        if ra_head:
+        if conflict:
+            pass   # conflict notice above carries the status; the raw formula summary is not shown
+        elif ra_head:
             st.info("Older automated formula summary (audit view only - the reviewed research "
                     "assessment below drives the displayed score): " + r["summary"])
         else:
             st.info(r["summary"])
 
-        st.subheader("The equation for this property" + (" (formula audit view)" if ra_head else ""))
+        st.subheader("The equation for this property" + (" (formula audit view)" if (ra_head or conflict) else ""))
         rows = []
         for col, code, label, key in TERMS:
             t = ex[EX_KEY[code]]
