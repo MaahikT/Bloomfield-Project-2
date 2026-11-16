@@ -177,18 +177,24 @@ def open_flag(pid):
     st.session_state.page = "Flag details"
 
 
-def tags(r):
+def tags(r, assessed=False, r_tier=""):
     out = []
     if "STANDOUT" in (r["flags"] or ""):
-        out.append(":violet-badge[⭐ STANDOUT]")
+        out.append(":violet-badge[⭐ STANDOUT (formula)]")
     if "COUNTER-SIGNAL" in (r["flags"] or ""):
-        out.append(":blue-badge[↩ COUNTER-SIGNAL]")
+        out.append(":blue-badge[↩ COUNTER-SIGNAL (formula)]")
+    if assessed:
+        # Research lane reviewed this property; the badge must agree with the
+        # provisional research score on the right, not the legacy formula score.
+        out.append({"hot": ":red-badge[Research lane: Hot]",
+                    "watch": ":orange-badge[Research lane: Watch]",
+                    "low": ":gray-badge[Research lane: Low]"}.get(
+                        r_tier, ":gray-badge[Reviewed by the research lane]"))
+        return " ".join(out)
     if r["stage"] == "ready_to_act":
-        out.append(":red-badge[✅ READY TO ACT]")
+        out.append(":red-badge[✅ READY TO ACT (formula, unreviewed)]")
     elif r["score"] and r["score"] > 0:
-        out.append(":green-badge[Early warning]")
-    else:
-        out.append(":gray-badge[No warning signs yet]")
+        out.append(":green-badge[Early warning (formula, unreviewed)]")
     return " ".join(out)
 
 
@@ -361,9 +367,9 @@ def page_ranked(con, run_id):
             place = ", ".join(x for x in [r["city"], r["state"]] if x and not pd.isna(x))
             b.markdown(f"**{esc(r['property_name'])}** — {esc(r['property_type'] or 'type unknown')} · "
                        f"{esc(place)} · {money(r['loan_amount'])}")
-            b.markdown(tags(r))
             eff_score, eff_tier = r["_eff_score"], r["_eff_tier"]
             assessed = pd.notna(eff_score) and eff_score is not None
+            b.markdown(tags(r, assessed, eff_tier))
             if assessed:
                 one = rassess.get(r["property_id"], (None, None, ""))[2]
                 b.caption(esc(one) if one else "Reviewed by the research lane - see the assessment on the property page.")
