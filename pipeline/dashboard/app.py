@@ -31,7 +31,7 @@ from scorer import equation as eq  # noqa: E402
 from scorer import weekly  # noqa: E402
 from scorer.schema import open_db  # noqa: E402
 
-st.set_page_config(page_title="Bloomfield Flags", page_icon=":material/flag:", layout="wide")
+st.set_page_config(page_title="Bloomfield Flags", page_icon="🏚️", layout="wide")
 
 from dashboard import style as _style  # noqa: E402
 _style.inject()  # visual theme only; no data or scoring logic
@@ -39,9 +39,7 @@ _style.inject()  # visual theme only; no data or scoring logic
 TERMS = [("l_loan_clock", "L", "Loan clock", "loan_clock"), ("o_opening", "O", "Opening delay", "opening_delay"),
          ("c_creative", "C", "Creative signals", "creative")]
 EX_KEY = {"L": "L_loan_clock", "O": "O_opening", "C": "C_creative"}
-TIER_ICON = {"hot": "Priority Review", "watch": "Monitor", "low": "Limited Signals"}
-# Engraved-chip classes for the same tiers (rendered by _chip, styled in style.py).
-_TIER_CHIP = {"hot": "hot", "watch": "watch", "low": "low"}
+TIER_ICON = {"hot": "🔴 Priority Review", "watch": "🟠 Monitor", "low": "⚪ Limited Signals"}
 # Presentation-only labels for stored tier words; suffixes like "(pre-default ...)" survive.
 TIER_LABEL = {"Hot": "Priority Review", "Watch": "Monitor", "Low": "Limited Signals"}
 # Words-only variant for tight spots (metric values) where the emoji dot crowds the fit.
@@ -52,15 +50,6 @@ def tier_label(t):
         return t
     first, _, rest = t.partition(" ")
     return " ".join(x for x in [TIER_LABEL.get(first, first), rest] if x)
-
-
-def _chip(text, cls):
-    """Restrained uppercase signal chip (styled as .bf-chip in style.py). Text is ours, not user data."""
-    return f'<span class="bf-chip bf-chip-{cls}">{text}</span>'
-
-
-def _tier_chip(t):
-    return _chip(TIER_WORDS.get(t, t or "Unscored"), _TIER_CHIP.get(t, "unscored"))
 
 
 # ---------------------------------------------------------------------------
@@ -265,21 +254,21 @@ def open_flag(pid):
 def tags(r, assessed=False, r_tier=""):
     out = []
     if "STANDOUT" in (r["flags"] or ""):
-        out.append(_chip("Standout &middot; formula", "standout"))
+        out.append(":violet-badge[⭐ STANDOUT (formula)]")
     if "COUNTER-SIGNAL" in (r["flags"] or ""):
-        out.append(_chip("Counter-signal &middot; formula", "counter"))
+        out.append(":blue-badge[↩ COUNTER-SIGNAL (formula)]")
     if assessed:
-        # Research lane reviewed this property; the chip must agree with the
+        # Research lane reviewed this property; the badge must agree with the
         # provisional research score on the right, not the legacy formula score.
-        out.append({"hot": _chip("Reviewed &middot; Priority Review", "hot"),
-                    "watch": _chip("Reviewed &middot; Monitor", "watch"),
-                    "low": _chip("Reviewed &middot; Limited Signals", "low")}.get(
-                        r_tier, _chip("Reviewed", "low")))
+        out.append({"hot": ":red-badge[Reviewed: Priority Review]",
+                    "watch": ":orange-badge[Reviewed: Monitor]",
+                    "low": ":gray-badge[Reviewed: Limited Signals]"}.get(
+                        r_tier, ":gray-badge[Reviewed]"))
         return " ".join(out)
     if r["stage"] == "ready_to_act":
-        out.append(_chip("Ready to act &middot; formula, unreviewed", "hot"))
+        out.append(":red-badge[✅ READY TO ACT (formula, unreviewed)]")
     elif r["score"] and r["score"] > 0:
-        out.append(_chip("Early warning &middot; formula, unreviewed", "unscored"))
+        out.append(":green-badge[Early warning (formula, unreviewed)]")
     return " ".join(out)
 
 
@@ -306,9 +295,9 @@ def research_status(con) -> str:
             "(reviewed scores drive the list; depth varies - each page shows its coverage" + conf_tail + ")"
             if reviewed else "")
     if not goals:
-        return ("Automated first pass (earlier, unreviewed): has not run on this database yet "
+        return ("🔎 Automated first pass (earlier, unreviewed): has not run on this database yet "
                 "(0 properties researched, 0 evidence records)." + tail)
-    return (f"Automated first pass (earlier, unreviewed): {goals} propert{'y' if goals == 1 else 'ies'} researched · "
+    return (f"🔎 Automated first pass (earlier, unreviewed): {goals} propert{'y' if goals == 1 else 'ies'} researched · "
             f"{ev} evidence record{'s' if ev != 1 else ''} · model usage ≈ ${usd:.2f} (estimate)" + tail)
 
 
@@ -443,7 +432,7 @@ def page_ranked(con, run_id):
         ["_a", "_eff_score", "score"], ascending=[False, False, False])
     tier_pick = st.multiselect("Tiers", ["hot", "watch", "low", "unscored"],
                                default=["hot", "watch", "low", "unscored"],
-                               format_func=lambda t: TIER_ICON.get(t, "Unscored (not researched yet)"))
+                               format_func=lambda t: TIER_ICON.get(t, "⚪ Unscored (not researched yet)"))
     view = assessed_first[assessed_first["_eff_tier"].isin(tier_pick)]
     # Cards are expensive to render; hundreds of rows kept the script "Running" for
     # minutes and every button stayed a skeleton. Show the strongest flags as cards
@@ -460,13 +449,13 @@ def page_ranked(con, run_id):
     for pos, r in enumerate(view.to_dict("records"), start=1):
         with st.container(border=True):
             a, b, c3 = st.columns([0.7, 5, 1.8])
-            a.markdown(f'<div class="bf-rank">{pos:02d}</div>', unsafe_allow_html=True)
+            a.markdown(f"### {pos}")
             place = ", ".join(x for x in [r["city"], r["state"]] if x and not pd.isna(x))
             b.markdown(f"**{esc(r['property_name'])}** — {esc(r['property_type'] or 'type unknown')} · "
                        f"{esc(place)} · {money(r['loan_amount'])}")
             eff_score, eff_tier = r["_eff_score"], r["_eff_tier"]
             assessed = pd.notna(eff_score) and eff_score is not None
-            b.markdown(tags(r, assessed, eff_tier), unsafe_allow_html=True)
+            b.markdown(tags(r, assessed, eff_tier))
             if assessed:
                 one = rassess.get(r["property_id"], (None, None, ""))[2]
                 b.caption(esc(one) if one else "Reviewed research on file - see the assessment on the property page.")
@@ -480,19 +469,15 @@ def page_ranked(con, run_id):
             if r["property_id"] in status:
                 b.markdown(f":green[Research: {weekly.STATUS_LABELS[status[r['property_id']]]}]")
             if assessed:
-                c3.markdown(f'<div class="bf-score"><span class="bf-score-num">{eff_score:.0f}</span>'
-                            '<span class="bf-score-den">/ 100</span></div>' + _tier_chip(eff_tier),
-                            unsafe_allow_html=True)
+                c3.markdown(f"**{eff_score:.0f}** / 100 · {TIER_ICON[eff_tier]}")
                 c3.progress(min(1.0, eff_score / 100))
                 c3.caption("Research score (provisional)")
             elif r["property_id"] in conflicts:
-                c3.markdown('<div class="bf-score"><span class="bf-score-num bf-score-na">&mdash;</span></div>'
-                            + _chip("Unscored &middot; conflict", "unscored"), unsafe_allow_html=True)
+                c3.markdown("**—** / 100 · ⚪ Unscored (conflict)")
                 c3.progress(0.0)
                 c3.caption("Filings conflict - under review")
             else:
-                c3.markdown('<div class="bf-score"><span class="bf-score-num bf-score-na">&mdash;</span></div>'
-                            + _chip("Unscored", "unscored"), unsafe_allow_html=True)
+                c3.markdown("**—** / 100 · ⚪ Unscored")
                 c3.progress(0.0)
                 c3.caption("Not researched yet - not a clean bill of health")
             c3.caption(f"Deal quality {r['deal_quality']}")
@@ -510,28 +495,23 @@ def page_detail(con, run_id):
     extra = assessed_only_properties(con, set(ids))
     names.update(extra)
     ids = ids + sorted(extra, key=lambda p: names[p].lower())
-    # Same-name properties (e.g. two Harborside rows) must stay distinct: label by address,
-    # then short id, and key the picker on property_id state, never on the display name.
-    addrs = dict(zip(df["property_id"], df["address"].fillna("")))
-    from collections import Counter
-    _n = Counter((names[p] or "").strip().lower() for p in ids)
-    labels = {}
-    for p in ids:
-        lab = names[p] or p
-        if _n[(names[p] or "").strip().lower()] > 1:
-            lab = f"{lab} - {addrs.get(p) or 'address not filed'}"
-        labels[p] = lab
-    _l = Counter(labels.values())
-    for p in ids:
-        if _l[labels[p]] > 1:
-            labels[p] = f"{labels[p]} [{p[-6:]}]"
+    # Unique labels keyed on property_id: name + address + loan amount disambiguate
+    # rows that share a property name (each option routes to its own row).
+    amt = dict(zip(df["property_id"], df["loan_amount"]))
+    addr = dict(zip(df["property_id"], df["address"]))
+    def _flag_label(k):
+        base = names[k]
+        if k in extra:
+            return base
+        a = (addr.get(k) or "").strip()
+        if len(a) > 42:
+            a = a[:39].rstrip() + "..."
+        m = money(amt.get(k)) if amt.get(k) and not pd.isna(amt.get(k)) else ""
+        parts = [base] + ([a] if a else []) + ([m] if m else [])
+        return " - ".join(parts)
     sel = st.session_state.get("selected")
-    if st.session_state.get("detail_pid") not in ids or (sel in ids and sel != st.session_state.get("detail_pid_synced")):
-        st.session_state["detail_pid"] = sel if sel in ids else ids[0]
-    st.session_state["detail_pid_synced"] = sel
-    pid = st.selectbox("Property", ids, key="detail_pid", format_func=lambda k: labels[k])
+    pid = st.selectbox("Property", ids, index=ids.index(sel) if sel in ids else 0, format_func=_flag_label)
     st.session_state.selected = pid
-    st.session_state["detail_pid_synced"] = pid
     if pid in extra:
         # Reviewed property outside the weekly run: no formula audit row exists.
         # The reviewed assessment and evidence sections below work off property_id alone.
@@ -550,17 +530,16 @@ def page_detail(con, run_id):
     st.title(r["property_name"])
     st.caption(f"{esc(r['property_type'] or 'type unknown')} · {esc(r['address'] or '')} · "
                f"borrower {esc(r['borrower']) or 'unknown'} · lender {esc(r['lender']) or 'unknown'}")
-    st.markdown(tags(r), unsafe_allow_html=True)
+    st.markdown(tags(r))
     ra_head = research_assessments(con).get(pid)
     conflict = pid in conflict_properties(con)
     c = st.columns(4)
-    c[1].markdown('<span class="bf-tier-marker"></span>', unsafe_allow_html=True)
     if ra_head:
         c[0].metric("Research score (provisional)", f"{ra_head[0]:.0f}")
         c[1].metric("Tier (reviewed)", TIER_WORDS.get(ra_head[1].lower().split(" ")[0], tier_label(ra_head[1])))
     else:
         c[0].metric("Research score (provisional)", "—")
-        c[1].metric("Tier", "Unscored")
+        c[1].metric("Tier", "⚪ Unscored")
     c[2].metric("Deal quality", r["deal_quality"] or "-")
     c[3].metric("Loan", money(r["loan_amount"]) if r.get("loan_amount") else "-")
     if conflict:
@@ -606,9 +585,9 @@ def page_detail(con, run_id):
         with a:
             st.markdown(f"**Anti-fluke:** {ex['anti_fluke']}")
             for s in ex.get("standouts", []):
-                st.markdown(f"**Standout** (counts ×max({cfg['standout']['boost']}, rescale), skips anti-fluke): {esc(s)}")
+                st.markdown(f"⭐ **Standout** (counts ×max({cfg['standout']['boost']}, rescale), skips anti-fluke): {esc(s)}")
             for s in ex.get("counter_signals", []):
-                st.markdown(f"**Counter-signal** (×{cfg['counter_signal']['factor']}): {esc(s)}")
+                st.markdown(f"↩ **Counter-signal** (×{cfg['counter_signal']['factor']}): {esc(s)}")
             st.markdown(f"**Early points:** {ex['early_points']}")
         with b:
             st.markdown(f"**Ready-to-act confirmation (court/lien filings, max {cfg['late']['max_points']}):** {ex['late_points']}")
@@ -699,14 +678,11 @@ def page_detail(con, run_id):
                    "formula score above. Reviewed-score thresholds (Priority Review 60+, Monitor 20-59, Limited Signals under 20) are not "
                    "the formula's audit thresholds (hot 50+ / watch 25+). Versioned provisional judgment, not a "
                    "probability. Unchecked lanes are unknowns, never counted as healthy.")
-        r_chip = _TIER_CHIP.get((r_tier or "").split(" ")[0].lower(), "unscored")
+        r_color = {"Hot": "red", "Watch": "orange", "Low": "gray"}.get((r_tier or "").split(" ")[0], "gray")
         if r_score is None:
-            st.markdown("**Unscored - conflicting filings under review** "
-                        + _chip(esc(tier_label(r_tier)), "unscored"), unsafe_allow_html=True)
+            st.markdown(f"**Unscored - conflicting filings under review · :gray[{esc(tier_label(r_tier))}]**")
         else:
-            st.markdown(f"**Research score {r_score:.0f} / 100** "
-                        + _chip(esc(tier_label(r_tier)) + " &middot; reviewed", r_chip),
-                        unsafe_allow_html=True)
+            st.markdown(f"**Research score {r_score:.0f} / 100 · :{r_color}[{esc(tier_label(r_tier))} (reviewed)]**")
         if r_conf:
             st.markdown(f"**Confidence:** {esc(r_conf)}")
         if r_cov:
@@ -775,17 +751,17 @@ def page_changes(con, run_id):
     for col, (label, key) in zip(c, [("New", "new"), ("Got worse", "worse"), ("New standouts", "new_standouts"),
                                      ("New filings", "new_late"), ("Dropped off", "dropped")]):
         col.metric(label, len(ch[key]))
-    st.subheader("New flags")
+    st.subheader("🆕 New flags")
     _list(ch["new"], "new")
-    st.subheader("Got worse")
+    st.subheader("🔺 Got worse")
     _list(ch["worse"], "worse", lambda r: f"up {r['delta']} from {r['previous_score']:.0f}")
-    st.subheader("Became a standout")
+    st.subheader("⭐ Became a standout")
     _list(ch["new_standouts"], "so")
-    st.subheader("Became ready to act (new court filing or lien)")
-    _list(ch["new_late"], "late", lambda r: "now ready to act")
-    st.subheader("Got better")
+    st.subheader("✅ Became ready to act (new court filing or lien)")
+    _list(ch["new_late"], "late", lambda r: "now READY TO ACT")
+    st.subheader("🔻 Got better")
     _list(ch["better"], "better", lambda r: f"down {-r['delta']} from {r['previous_score']:.0f}")
-    st.subheader("Dropped off")
+    st.subheader("✔️ Dropped off")
     if not ch["dropped"]:
         st.caption("None.")
     for r in ch["dropped"]:
@@ -809,7 +785,7 @@ def page_log(con, run_id):
     st.subheader("Funnel")
     st.bar_chart(pd.DataFrame({"Stage": [weekly.STATUS_LABELS[s] for s in weekly.RESEARCH_STATUSES],
                                "Flags": [int(counts.get(s, 0)) for s in weekly.RESEARCH_STATUSES]}),
-                 x="Stage", y="Flags", horizontal=True, sort=False, color="#A88435")
+                 x="Stage", y="Flags", horizontal=True, sort=False)
     st.caption("Each flag counts once, at its latest stage.")
     st.subheader("Every entry")
     if log.empty:
@@ -839,7 +815,7 @@ def page_how(con, run_id):
 
 **What we changed**
 - The construction-loan clock (50) and opening date watch (20) outweigh every other signal; a building that opened with its loan still outstanding gets an extra boost.
-- Court and lien filings add at most a few points and tag the flag **Ready to act**.
+- Court and lien filings add at most a few points and tag the flag **✅ READY TO ACT**.
 - Auctions and CMBS are shown as context only, never scored.
 - County records are found through **NETR Online** (`python -m collectors.discover`), recorders first because they feed the loan clock.
 """)
@@ -870,8 +846,8 @@ def page_how(con, run_id):
     cor = {int(k): v for k, v in cfg["corroboration"].items()}   # JSON turns the keys into text
     st.markdown(f"""
 - **Anti-fluke C(k):** k = early signals at ≥ {cfg['shows_at']:.0%}. 1 → {cor[1]:.0%}, 2 → {cor[2]:.0%}, 3+ → {cor[3]:.0%}.
-- **Standout:** a signal at ≥ {so['at_strength']:.0%} counts ×max({so['boost']}, rescale) and skips the anti-fluke discount (the boost and the rescale don't stack).
-- **Counter-signal:** strong evidence the other way (rent beating its city by {cs['rent_beats_city_by']:.0%}+, or a city inspection in the last {cs['inspected_within_days']} days) multiplies early points by {cs['factor']} each.
+- **⭐ STANDOUT:** a signal at ≥ {so['at_strength']:.0%} counts ×max({so['boost']}, rescale) and skips the anti-fluke discount (the boost and the rescale don't stack).
+- **↩ COUNTER-SIGNAL:** strong evidence the other way (rent beating its city by {cs['rent_beats_city_by']:.0%}+, or a city inspection in the last {cs['inspected_within_days']} days) multiplies early points by {cs['factor']} each.
 - **Ready to act (max {late['max_points']}):** court/legal filing {late['court_points']}, contractor liens {late['lien_points']} each up to {late['max_lien_points']}. Older than {late['recent_days']} days count half.
 - **Not scored:** Ten-X auctions and CMBS data are shown as context only.
 - **Tiers (formula audit names):** hot ≥ {cfg['tiers']['hot']}, watch ≥ {cfg['tiers']['watch']} - displayed in the app as Priority Review / Monitor.
@@ -904,24 +880,22 @@ def page_all(con, run_id):
         "State": df["state"],
         "Loan": df["loan_amount"],
         "Score": df["property_id"].map(lambda p: rassess.get(p, (pd.NA, ""))[0]),
-        "Tier": df["property_id"].map(lambda p: TIER_LABEL.get((rassess.get(p, (pd.NA, ""))[1] or "unscored").split(" ")[0], "Unscored")),
+        "Tier": df["property_id"].map(lambda p: TIER_LABEL.get((rassess.get(p, (pd.NA, ""))[1] or "unscored").split(" ")[0], "unscored")),
         "Listed": df["shown"].map({True: "yes", False: "no"}),
         "Why hidden": df["filter_reason"].fillna(""),
     }).sort_values(["Score", "Rank"], ascending=[False, True], na_position="last")   # research scores first; columns stay user-sortable
     c1, c2 = st.columns(2)
-    _ALL_TIERS = ["Priority Review", "Monitor", "Limited Signals", "Unscored"]
+    _ALL_TIERS = ["Priority Review", "Monitor", "Limited Signals", "unscored"]
     _TIER_DISP = {"Priority Review": TIER_ICON["hot"], "Monitor": TIER_ICON["watch"],
                   "Limited Signals": TIER_ICON["low"]}
     tier_pick = c1.multiselect("Tiers", _ALL_TIERS,
                                default=_ALL_TIERS,
-                               format_func=lambda t: _TIER_DISP.get(t, "Unscored (not researched yet)"),
+                               format_func=lambda t: _TIER_DISP.get(t, "⚪ Unscored (not researched yet)"),
                                key="all_tiers")
     listed_pick = c2.multiselect("Listed status", ["yes", "no"], default=["yes", "no"], key="all_listed")
     out = out[out["Tier"].isin(tier_pick) & out["Listed"].isin(listed_pick)]
     st.caption(f"{len(out)} of {len(df)} properties shown")
-    st.dataframe(out, hide_index=True, use_container_width=True,
-                 column_config={"Loan": st.column_config.NumberColumn(format="dollar"),
-                                "Score": st.column_config.NumberColumn(format="%d")})
+    st.dataframe(out, hide_index=True, use_container_width=True)
 
 
 PAGES = {"Ranked flags": page_ranked, "All properties": page_all, "Flag details": page_detail,
