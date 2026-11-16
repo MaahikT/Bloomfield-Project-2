@@ -882,7 +882,7 @@ def page_all(con, run_id):
         "Type": df["property_type"],
         "City": df["city"],
         "State": df["state"],
-        "Loan ($)": df["loan_amount"],
+        "Loan": df["loan_amount"],
         "Score": df["property_id"].map(lambda p: rassess.get(p, (pd.NA, ""))[0]),
         "Tier": df["property_id"].map(lambda p: TIER_LABEL.get((rassess.get(p, (pd.NA, ""))[1] or "unscored").split(" ")[0], "Unscored")),
         "Listed": df["shown"].map({True: "yes", False: "no"}),
@@ -900,7 +900,7 @@ def page_all(con, run_id):
     out = out[out["Tier"].isin(tier_pick) & out["Listed"].isin(listed_pick)]
     st.caption(f"{len(out)} of {len(df)} properties shown")
     st.dataframe(out, hide_index=True, use_container_width=True,
-                 column_config={"Loan ($)": st.column_config.NumberColumn(format="compact"),
+                 column_config={"Loan": st.column_config.NumberColumn(format="dollar"),
                                 "Score": st.column_config.NumberColumn(format="%d")})
 
 
