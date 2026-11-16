@@ -39,7 +39,15 @@ _style.inject()  # visual theme only; no data or scoring logic
 TERMS = [("l_loan_clock", "L", "Loan clock", "loan_clock"), ("o_opening", "O", "Opening delay", "opening_delay"),
          ("c_creative", "C", "Creative signals", "creative")]
 EX_KEY = {"L": "L_loan_clock", "O": "O_opening", "C": "C_creative"}
-TIER_ICON = {"hot": "🔴 Hot", "watch": "🟠 Watch", "low": "⚪ Low"}
+TIER_ICON = {"hot": "🔴 Priority Review", "watch": "🟠 Monitor", "low": "⚪ Limited Signals"}
+# Presentation-only labels for stored tier words; suffixes like "(pre-default ...)" survive.
+TIER_LABEL = {"Hot": "Priority Review", "Watch": "Monitor", "Low": "Limited Signals"}
+
+def tier_label(t):
+    if not t:
+        return t
+    first, _, rest = t.partition(" ")
+    return " ".join(x for x in [TIER_LABEL.get(first, first), rest] if x)
 
 
 # ---------------------------------------------------------------------------
@@ -250,9 +258,9 @@ def tags(r, assessed=False, r_tier=""):
     if assessed:
         # Research lane reviewed this property; the badge must agree with the
         # provisional research score on the right, not the legacy formula score.
-        out.append({"hot": ":red-badge[Reviewed: Hot]",
-                    "watch": ":orange-badge[Reviewed: Watch]",
-                    "low": ":gray-badge[Reviewed: Low]"}.get(
+        out.append({"hot": ":red-badge[Reviewed: Priority Review]",
+                    "watch": ":orange-badge[Reviewed: Monitor]",
+                    "low": ":gray-badge[Reviewed: Limited Signals]"}.get(
                         r_tier, ":gray-badge[Reviewed]"))
         return " ".join(out)
     if r["stage"] == "ready_to_act":
@@ -278,8 +286,12 @@ def research_status(con) -> str:
     except Exception:
         goals, ev, usd = 0, 0, 0.0
     reviewed = len(research_assessments(con))
+    n_conf = len(conflict_properties(con))
+    conf_tail = (f"; {n_conf} conflict{'s' if n_conf != 1 else ''} under review, "
+                 "unscored until reconciled" if n_conf else "")
     tail = (f" · Properties with reviewed research: {reviewed} propert{'y' if reviewed == 1 else 'ies'} "
-            "(reviewed scores drive the list; depth varies - each page shows its coverage)" if reviewed else "")
+            "(reviewed scores drive the list; depth varies - each page shows its coverage" + conf_tail + ")"
+            if reviewed else "")
     if not goals:
         return ("🔎 Automated first pass (earlier, unreviewed): has not run on this database yet "
                 "(0 properties researched, 0 evidence records)." + tail)
@@ -393,8 +405,8 @@ def page_ranked(con, run_id):
         _eff_tier=ranked["property_id"].map(lambda p: (rassess.get(p, (None, None))[1] or "unscored").lower()))
     c = st.columns(5)
     c[0].metric("Listed", len(ranked))
-    c[1].metric("Hot (call this week)", int((ranked["_eff_tier"] == "hot").sum()))
-    c[2].metric("Watch", int((ranked["_eff_tier"] == "watch").sum()))
+    c[1].metric("Priority Review (call this week)", int((ranked["_eff_tier"] == "hot").sum()))
+    c[2].metric("Monitor", int((ranked["_eff_tier"] == "watch").sum()))
     c[3].metric("Reviewed (this list)", int(ranked["_eff_score"].notna().sum()))
     c[4].metric("Filtered out", int((~df["shown"]).sum()))
     if rassess:
@@ -402,9 +414,12 @@ def page_ranked(con, run_id):
                    "rubric v3.3). Unreviewed properties show as unscored - missing research is not a "
                    "clean bill of health. The deterministic formula still runs underneath for audit. "
                    "Coverage depth varies by property; each assessment lists its checked lanes. "
-                   f"Hot/Watch/Reviewed counts cover this flagged list; {len(rassess)} properties have "
+                   f"Priority Review / Monitor / Reviewed counts cover this flagged list; {len(rassess)} properties have "
                    "been reviewed in total, including unflagged senior-housing properties (open them "
-                   "from the Flag details page).")
+                   "from the Flag details page)." +
+                   (f" {len(conflicts)} conflict{'s' if len(conflicts) != 1 else ''} under review - "
+                    "unscored until the filings reconcile, never counted as reviewed research."
+                    if conflicts else ""))
 
     if len(ranked) == 0 and len(df) and not df["shown"].any():
         why = df["filter_reason"].fillna("unknown").value_counts()
@@ -505,7 +520,7 @@ def page_detail(con, run_id):
     c = st.columns(4)
     if ra_head:
         c[0].metric("Research score (provisional)", f"{ra_head[0]:.0f}")
-        c[1].metric("Tier (reviewed)", TIER_ICON.get(ra_head[1].lower(), ra_head[1]))
+        c[1].metric("Tier (reviewed)", TIER_ICON.get(ra_head[1].lower().split(" ")[0], tier_label(ra_head[1])))
     else:
         c[0].metric("Research score (provisional)", "—")
         c[1].metric("Tier", "⚪ Unscored")
@@ -644,14 +659,14 @@ def page_detail(con, run_id):
         r_score, r_tier, r_conf, r_cov, r_bd, r_reasons, r_artifact, r_gen = ra_row
         st.subheader("Research assessment (provisional)")
         st.caption("A structured independent research review under rubric v3.3, separate from the "
-                   "formula score above. Reviewed-score thresholds (Hot 60+, Watch 20-59, Low under 20) are not "
-                   "the formula's Hot 50+ / Watch 25+. Versioned provisional judgment, not a "
+                   "formula score above. Reviewed-score thresholds (Priority Review 60+, Monitor 20-59, Limited Signals under 20) are not "
+                   "the formula's audit thresholds (hot 50+ / watch 25+). Versioned provisional judgment, not a "
                    "probability. Unchecked lanes are unknowns, never counted as healthy.")
         r_color = {"Hot": "red", "Watch": "orange", "Low": "gray"}.get((r_tier or "").split(" ")[0], "gray")
         if r_score is None:
-            st.markdown(f"**Unscored - conflicting filings under review · :gray[{esc(r_tier)}]**")
+            st.markdown(f"**Unscored - conflicting filings under review · :gray[{esc(tier_label(r_tier))}]**")
         else:
-            st.markdown(f"**Research score {r_score:.0f} / 100 · :{r_color}[{esc(r_tier)} (reviewed)]**")
+            st.markdown(f"**Research score {r_score:.0f} / 100 · :{r_color}[{esc(tier_label(r_tier))} (reviewed)]**")
         if r_conf:
             st.markdown(f"**Confidence:** {esc(r_conf)}")
         if r_cov:
@@ -819,7 +834,7 @@ def page_how(con, run_id):
 - **↩ COUNTER-SIGNAL:** strong evidence the other way (rent beating its city by {cs['rent_beats_city_by']:.0%}+, or a city inspection in the last {cs['inspected_within_days']} days) multiplies early points by {cs['factor']} each.
 - **Ready to act (max {late['max_points']}):** court/legal filing {late['court_points']}, contractor liens {late['lien_points']} each up to {late['max_lien_points']}. Older than {late['recent_days']} days count half.
 - **Not scored:** Ten-X auctions and CMBS data are shown as context only.
-- **Tiers:** Hot ≥ {cfg['tiers']['hot']}, Watch ≥ {cfg['tiers']['watch']}.
+- **Tiers (formula audit names):** hot ≥ {cfg['tiers']['hot']}, watch ≥ {cfg['tiers']['watch']} - displayed in the app as Priority Review / Monitor.
 
 Edit every number in `pipeline/config/equation.yaml`, then rerun `python -m scorer.weekly`.
 """)
