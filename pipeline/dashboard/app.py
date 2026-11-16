@@ -476,9 +476,13 @@ def page_detail(con, run_id):
     if not r["shown"]:
         st.warning(f"Filtered out by settings: {r['filter_reason']}")
     if ex:
-        st.info(r["summary"])
+        if ra_head:
+            st.info("Older automated formula summary (audit view only - the reviewed research "
+                    "assessment below drives the displayed score): " + r["summary"])
+        else:
+            st.info(r["summary"])
 
-        st.subheader("The equation for this property")
+        st.subheader("The equation for this property" + (" (formula audit view)" if ra_head else ""))
         rows = []
         for col, code, label, key in TERMS:
             t = ex[EX_KEY[code]]
