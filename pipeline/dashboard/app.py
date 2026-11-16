@@ -248,6 +248,7 @@ def _evidence_caveat(claim) -> str:
 
 def open_flag(pid):
     st.session_state.selected = pid
+    st.session_state.selected_request = pid
     st.session_state.page = "Flag details"
 
 
@@ -511,13 +512,13 @@ def page_detail(con, run_id):
         m = money(v) if isinstance(v, (int, float)) and not pd.isna(v) else ""
         parts = [base] + ([a] if a else []) + ([m] if m else [])
         return " - ".join(parts)
-    # Widget keyed on property_id; an external "Open" button sets selected first and
-    # is applied to the widget state before the widget is created this run. Without a
-    # key + this sync, passing index= every rerun would force the widget back to the
-    # stale session value and swallow the user's pick.
-    sel = st.session_state.get("selected")
-    if sel in ids and st.session_state.get("flag_pid") != sel:
-        st.session_state["flag_pid"] = sel
+    # Widget keyed on property_id. External "Open" buttons set selected_request
+    # (one-shot), applied to the widget state before the widget is created this
+    # run; the widget itself owns the state afterwards, so a user's pick can
+    # never be forced back to a stale value on rerun.
+    req = st.session_state.pop("selected_request", None)
+    if req in ids:
+        st.session_state["flag_pid"] = req
     if st.session_state.get("flag_pid") not in ids:
         st.session_state["flag_pid"] = ids[0]
     pid = st.selectbox("Property", ids, key="flag_pid", format_func=_flag_label)
