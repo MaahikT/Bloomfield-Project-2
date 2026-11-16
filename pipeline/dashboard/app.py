@@ -151,9 +151,10 @@ def research_assessments(con) -> dict:
     Provisional judgment under rubric v2 - never the deterministic formula score."""
     try:
         rows = con.execute(
-            "SELECT property_id, research_score, research_tier FROM research_assessments").fetchall()
+            "SELECT property_id, research_score, research_tier, one_line FROM research_assessments "
+            "QUALIFY row_number() OVER (PARTITION BY property_id ORDER BY ingested_at DESC) = 1").fetchall()
         # tier stored may carry a flag suffix ("Low (pre-default ...)"); the word is the tier
-        return {r[0]: (r[1], (r[2] or "").split(" ")[0]) for r in rows}
+        return {r[0]: (r[1], (r[2] or "").split(" ")[0], r[3] or "") for r in rows}
     except Exception:
         return {}
 
@@ -205,9 +206,15 @@ def research_status(con) -> str:
             "       (SELECT count(*) FROM evidence)").fetchone()
         usd = con.execute("SELECT COALESCE(sum(est_cost_usd), 0) FROM llm_usage WHERE task = 'agent'").fetchone()[0]
     except Exception:
-        return "🔎 Research agent: has not run on this database yet (0 properties researched, 0 verified evidence records)."
-    return (f"🔎 Research agent: {goals} propert{'y' if goals == 1 else 'ies'} researched · "
-            f"{ev} verified evidence record{'s' if ev != 1 else ''} · model usage ≈ ${usd:.2f} (estimate)")
+        goals, ev, usd = 0, 0, 0.0
+    reviewed = len(research_assessments(con))
+    tail = (f" · Reviewed by the research lane: {reviewed} propert{'y' if reviewed == 1 else 'ies'} "
+            "(these provisional scores drive the list)" if reviewed else "")
+    if not goals:
+        return ("🔎 Automated agent pass (earlier, unreviewed): has not run on this database yet "
+                "(0 properties researched, 0 evidence records)." + tail)
+    return (f"🔎 Automated agent pass (earlier, unreviewed): {goals} propert{'y' if goals == 1 else 'ies'} researched · "
+            f"{ev} evidence record{'s' if ev != 1 else ''} · model usage ≈ ${usd:.2f} (estimate)" + tail)
 
 
 def research_diagnostics(con) -> str:
@@ -312,7 +319,7 @@ def page_ranked(con, run_id):
     rassess = research_assessments(con)
     ranked = ranked.assign(
         _eff_score=ranked["property_id"].map(lambda p: rassess.get(p, (None, None))[0]),
-        _eff_tier=ranked["property_id"].map(lambda p: (rassess.get(p, (None, None))[1] or "unscored").lower().split(" ")[0]))
+        _eff_tier=ranked["property_id"].map(lambda p: (rassess.get(p, (None, None))[1] or "unscored").lower()))
     c = st.columns(5)
     c[0].metric("Listed", len(ranked))
     c[1].metric("Hot (call this week)", int((ranked["_eff_tier"] == "hot").sum()))
@@ -344,7 +351,8 @@ def page_ranked(con, run_id):
                    "The **All properties** page lists every scored property.")
         view = view.head(MAX_CARDS)
     if (df["rank"].isna()).any():
-        st.caption(f"{int(df['rank'].isna().sum())} more properties were scored but have no distress signals or context yet "
+        st.caption(f"{int(df['rank'].isna().sum())} more properties were screened by the deterministic formula "
+                   "(no distress signals or context found yet) and not yet reviewed by the research lane "
                    "(missing data is not proof of absence). They are on the **All properties** page.")
     for pos, r in enumerate(view.to_dict("records"), start=1):
         with st.container(border=True):
@@ -354,16 +362,22 @@ def page_ranked(con, run_id):
             b.markdown(f"**{esc(r['property_name'])}** — {esc(r['property_type'] or 'type unknown')} · "
                        f"{esc(place)} · {money(r['loan_amount'])}")
             b.markdown(tags(r))
-            parts = [f"{code} {r[col]:.0%}" for col, code, _, _ in TERMS if r.get(col) and r[col] > 0]
-            b.caption(("Early signals: " + " · ".join(parts)) if parts else ("No early signals (late filings only)" if r["score"] and r["score"] > 0 else "No warning signs found yet"))
+            eff_score, eff_tier = r["_eff_score"], r["_eff_tier"]
+            assessed = pd.notna(eff_score) and eff_score is not None
+            if assessed:
+                one = rassess.get(r["property_id"], (None, None, ""))[2]
+                b.caption(esc(one) if one else "Reviewed by the research lane - see the assessment on the property page.")
+            else:
+                parts = [f"{code} {r[col]:.0%}" for col, code, _, _ in TERMS if r.get(col) and r[col] > 0]
+                b.caption(("Formula signals (unreviewed): " + " · ".join(parts)) if parts else ("No formula signals (late filings only)" if r["score"] and r["score"] > 0 else "No formula signals found; not yet reviewed by the research lane"))
             if not r["shown"]:
                 b.markdown(f":gray[Hidden: {esc(r['filter_reason'])}]")
             if r["property_id"] in status:
                 b.markdown(f":green[Research: {weekly.STATUS_LABELS[status[r['property_id']]]}]")
-            eff_score, eff_tier = r["_eff_score"], r["_eff_tier"]
-            if pd.notna(eff_score) and eff_score is not None:
+            if assessed:
                 c3.markdown(f"**{eff_score:.0f}** / 100 · {TIER_ICON[eff_tier]}")
                 c3.progress(min(1.0, eff_score / 100))
+                c3.caption("Research score (provisional)")
             else:
                 c3.markdown("**—** / 100 · ⚪ Unscored")
                 c3.progress(0.0)
