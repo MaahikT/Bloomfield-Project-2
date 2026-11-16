@@ -503,10 +503,12 @@ def page_detail(con, run_id):
         base = names[k]
         if k in extra:
             return base
-        a = (addr.get(k) or "").strip()
+        av = addr.get(k)
+        a = av.strip() if isinstance(av, str) else ""
         if len(a) > 42:
             a = a[:39].rstrip() + "..."
-        m = money(amt.get(k)) if amt.get(k) and not pd.isna(amt.get(k)) else ""
+        v = amt.get(k)
+        m = money(v) if isinstance(v, (int, float)) and not pd.isna(v) else ""
         parts = [base] + ([a] if a else []) + ([m] if m else [])
         return " - ".join(parts)
     sel = st.session_state.get("selected")
