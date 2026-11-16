@@ -259,6 +259,26 @@ header[data-testid="stHeader"] {
 /* ---------- dataframes ---------- */
 [data-testid="stDataFrame"] { border-radius: 10px; overflow: hidden; }
 
+/* ---------- columns fill their row: equal-height metric/stat cards ---------- */
+[data-testid="stColumn"] { display: flex; flex-direction: column; }
+[data-testid="stColumn"] > [data-testid="stVerticalBlock"] { flex: 1; }
+[data-testid="stColumn"] [data-testid="stElementContainer"]:has([data-testid="stMetric"]) {
+  flex: 1; display: flex; flex-direction: column;
+}
+[data-testid="stMetric"] { flex: 1; }
+
+/* ---------- narrow viewports: metric rows wrap instead of crushing ---------- */
+@media (max-width: 900px) {
+  [data-testid="stHorizontalBlock"]:has(> [data-testid="stColumn"] [data-testid="stMetric"]) {
+    flex-wrap: wrap;
+  }
+  [data-testid="stHorizontalBlock"]:has(> [data-testid="stColumn"] [data-testid="stMetric"]) > [data-testid="stColumn"] {
+    flex: 1 1 28%% !important;
+    min-width: 150px !important;
+  }
+  [data-testid="stMetricValue"] { font-size: 1.6rem !important; }
+}
+
 /* main column breathing room */
 [data-testid="stMain"] .block-container {
   padding-top: 3.2rem;
@@ -266,10 +286,15 @@ header[data-testid="stHeader"] {
 }
 
 /* ---------- metric labels wrap instead of ellipsizing ---------- */
-[data-testid="stMetricLabel"], [data-testid="stMetricLabel"] p {
+[data-testid="stMetricLabel"], [data-testid="stMetricLabel"] p,
+[data-testid="stMetricLabel"] [class*="stMarkdownEllipsis"],
+[data-testid="stMetricLabel"] [data-testid="stMarkdownContainer"] {
   white-space: normal !important;
   overflow: visible !important;
   text-overflow: clip !important;
+  overflow-wrap: normal !important;  /* wrap at spaces, never mid-word */
+  word-break: normal !important;
+  hyphens: none !important;
   line-height: 1.35 !important;
   min-height: 2.45rem;  /* reserve two full label lines (measured 38px) so metric value baselines align */
 }
@@ -294,12 +319,14 @@ button:focus-visible, input:focus-visible, [role="combobox"]:focus-visible {
 }
 
 /* ---------- metric values wrap instead of ellipsizing (long tier words) ---------- */
-[data-testid="stMetricValue"] [class*="stMarkdownEllipsis"] {
+[data-testid="stMetricValue"] [class*="stMarkdownEllipsis"],
+[data-testid="stMetricValue"] [data-testid="stMarkdownContainer"] {
   white-space: normal !important;
   overflow: visible !important;
   text-overflow: clip !important;
 }
-[data-testid="stMetricValue"] [class*="stMarkdownEllipsis"] p {
+[data-testid="stMetricValue"] [class*="stMarkdownEllipsis"] p,
+[data-testid="stMetricValue"] [data-testid="stMarkdownContainer"] p {
   white-space: normal !important;
   overflow-wrap: break-word;
 }
