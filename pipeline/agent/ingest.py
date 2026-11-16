@@ -41,6 +41,54 @@ def create_tables(con) -> None:
             detail       TEXT,
             processed_at TIMESTAMP
         )""")
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS research_assessments (
+            id              TEXT PRIMARY KEY,   -- the JSONL row id (idempotency)
+            property_id     TEXT,
+            research_score  DOUBLE,
+            research_tier   TEXT,               -- Hot | Watch | Low (research-lane thresholds)
+            confidence      TEXT,
+            coverage        TEXT,
+            score_breakdown TEXT,               -- JSON object
+            score_reasons   TEXT,               -- JSON array of strings
+            artifact        TEXT,
+            generated_at    TEXT,
+            ingested_at     TIMESTAMP
+        )""")
+
+
+def _save_assessment(con, row: dict, rid: str, ledger) -> bool:
+    """Store a research-lane provisional assessment (rubric v2). NOT evidence and NOT a
+    formula input: a structured judgment row displayed separately from the deterministic
+    score. Needs property_id, research_score (0-100) and research_tier (Hot|Watch|Low)."""
+    pid = str(row.get("property_id") or "").strip()
+    if not pid or not _property(con, pid):
+        ledger("invalid", f"unknown property_id {pid!r}; assessment must name an existing project")
+        return False
+    try:
+        score = float(row.get("research_score"))
+        if not (0.0 <= score <= 100.0):
+            raise ValueError
+    except (TypeError, ValueError):
+        ledger("invalid", "research_score must be a number 0-100")
+        return False
+    tier = str(row.get("research_tier") or "").strip()
+    if tier.split(" ")[0] not in ("Hot", "Watch", "Low"):
+        ledger("invalid", "research_tier must start with Hot, Watch or Low (research-lane label; "
+                          "a flag suffix like 'Low (pre-default ...)' is fine)")
+        return False
+    bd, reasons = row.get("score_breakdown"), row.get("score_reasons")
+    con.execute(
+        "INSERT INTO research_assessments (id, property_id, research_score, research_tier, "
+        "confidence, coverage, score_breakdown, score_reasons, artifact, generated_at, ingested_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        [rid, pid, score, tier,
+         str(row.get("confidence") or ""), str(row.get("coverage") or ""),
+         json.dumps(bd) if isinstance(bd, (dict, list)) else str(bd or ""),
+         json.dumps(reasons) if isinstance(reasons, (dict, list)) else str(reasons or ""),
+         str(row.get("artifact") or ""), str(row.get("generated_at") or ""), _utcnow()])
+    ledger("saved", f"research assessment stored: {tier} {score:.0f} (research lane, not the formula)")
+    return True
 
 
 def _utcnow() -> datetime:
@@ -103,6 +151,13 @@ def process_rows(con, rows: list[dict], *, fetcher=None, recorder=None) -> dict:
                 "VALUES (?,?,?,?,?)",
                 [rid, row.get("property_id"), status, detail[:500], _utcnow()])
             out["rows"].append({"id": rid, "status": status, "detail": detail[:200]})
+
+        if str(row.get("type") or "").strip() == "research_assessment":
+            if _save_assessment(con, row, rid, ledger):
+                out["saved"] += 1
+            else:
+                out["invalid"] += 1
+            continue
 
         pid = str(row.get("property_id") or "").strip()
         claim = str(row.get("claim") or "").strip()
