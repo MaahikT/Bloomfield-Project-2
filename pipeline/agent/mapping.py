@@ -50,7 +50,14 @@ log = get_logger("agent.mapping")
 
 TYPES = ("asking_rent", "market_rent_index", "permit_inspection",
          "occupancy_rate", "operating_noi", "operating_revenue", "operating_expenses",
-         "market_occupancy")
+         "market_occupancy", "sponsor_distress_event", "physical_condition_event")
+
+# Verified research events: distress facts a fetched page proves but no numeric input table holds.
+# claim -> (research_events tag, rubric cap). The points are the researcher's rubric-band judgment
+# (the recovered v2 rubric caps sponsor distress at 12 and physical condition at 8); the gates in
+# apply() are what keep them honest - verbatim quote on the fetched page, cap range, currency.
+EVENT_TAGS = {"sponsor_distress_event": ("sponsor_distress", 12.0),
+              "physical_condition_event": ("physical_condition", 8.0)}
 
 OPS_CLAIMS = {"occupancy_rate": "occupancy", "operating_noi": "noi",
               "operating_revenue": "revenue", "operating_expenses": "expenses"}
@@ -193,6 +200,7 @@ def apply(con, since: date | None = None) -> dict:
         observed = row["observed_at"]
         observed = observed.date() if isinstance(observed, datetime) else (observed or date.today())
         if (why is None and row["source_kind"] == "web_page" and row["value"] is not None
+                and claim not in EVENT_TAGS            # event points are a rubric judgment, not a page number
                 and not _value_in_quote(row["value"], row["quote"])):
             why = "the reported value does not appear in the verbatim quote"
         if why is None and claim == "asking_rent":
@@ -311,6 +319,40 @@ def apply(con, since: date | None = None) -> dict:
                     "inspection_type, result, file_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
                     [notes["permit_number"], notes["state"], notes["city"], insp_date,
                      notes.get("inspection_type"), notes.get("result"), row["file_id"]])
+        elif why is None and claim in EVENT_TAGS:
+            tag, cap = EVENT_TAGS[claim]
+            # Event points need the fetched page itself: a verbatim quote on a saved web page.
+            # (_verified above already requires file_id + source_url + quote for web_page rows;
+            # a database-only row cannot carry a verified event.)
+            if row["source_kind"] != "web_page":
+                why = f"{claim} needs web evidence (saved page + URL + verbatim quote)"
+            pid = str(row["subject"] or "").removeprefix("property_id=").strip()
+            if not why and not pid:
+                why = f"{claim} needs a property_id subject"
+            if not why and (value is None or not (1 <= value <= cap)):
+                why = f"{claim} points must be a number 1-{cap:.0f} (the research rubric's cap)"
+            pulled = _as_date(notes.get("pulled") or notes.get("as_of"))
+            if not why and not pulled:
+                why = f"{claim} needs pulled=YYYY-MM-DD in notes (when the source was verified)"
+            if not why and claim == "physical_condition_event" and (notes.get("status") or "").lower() != "open":
+                why = ("physical_condition_event needs status=open in notes - the rubric scores only "
+                       "verified CURRENT conditions, not history")
+            if not why and claim == "sponsor_distress_event" and (notes.get("identity") or "").lower() != "verified":
+                value = min(value, 4.0)          # rubric: an unverified related-entity link caps at 4
+            if not why:
+                con.execute(
+                    "CREATE TABLE IF NOT EXISTS research_events (property_id TEXT, tag TEXT, "
+                    "points DOUBLE, event_date DATE, quote TEXT, source_url TEXT, file_id TEXT, "
+                    "evidence_id TEXT, applied_at TIMESTAMP)")
+                if _table_has(con, "research_events", "property_id = ? AND tag = ? AND source_url = ?",
+                              [pid, tag, row["source_url"] or ""]):
+                    skipped["already recorded"] = skipped.get("already recorded", 0) + 1
+                    continue                    # the same verified event again: corroboration, not a new row
+                con.execute(
+                    "INSERT INTO research_events (property_id, tag, points, event_date, quote, "
+                    "source_url, file_id, evidence_id, applied_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    [pid, tag, min(value, cap), pulled, row["quote"], row["source_url"],
+                     row["file_id"], row["evidence_id"], datetime.utcnow()])
         if why:
             skipped[why] = skipped.get(why, 0) + 1
             log.info("evidence %s not mapped: %s", row["evidence_id"], why)
