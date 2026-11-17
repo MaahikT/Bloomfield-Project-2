@@ -371,6 +371,39 @@ def maybe_ingest_console():
                        "them immediately.")
         except Exception as e:
             st.error(f"deal reads load failed: {type(e).__name__}: {e}")
+    st.subheader("Case studies (memo-based examples)")
+    st.caption("JSON array of {case_id, position, title, subtitle, body_md}; each row replaces the stored "
+               "case with the same case_id. Shown on the Case studies page. Case text is deal-memo content: "
+               "it lives only in this database, never in the code repository.")
+    cs_file = st.file_uploader("Case studies JSON", type=["json"], key="cs_file")
+    if st.button("Store case studies", key="cs_go") and cs_file is not None:
+        try:
+            rows = json.loads(cs_file.getvalue().decode("utf-8"))
+            if not isinstance(rows, list) or not rows:
+                raise ValueError("expected a non-empty JSON array")
+            for i, row in enumerate(rows):
+                if not isinstance(row, dict) or not isinstance(row.get("case_id"), str) or not row["case_id"].strip() \
+                        or not isinstance(row.get("position"), int) or not isinstance(row.get("title"), str) \
+                        or not row["title"].strip() or not isinstance(row.get("body_md"), str) \
+                        or not row["body_md"].strip():
+                    raise ValueError(f"row {i + 1}: missing or invalid case_id, position, title or body_md")
+            con.execute("CREATE TABLE IF NOT EXISTS case_studies ("
+                        "case_id TEXT PRIMARY KEY, position INTEGER, title TEXT, subtitle TEXT, "
+                        "body_md TEXT, loaded_at TEXT)")
+            con.execute("BEGIN")
+            try:
+                for row in rows:
+                    con.execute("DELETE FROM case_studies WHERE case_id = ?", [row["case_id"]])
+                    con.execute("INSERT INTO case_studies VALUES (?,?,?,?,?,?)",
+                                [row["case_id"], row["position"], row["title"], row.get("subtitle") or "",
+                                 row["body_md"], datetime.now(timezone.utc).isoformat(timespec="seconds")])
+                con.execute("COMMIT")
+            except Exception:
+                con.execute("ROLLBACK")
+                raise
+            st.success(f"stored {len(rows)} case studies; the Case studies page shows them immediately.")
+        except Exception as e:
+            st.error(f"case studies load failed: {type(e).__name__}: {e}")
     st.subheader("Upload a verified-evidence batch (JSONL)")
     st.caption("One JSON object per line: id, property_id, claim, value, url, quote, notes, summary. "
                "The ingest thread fetches each cited page and stores the claim only if the quote "
@@ -1267,8 +1300,39 @@ def page_all(con, run_id):
     st.dataframe(out, hide_index=True, use_container_width=True)
 
 
+def case_studies(con):
+    """Memo-based example deals written to live storage by the ops console (never the repo).
+    [(case_id, title, subtitle, body_markdown)] in position order; empty when the table is absent."""
+    try:
+        return con.execute("SELECT case_id, title, subtitle, body_md FROM case_studies "
+                           "ORDER BY position, case_id").fetchall()
+    except Exception:
+        return []
+
+
+def page_cases(con, run_id):
+    st.title("Case studies")
+    st.caption("Two real Bloomfield deals, run through the tool from the deal memo. These are code tests with "
+               "manually staged inputs, not properties the tool found by itself and not new scores for the "
+               "weekly list. Each page separates what the memo says, what the code produced, what was "
+               "assumed, and what public sources show.")
+    cases = case_studies(con)
+    if not cases:
+        st.info("Case studies are not available in collected data yet.")
+        return
+    labels = {cid: title for cid, title, _, _ in cases}
+    pick = st.radio("Case", list(labels), format_func=labels.get, key="case_pick", horizontal=True)
+    for cid, title, subtitle, body in cases:
+        if cid == pick:
+            st.header(title)
+            if subtitle:
+                st.caption(subtitle)
+            st.markdown(body)
+
+
 PAGES = {"Ranked flags": page_ranked, "All properties": page_all, "Flag details": page_detail,
-         "What changed this week": page_changes, "Research log": page_log, "How the score works": page_how}
+         "What changed this week": page_changes, "Research log": page_log, "How the score works": page_how,
+         "Case studies": page_cases}
 
 
 def main():
