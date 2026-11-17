@@ -363,7 +363,9 @@ def value_cut(p, c, as_of) -> Sig:
     for ln in p.cmbs_loans:
         v0, v1 = ln.get("value_securitization"), ln.get("value_recent")
         d1 = as_date(ln.get("value_recent_date")) or as_date(ln.get("report_period"))
-        if not v0 or v0 <= 0 or v1 is None or (d1 and d1 > as_of):
+        # Treat nonpositive most-recent valuations as unknown; a filed zero cannot support a
+        # real value-cut calculation.
+        if not v0 or v0 <= 0 or not v1 or v1 <= 0 or (d1 and d1 > as_of):
             continue
         drop = (v0 - v1) / v0
         s = Sig("W", clamp(drop / c["full_drop"]), True,
