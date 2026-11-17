@@ -8,7 +8,8 @@
 #
 # L, O, C and every creative s_j are strengths from 0 to 1. Late is at most 10.
 # ---------------------------------------------------------------------------
-version: "eq-2.1"   # eq-2.1: adds the research lane U (SEC payment distress + verified sponsor/physical events)
+version: "eq-2.2"   # eq-2.2: W full_drop 1.00 (strength = actual % cut) + tiers hot 65 / watch 30;
+# eq-2.1: adds the research lane U (SEC payment distress + verified sponsor/physical events)
 
 # ---- WHAT BLOOMFIELD TOLD US (Nov 2026) -> HOW THIS FILE USES IT ----------------
 # * Construction loan still on the clock is the STRONGEST signal: a project that opened with its
@@ -90,7 +91,7 @@ creative:
     min_days_between: 180
     reliability: 0.70
   value_cut:                    # W = (value at securitization - most recent value) / value at securitization / full_drop
-    full_drop: 0.50             # value down 50% = 1  (public: CMBS Schedule AL valuation fields on SEC EDGAR)
+    full_drop: 1.00             # value down 100% = 1  (public: CMBS Schedule AL valuation fields on SEC EDGAR)
     reliability: 1.00           # appraisal-based values reported to investors
   licensing_quality:            # Lq from CMS stars / state licensing (Part A licensing_records)
     star_strength: {1: 0.8, 2: 0.5, 3: 0.0, 4: 0.0, 5: 0.0}
@@ -171,8 +172,8 @@ research:
 
 # ---- TIERS ------------------------------------------------------------------
 tiers:
-  hot: 50     # call this week
-  watch: 25   # keep an eye on it
+  hot: 65     # call this week
+  watch: 30   # keep an eye on it
 
 # =============================================================================
 # WEEKLY RUN + DASHBOARD (scorer/weekly.py, dashboard/app.py)
