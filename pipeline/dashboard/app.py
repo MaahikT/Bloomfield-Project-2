@@ -450,15 +450,15 @@ def page_ranked(con, run_id):
     if len(ranked) and not (ranked["score"] > 0).any():
         st.info("None of these properties has an early warning sign yet. They are listed because they pass the filters; "
                 "they are known only from public loan data. Add county records or run the web bot to find signals.")
-    # Displayed scores/tiers/ranking come from the reviewed research assessments
-    # (provisional judgment, rubric v2) where one exists. The deterministic formula
-    # still runs underneath (its rows are untouched); unresearched properties are
-    # unscored - never zero and never Low.
+    # Displayed scores/tiers/ranking are the chosen scoring model's current run
+    # (Bloomfield Opportunity Score rows in weekly_flags). Reviewed research
+    # assessments stay as context (counts, badges, per-property narrative);
+    # they never replace the model score.
     rassess = research_assessments(con)
     conflicts = conflict_properties(con)
     ranked = ranked.assign(
-        _eff_score=ranked["property_id"].map(lambda p: rassess.get(p, (None, None))[0]),
-        _eff_tier=ranked["property_id"].map(lambda p: (rassess.get(p, (None, None))[1] or "unscored").lower()))
+        _eff_score=ranked["score"],
+        _eff_tier=ranked["tier"].map(lambda t: ((t or "unscored") if isinstance(t, str) else "unscored").lower().split(" ")[0]))
     c = st.columns(5)
     c[0].metric("Listed", len(ranked))
     c[1].metric("Priority Review (call this week)", int((ranked["_eff_tier"] == "hot").sum()))
@@ -466,9 +466,9 @@ def page_ranked(con, run_id):
     c[3].metric("Reviewed (this list)", int(ranked["_eff_score"].notna().sum()))
     c[4].metric("Filtered out", int((~df["shown"]).sum()))
     if rassess:
-        st.caption("Scores and tiers are the reviewed research assessments (provisional judgment, "
-                   "rubric v3.3). Unreviewed properties show as unscored - missing research is not a "
-                   "clean bill of health. The deterministic formula still runs underneath for audit. "
+        st.caption("Scores and tiers are the chosen scoring model's current run (Bloomfield "
+                   "Opportunity Score, deterministic formula). Reviewed AI research stays as context "
+                   "on each property page; it does not set the displayed score. "
                    "Coverage depth varies by property; each assessment lists its checked lanes. "
                    f"Priority Review / Monitor / Reviewed counts cover this flagged list; {len(rassess)} properties have "
                    "been reviewed in total, including unflagged senior-housing properties (open them "
@@ -509,23 +509,24 @@ def page_ranked(con, run_id):
                        f"{esc(place)} · {money(r['loan_amount'])}")
             eff_score, eff_tier = r["_eff_score"], r["_eff_tier"]
             assessed = pd.notna(eff_score) and eff_score is not None
-            b.markdown(tags(r, assessed, eff_tier))
-            if assessed:
+            has_research = r["property_id"] in rassess
+            b.markdown(tags(r, has_research, eff_tier))
+            if has_research:
                 one = rassess.get(r["property_id"], (None, None, ""))[2]
                 b.caption(esc(one) if one else "Reviewed research on file - see the assessment on the property page.")
             elif r["property_id"] in conflicts:
                 b.caption("Conflicting filings under review - no honest single score yet; see the property page.")
             else:
                 parts = [f"{code} {r[col]:.0%}" for col, code, _, _ in TERMS if r.get(col) and r[col] > 0]
-                b.caption(("Formula signals (unreviewed): " + " · ".join(parts)) if parts else ("No formula signals (late filings only)" if r["score"] and r["score"] > 0 else "No formula signals found; not yet reviewed in depth"))
+                b.caption(("Model signals: " + " · ".join(parts)) if parts else ("No model signals (late filings only)" if r["score"] and r["score"] > 0 else "No model signals found in available public data - unknown, not a clean bill of health"))
             if not r["shown"]:
                 b.markdown(f":gray[Hidden: {esc(r['filter_reason'])}]")
             if r["property_id"] in status:
                 b.markdown(f":green[Research: {weekly.STATUS_LABELS[status[r['property_id']]]}]")
             if assessed:
-                c3.markdown(f"**{eff_score:.0f}** / 100 · {TIER_ICON[eff_tier]}")
+                c3.markdown(f"**{eff_score:.0f}** / 100 · {TIER_ICON.get(eff_tier, '⚪')}")
                 c3.progress(min(1.0, eff_score / 100))
-                c3.caption("Research score (provisional)")
+                c3.caption("Model score (this run)")
             elif r["property_id"] in conflicts:
                 c3.markdown("**—** / 100 · ⚪ Unscored (conflict)")
                 c3.progress(0.0)
@@ -598,23 +599,26 @@ def page_detail(con, run_id):
     ra_head = research_assessments(con).get(pid)
     conflict = pid in conflict_properties(con)
     c = st.columns(4)
-    if ra_head:
-        c[0].metric("Research score (provisional)", f"{ra_head[0]:.0f}")
-        c[1].metric("Tier (reviewed)", TIER_WORDS.get(ra_head[1].lower().split(" ")[0], tier_label(ra_head[1])))
+    if r.get("score") is not None and not pd.isna(r["score"]):
+        c[0].metric("Bloomfield Opportunity Score", f"{r['score']:.1f}")
+        c[1].metric("Tier (this run)", TIER_WORDS.get((r["tier"] or "").lower().split(" ")[0], tier_label(r["tier"] or "unscored")))
     else:
-        c[0].metric("Research score (provisional)", "—")
-        c[1].metric("Tier", "⚪ Unscored")
+        c[0].metric("Bloomfield Opportunity Score", "—")
+        c[1].metric("Tier", "⚪ Not in this run")
     c[2].metric("Deal quality", r["deal_quality"] or "-")
     c[3].metric("Loan", money(r["loan_amount"]) if r.get("loan_amount") else "-")
+    if ra_head:
+        st.caption(f"AI research assessment (context, provisional): {ra_head[0]:.0f} · {tier_label(ra_head[1])} - "
+                   "the research narrative below is kept for context; it does not set the displayed score.")
     if conflict:
         st.warning("Conflicting filings under review - no honest single score yet. This is NOT a "
                    "scored or cleared review: the unreconciled debt scopes are laid out in the research "
                    "assessment below. The formula summary and equation further down are the automated "
                    "audit view only, not a reviewed score.")
     else:
-        st.caption("Displayed score/tier is the reviewed research assessment (provisional judgment, "
-                   "rubric v3.3); unreviewed properties are unscored. Where a formula audit row exists "
-                   "it is kept below as the audit view, not the displayed score.")
+        st.caption("Displayed score/tier is the chosen scoring model's current run (Bloomfield "
+                   "Opportunity Score). Signals with no verified data are shown as unknown, not as "
+                   "absence of risk; underwritten (UW) baselines are labeled as underwriting, not history.")
     if r.get("est_value") and not pd.isna(r["est_value"]):
         st.caption(f"Estimated stabilized value {money(r['est_value'])} (revenue at stabilized occupancy − latest "
                    f"12-month expenses, ÷ the {r['property_type']} cap rate, − cost to stabilize) · owed / value {r['ltv']:.0%}")
@@ -623,13 +627,10 @@ def page_detail(con, run_id):
     if ex:
         if conflict:
             pass   # conflict notice above carries the status; the raw formula summary is not shown
-        elif ra_head:
-            st.info("Older automated formula summary (audit view only - the reviewed research "
-                    "assessment below drives the displayed score): " + r["summary"])
         else:
             st.info(r["summary"])
 
-        st.subheader("The equation for this property" + (" (formula audit view)" if (ra_head or conflict) else ""))
+        st.subheader("The equation for this property")
         rows = []
         for col, code, label, key in TERMS:
             t = ex[EX_KEY[code]]
@@ -642,7 +643,7 @@ def page_detail(con, run_id):
             st.markdown("**Inside C: each creative signal** — C = 1 − Π(1 − reliability × strength)")
             st.dataframe(pd.DataFrame([{"Signal": f"{x['code']} · {x['name']}", "Strength": x["strength"],
                                         "Reliability": x["reliability"], "Counts as": x["effective"],
-                                        "Why": x["why"] if x["known"] else "no data yet"} for x in cs_rows]),
+                                        "Why": x["why"] if x["known"] else "unknown - no verified data (not evidence of absence)"} for x in cs_rows]),
                          hide_index=True, use_container_width=True,
                          column_config={"Strength": st.column_config.ProgressColumn(min_value=0, max_value=1, format="%.2f")})
         a, b = st.columns(2)
@@ -931,14 +932,12 @@ def page_all(con, run_id):
         st.info("No properties in this run.")
         return
     st.caption(
-        "Every property scored in this run, including the ones with no distress signals yet. "
-        "A blank score means the property has not been reviewed yet - missing data is not proof of "
-        "absence. A reviewed score of 0 can still carry verified losses that other factors balanced "
-        "out - open the property from the Flag details page for the full review. Reviewed "
-        "senior-housing properties outside this run are on that page too.")
-    # Displayed Score/Tier are the reviewed research assessments (provisional judgment,
-    # rubric v2) where one exists; unresearched properties are blank/unscored, never 0/Low.
-    # The deterministic formula's rows are untouched underneath (audit trail in the export).
+        "Every property scored in this run by the chosen scoring model, including the ones with no "
+        "distress signals yet. A low or zero model score reflects available public data only - missing "
+        "data is not proof of absence. The Research column is the AI reviewer's separate judgment, "
+        "kept for context. Open a property from the Flag details page for the full breakdown.")
+    # Displayed Score/Tier are the chosen scoring model's current run (weekly_flags rows).
+    # The reviewed research score is a separate context column; it never replaces the model score.
     rassess = research_assessments(con)
     out = pd.DataFrame({
         "Rank": df["rank"],
@@ -947,11 +946,12 @@ def page_all(con, run_id):
         "City": df["city"],
         "State": df["state"],
         "Loan": df["loan_amount"],
-        "Score": df["property_id"].map(lambda p: rassess.get(p, (pd.NA, ""))[0]),
-        "Tier": df["property_id"].map(lambda p: TIER_LABEL.get((rassess.get(p, (pd.NA, ""))[1] or "unscored").split(" ")[0], "unscored")),
+        "Score": df["score"],
+        "Tier": df["tier"].map(lambda t: TIER_LABEL.get(((t or "unscored") if isinstance(t, str) else "unscored").split(" ")[0].title(), "unscored")),
+        "Research (context)": df["property_id"].map(lambda p: rassess.get(p, (pd.NA, ""))[0]),
         "Listed": df["shown"].map({True: "yes", False: "no"}),
         "Why hidden": df["filter_reason"].fillna(""),
-    }).sort_values(["Score", "Rank"], ascending=[False, True], na_position="last")   # research scores first; columns stay user-sortable
+    }).sort_values(["Score", "Rank"], ascending=[False, True], na_position="last")   # model scores first; columns stay user-sortable
     c1, c2 = st.columns(2)
     _ALL_TIERS = ["Priority Review", "Monitor", "Limited Signals", "unscored"]
     _TIER_DISP = {"Priority Review": TIER_ICON["hot"], "Monitor": TIER_ICON["watch"],
