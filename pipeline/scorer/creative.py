@@ -87,9 +87,22 @@ def link_ids(p) -> set[str]:
 
 
 def _annual(row, field):
+    """A flow value on a YEAR basis, or None when the statement's basis is not established.
+
+    row['basis'] (set at parse time from the filing's own evidence, e.g. collectors.edgar
+    .classify_statement_basis) decides: 'annualized' = the filed figure is already a year's - never
+    scale it again (scaling doubles it: servicers often file a TTM/annualized figure under the dates
+    of the latest quarter or half year); 'period_actual' = scale by 12/months; 'unknown' = exclude
+    from annualized comparisons (manual review), never guessed. Rows with no basis keep the legacy
+    behavior (scale by period months) - non-SEC sources file period-actual figures."""
     v = row.get(field)
     if v is None:
         return None
+    basis = row.get("basis")
+    if basis == "unknown":
+        return None
+    if basis == "annualized":
+        return v
     months = row.get("period_months") or 12
     return v * 12.0 / months
 
@@ -193,8 +206,11 @@ def income_erosion(p, c, ops, as_of) -> Sig:
         now = rows[-1]
         now_d = as_date(now["period_end"])
         noi_now = _annual(now, "noi")
-        annual = [_annual(r, "noi") for r in rows if (r.get("period_months") or 12) >= 12
-                  and (now_d - as_date(r["period_end"])).days <= c["lookback_months"] * 30.5]
+        if noi_now is None:                      # latest statement's basis not established: no erosion call
+            continue
+        annual = [a for r in rows if (r.get("period_months") or 12) >= 12
+                  and (now_d - as_date(r["period_end"])).days <= c["lookback_months"] * 30.5
+                  for a in [_annual(r, "noi")] if a is not None]
         peak = max(annual) if annual else None
         if not peak or peak <= 0:
             continue
@@ -215,7 +231,8 @@ def cost_squeeze(p, c, ops, as_of) -> Sig:
     best = None
     base_is_now = False
     for history in _ops_by_loan(p, ops, as_of).values():   # per loan, never across loans
-        rows = [r for r in history if r.get("revenue") and r.get("expenses")]
+        rows = [r for r in history if r.get("revenue") and r.get("expenses")
+                and _annual(r, "revenue") is not None and _annual(r, "expenses") is not None]
         if len(rows) < 2:
             continue
         full_years = [r for r in rows if (r.get("period_months") or 12) >= 12] or rows
@@ -223,6 +240,8 @@ def cost_squeeze(p, c, ops, as_of) -> Sig:
         now = rows[-1]
         if base is now:
             base_is_now = True
+            continue
+        if not _annual(base, "revenue"):
             continue
         rev_g = _annual(now, "revenue") / _annual(base, "revenue") - 1
         exp_g = _annual(now, "expenses") / _annual(base, "expenses") - 1
