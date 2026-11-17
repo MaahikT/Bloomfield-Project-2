@@ -17,6 +17,7 @@ import hmac
 import html
 import json
 import os
+import re
 import sys
 import uuid
 from datetime import datetime, timezone
@@ -40,17 +41,32 @@ _style.inject()  # visual theme only; no data or scoring logic
 TERMS = [("l_loan_clock", "L", "Loan clock", "loan_clock"), ("o_opening", "O", "Opening delay", "opening_delay"),
          ("c_creative", "C", "Creative signals", "creative")]
 EX_KEY = {"L": "L_loan_clock", "O": "O_opening", "C": "C_creative"}
-TIER_ICON = {"hot": "🔴 Priority Review", "watch": "🟠 Monitor", "low": "⚪ Limited Signals"}
-# Presentation-only labels for stored tier words; suffixes like "(pre-default ...)" survive.
-TIER_LABEL = {"Hot": "Priority Review", "Watch": "Monitor", "Low": "Limited Signals"}
-# Words-only variant for tight spots (metric values) where the emoji dot crowds the fit.
-TIER_WORDS = {"hot": "Priority Review", "watch": "Monitor", "low": "Limited Signals"}
+def score_bands(hot, watch):
+    """Display buckets for a stored model score. The bands mirror the model's internal
+    tier thresholds (passed in from the run config) without naming internal labels;
+    unscored stays explicit because missing data is not proof of absence."""
+    return [f"Score {hot:.0f} or higher", f"Score {watch:.0f} to under {hot:.0f}",
+            f"Score under {watch:.0f}", "Unscored"]
 
-def tier_label(t):
-    if not t:
-        return t
-    first, _, rest = t.partition(" ")
-    return " ".join(x for x in [TIER_LABEL.get(first, first), rest] if x)
+
+def score_band(score, hot, watch):
+    if score is None or pd.isna(score):
+        return "Unscored"
+    if score >= hot:
+        return score_bands(hot, watch)[0]
+    if score >= watch:
+        return score_bands(hot, watch)[1]
+    return score_bands(hot, watch)[2]
+
+
+def display_summary(text):
+    """Stored run summaries can carry an internal standout marker as its own sentence.
+    It is formula bookkeeping, not a review verdict, so it is stripped for display
+    (the stored row is unchanged). A summary that was ONLY the marker gets an honest
+    placeholder."""
+    t = re.sub(r"\bSTANDOUT\.\s*", "", (text or "").strip())
+    t = re.sub(r"\s{2,}", " ", t).replace(". .", ". ").strip()
+    return t or "Flagged on a single strong model signal - see the equation below for the basis."
 
 
 # ---------------------------------------------------------------------------
@@ -159,6 +175,44 @@ def maybe_ingest_console():
                     st.session_state["db_snapshot"], "live-snapshot.duckdb", "application/octet-stream")
     except Exception as e:
         st.caption(f"Snapshot failed: {e}")
+    st.subheader("Plain-English deal reads (top-ranked flags)")
+    st.caption("JSON array of {rank, property_id, name, score, summary_md}; each row replaces the "
+               "stored read for that property. Shown above the equation on the property page. "
+               "Properties absent from the file keep their existing read.")
+    dx_file = st.file_uploader("Deal reads JSON", type=["json"], key="dx_file")
+    if st.button("Store deal reads", key="dx_go") and dx_file is not None:
+        try:
+            rows = json.loads(dx_file.getvalue().decode("utf-8"))
+            if not isinstance(rows, list) or not rows:
+                raise ValueError("expected a non-empty JSON array")
+            # Validate EVERY row before touching the table: a bad file must land nothing.
+            for i, row in enumerate(rows):
+                if not isinstance(row, dict) or not row.get("property_id") \
+                        or not isinstance(row.get("rank"), int) \
+                        or not isinstance(row.get("summary_md"), str) or not row["summary_md"].strip():
+                    raise ValueError(f"row {i + 1}: missing or invalid property_id, rank or summary_md")
+            if not all_runs:
+                raise ValueError("no weekly run exists to scope the reads to")
+            load_run = all_runs[0]
+            con.execute("CREATE TABLE IF NOT EXISTS deal_explanations ("
+                        "property_id TEXT PRIMARY KEY, rank INTEGER, name TEXT, score DOUBLE, "
+                        "summary_md TEXT, run_id TEXT, loaded_at TEXT)")
+            con.execute("BEGIN")
+            try:
+                for row in rows:
+                    con.execute("DELETE FROM deal_explanations WHERE property_id = ?", [row["property_id"]])
+                    con.execute("INSERT INTO deal_explanations VALUES (?,?,?,?,?,?,?)",
+                                [row["property_id"], int(row["rank"]), row.get("name", ""), row.get("score"),
+                                 row["summary_md"], load_run,
+                                 datetime.now(timezone.utc).isoformat(timespec="seconds")])
+                con.execute("COMMIT")
+            except Exception:
+                con.execute("ROLLBACK")
+                raise
+            st.success(f"stored {len(rows)} deal reads for run {load_run}; the property pages show "
+                       "them immediately.")
+        except Exception as e:
+            st.error(f"deal reads load failed: {type(e).__name__}: {e}")
     st.subheader("Upload a verified-evidence batch (JSONL)")
     st.caption("One JSON object per line: id, property_id, claim, value, url, quote, notes, summary. "
                "The ingest thread fetches each cited page and stores the claim only if the quote "
@@ -324,6 +378,20 @@ def _evidence_caveat(claim) -> str:
     return ""
 
 
+def deal_explanations(con, run_id):
+    """Plain-English investment reads for the top-ranked flags, written to live storage
+    by the ops console (never the repo - they are deal memos, not code). Scoped to the
+    displayed run: a read written against one week's score and evidence is never shown
+    against a different week's. {property_id: (rank, summary_markdown)}; empty when the
+    table is absent."""
+    try:
+        rows = con.execute("SELECT property_id, rank, summary_md FROM deal_explanations "
+                           "WHERE run_id = ?", [run_id]).fetchall()
+    except Exception:
+        return {}
+    return {pid: (rk, md) for pid, rk, md in rows}
+
+
 def open_flag(pid):
     st.session_state.selected = pid
     st.session_state.selected_request = pid
@@ -332,8 +400,6 @@ def open_flag(pid):
 
 def tags(r, assessed=False, r_tier=""):
     out = []
-    if "STANDOUT" in (r["flags"] or ""):
-        out.append(":violet-badge[⭐ STANDOUT (formula)]")
     if "COUNTER-SIGNAL" in (r["flags"] or ""):
         out.append(":blue-badge[↩ COUNTER-SIGNAL (formula)]")
     if assessed:
@@ -490,19 +556,18 @@ def page_ranked(con, run_id):
     ranked = ranked.assign(
         _eff_score=ranked["score"],
         _eff_tier=ranked["tier"].map(lambda t: ((t or "unscored") if isinstance(t, str) else "unscored").lower().split(" ")[0]))
-    c = st.columns(5)
+    c = st.columns(4)
     c[0].metric("Listed", len(ranked))
-    c[1].metric("Priority Review (call this week)", int((ranked["_eff_tier"] == "hot").sum()))
-    c[2].metric("Monitor", int((ranked["_eff_tier"] == "watch").sum()))
-    c[3].metric("Scored (this run)", int(ranked["_eff_score"].notna().sum()))
-    c[4].metric("Filtered out", int((~df["shown"]).sum()))
+    c[1].metric("Scored (this run)", int(ranked["_eff_score"].notna().sum()))
+    c[2].metric("Reviewed research on file", int(ranked["property_id"].isin(list(rassess)).sum()))
+    c[3].metric("Filtered out", int((~df["shown"]).sum()))
     if rassess:
-        st.caption("Scores and tiers are the scoring model's latest stored run (Bloomfield "
+        st.caption("Scores are the scoring model's latest stored run (Bloomfield "
                    "Opportunity Score formula, recomputed with the current model and verified "
                    "SEC inputs). Reviewed AI research stays as context on each "
                    "property page; it does not set the displayed score. "
                    "Coverage depth varies by property; each assessment lists its checked lanes. "
-                   f"Priority Review / Monitor / Reviewed counts cover this flagged list; {len(rassess)} properties have "
+                   f"{len(rassess)} properties have "
                    "been reviewed in total, including unflagged senior-housing properties (open them "
                    "from the Flag details page)." +
                    (f" {len(conflicts)} conflict{'s' if len(conflicts) != 1 else ''} under review - "
@@ -516,10 +581,11 @@ def page_ranked(con, run_id):
 
     assessed_first = ranked.assign(_a=ranked["_eff_score"].notna()).sort_values(
         ["_a", "_eff_score", "score"], ascending=[False, False, False])
-    tier_pick = st.multiselect("Tiers", ["hot", "watch", "low", "unscored"],
-                               default=["hot", "watch", "low", "unscored"],
-                               format_func=lambda t: TIER_ICON.get(t, "⚪ Unscored (not researched yet)"))
-    view = assessed_first[assessed_first["_eff_tier"].isin(tier_pick)]
+    _tiers = cfg["tiers"]
+    _hot, _watch = float(_tiers["hot"]), float(_tiers["watch"])
+    _bands = score_bands(_hot, _watch)
+    band_pick = st.multiselect("Score bands", _bands, default=_bands)
+    view = assessed_first[assessed_first["_eff_score"].map(lambda v: score_band(v, _hot, _watch)).isin(band_pick)]
     # Cards are expensive to render; hundreds of rows kept the script "Running" for
     # minutes and every button stayed a skeleton. Show the strongest flags as cards
     # and point to the All properties table for the full scored universe.
@@ -556,15 +622,15 @@ def page_ranked(con, run_id):
             if r["property_id"] in status:
                 b.markdown(f":green[Research: {weekly.STATUS_LABELS[status[r['property_id']]]}]")
             if assessed:
-                c3.markdown(f"**{eff_score:.0f}** / 100 · {TIER_ICON.get(eff_tier, '⚪')}")
+                c3.markdown(f"**{eff_score:.0f}** / 100")
                 c3.progress(min(1.0, eff_score / 100))
                 c3.caption("Model score (stored run)")
             elif r["property_id"] in conflicts:
-                c3.markdown("**—** / 100 · ⚪ Unscored (conflict)")
+                c3.markdown("**—** / 100")
                 c3.progress(0.0)
-                c3.caption("Filings conflict - under review")
+                c3.caption("Filings conflict - under review, unscored")
             else:
-                c3.markdown("**—** / 100 · ⚪ Unscored")
+                c3.markdown("**—** / 100")
                 c3.progress(0.0)
                 c3.caption("Not researched yet - not a clean bill of health")
             c3.caption(f"Deal quality {r['deal_quality']}")
@@ -630,15 +696,13 @@ def page_detail(con, run_id):
     st.markdown(tags(r))
     ra_head = research_assessments(con).get(pid)
     conflict = pid in conflict_properties(con)
-    c = st.columns(4)
+    c = st.columns(3)
     if r.get("score") is not None and not pd.isna(r["score"]):
         c[0].metric("Bloomfield Opportunity Score", f"{r['score']:.1f}")
-        c[1].metric("Tier (this run)", TIER_WORDS.get((r["tier"] or "").lower().split(" ")[0], tier_label(r["tier"] or "unscored")))
     else:
         c[0].metric("Bloomfield Opportunity Score", "—")
-        c[1].metric("Tier", "⚪ Not in this run")
-    c[2].metric("Deal quality", r["deal_quality"] or "-")
-    c[3].metric("Loan", money(r["loan_amount"]) if r.get("loan_amount") else "-")
+    c[1].metric("Deal quality", r["deal_quality"] or "-")
+    c[2].metric("Loan", money(r["loan_amount"]) if r.get("loan_amount") else "-")
     if ra_head:
         st.caption("Reviewed AI research on file for this property - the narrative, evidence and coverage "
                    "below are kept for context alongside the one displayed score above.")
@@ -648,7 +712,7 @@ def page_detail(con, run_id):
                    "assessment below. The formula summary and equation further down are the automated "
                    "audit view only, not a reviewed score.")
     else:
-        st.caption("Displayed score/tier is the scoring model's latest stored run for this property "
+        st.caption("Displayed score is the scoring model's latest stored run for this property "
                    "(Bloomfield Opportunity Score formula). Signals with no verified data are shown as "
                    "unknown, not as absence of risk; underwritten (UW) baselines are labeled as "
                    "underwriting, not history.")
@@ -664,7 +728,17 @@ def page_detail(con, run_id):
         if conflict:
             pass   # conflict notice above carries the status; the raw formula summary is not shown
         else:
-            st.info(r["summary"])
+            st.info(display_summary(r["summary"]))
+
+        dx = deal_explanations(con, run_id).get(pid)
+        if dx:
+            st.subheader("Why this one could be a deal - in plain English")
+            # The stored read was written for a top-50 document and opens with its own
+            # "## N. Name" heading; the page title already carries the name, so drop it.
+            md = re.sub(r"^##\s*\d+\.\s*[^\n]*\n+", "", (dx[1] or "").strip())
+            st.markdown(md)
+            st.caption("A plain-English read of this property's stored scoring run - context and "
+                       "diligence questions, not a valuation, an appraisal or an offer.")
 
         st.subheader("The equation for this property")
         rows = []
@@ -685,8 +759,6 @@ def page_detail(con, run_id):
         a, b = st.columns(2)
         with a:
             st.markdown(f"**Anti-fluke:** {ex['anti_fluke']}")
-            for s in ex.get("standouts", []):
-                st.markdown(f"⭐ **Standout** (counts ×max({cfg['standout']['boost']}, rescale), skips anti-fluke): {esc(s)}")
             for s in ex.get("counter_signals", []):
                 st.markdown(f"↩ **Counter-signal** (×{cfg['counter_signal']['factor']}): {esc(s)}")
             st.markdown(f"**Early points:** {ex['early_points']}")
@@ -822,11 +894,11 @@ def _list(rows, prefix, extra=None):
         st.caption("None.")
     for r in rows:
         a, b = st.columns([5, 1])
-        line = f"**{esc(r['property_name'])}** — score {r['score']:.0f} ({TIER_ICON[r['tier']]})"
+        line = f"**{esc(r['property_name'])}** — score {r['score']:.0f}"
         if extra:
             line += f" · {extra(r)}"
         a.markdown(line)
-        a.caption(esc(r["summary"]))
+        a.caption(esc(display_summary(r["summary"])))
         b.button("Open", key=f"{prefix}-{r['property_id']}", on_click=open_flag, args=(r["property_id"],))
 
 
@@ -837,16 +909,14 @@ def page_changes(con, run_id):
         st.info("This is the first weekly run, so there's nothing to compare yet.")
         return
     st.caption(f"{ch['current'].replace('week-', 'Week of ')} compared with {ch['previous'].replace('week-', 'week of ')}.")
-    c = st.columns(5)
-    for col, (label, key) in zip(c, [("New", "new"), ("Got worse", "worse"), ("New standouts", "new_standouts"),
+    c = st.columns(4)
+    for col, (label, key) in zip(c, [("New", "new"), ("Got worse", "worse"),
                                      ("New filings", "new_late"), ("Dropped off", "dropped")]):
         col.metric(label, len(ch[key]))
     st.subheader("🆕 New flags")
     _list(ch["new"], "new")
     st.subheader("🔺 Got worse")
     _list(ch["worse"], "worse", lambda r: f"up {r['delta']} from {r['previous_score']:.0f}")
-    st.subheader("⭐ Became a standout")
-    _list(ch["new_standouts"], "so")
     st.subheader("✅ Became ready to act (new court filing or lien)")
     _list(ch["new_late"], "late", lambda r: "now READY TO ACT")
     st.subheader("🔻 Got better")
@@ -940,11 +1010,10 @@ def page_how(con, run_id):
     st.markdown(f"""
 - **No lone-signal discount:** a single signal counts in full (1 signal → {cor[1]:.0%}), because much of the data isn't public.
 - **Strength boost:** a signal at ≥ {so.get('boost_starts_at', 0.6):.0%} strength counts more, rising to ×{so.get('max_boost', 1.5)} at {so.get('boost_full_at', 1.0):.0%} (for C, the strongest single creative signal decides). The boost and the rescale don't stack: the larger is used.
-- **⭐ STANDOUT** tag: a signal at ≥ {so['at_strength']:.0%} strength.
 - **↩ COUNTER-SIGNAL:** strong evidence the other way (rent beating its city by {cs['rent_beats_city_by']:.0%}+, or a city inspection in the last {cs['inspected_within_days']} days) multiplies early points by {cs['factor']} each.
 - **Ready to act (max {late['max_points']}):** court/legal filing {late['court_points']}, contractor liens {late['lien_points']} each up to {late['max_lien_points']}. Older than {late['recent_days']} days count half.
 - **Not scored:** Ten-X auctions and CMBS data are shown as context only.
-- **Tiers (formula audit names):** hot ≥ {cfg['tiers']['hot']}, watch ≥ {cfg['tiers']['watch']} - displayed in the app as Priority Review / Monitor.
+- **Internal tiers (formula audit only):** hot ≥ {cfg['tiers']['hot']}, watch ≥ {cfg['tiers']['watch']} - used inside the model; the app shows plain score bands instead of these labels.
 
 Edit every number in `pipeline/config/equation.yaml`, then rerun `python -m scorer.weekly`.
 """)
@@ -960,7 +1029,10 @@ def page_all(con, run_id):
         "Every property scored in this run by the chosen scoring model, including the ones with no "
         "distress signals yet. A low or zero model score reflects available public data only - missing "
         "data is not proof of absence. Open a property from the Flag details page for the full breakdown.")
-    # Displayed Score/Tier are the chosen scoring model's current run (weekly_flags rows) - one score only.
+    # Displayed score is the chosen scoring model's current run (weekly_flags rows) - one score only.
+    _t = run_cfg(con, run_id)["tiers"]
+    _hot, _watch = float(_t["hot"]), float(_t["watch"])
+    _bands = score_bands(_hot, _watch)
     out = pd.DataFrame({
         "Rank": df["rank"],
         "Property": df["property_name"],
@@ -969,20 +1041,14 @@ def page_all(con, run_id):
         "State": df["state"],
         "Loan": df["loan_amount"],
         "Score": df["score"],
-        "Tier": df["tier"].map(lambda t: TIER_LABEL.get(((t or "unscored") if isinstance(t, str) else "unscored").split(" ")[0].title(), "unscored")),
+        "Score band": df["score"].map(lambda v: score_band(v, _hot, _watch)),
         "Listed": df["shown"].map({True: "yes", False: "no"}),
         "Why hidden": df["filter_reason"].fillna(""),
     }).sort_values(["Score", "Rank"], ascending=[False, True], na_position="last")   # model scores first; columns stay user-sortable
     c1, c2 = st.columns(2)
-    _ALL_TIERS = ["Priority Review", "Monitor", "Limited Signals", "unscored"]
-    _TIER_DISP = {"Priority Review": TIER_ICON["hot"], "Monitor": TIER_ICON["watch"],
-                  "Limited Signals": TIER_ICON["low"]}
-    tier_pick = c1.multiselect("Tiers", _ALL_TIERS,
-                               default=_ALL_TIERS,
-                               format_func=lambda t: _TIER_DISP.get(t, "⚪ Unscored (not researched yet)"),
-                               key="all_tiers")
+    band_pick = c1.multiselect("Score bands", _bands, default=_bands, key="all_bands")
     listed_pick = c2.multiselect("Listed status", ["yes", "no"], default=["yes", "no"], key="all_listed")
-    out = out[out["Tier"].isin(tier_pick) & out["Listed"].isin(listed_pick)]
+    out = out[out["Score band"].isin(band_pick) & out["Listed"].isin(listed_pick)]
     st.caption(f"{len(out)} of {len(df)} properties shown")
     st.dataframe(out, hide_index=True, use_container_width=True)
 
@@ -995,17 +1061,21 @@ def main():
     maybe_ingest_console()
     con = get_con()
     all_runs = runs(con)
-    with st.sidebar:
-        # brand block is rendered by dashboard/style.py at inject() time
-        st.session_state.setdefault("page", "Ranked flags")
-        st.radio("Page", list(PAGES), key="page")
-        run_id = st.selectbox("Week", all_runs, format_func=lambda x: x.replace("week-", "Week of ")) if all_runs else None
-        st.caption(f"Database: {Path(db_path() or 'data/bloomfield.duckdb').name}")
-        if "demo" in Path(db_path() or "").name:
-            st.caption("Sample data only. The tool reads and flags; Bloomfield's team does all outreach.")
-        else:
-            st.caption("Live data from public SEC filings (CMBS loans). County sources are not turned on. "
-                       "The tool reads and flags; Bloomfield's team does all outreach.")
+    # Approved layout: white top bar + horizontal tab navigation, no sidebar.
+    st.session_state.setdefault("page", "Ranked flags")
+    top_l, top_r = st.columns([5, 2])
+    with top_l:
+        st.markdown(_style.TOPBAR, unsafe_allow_html=True)
+    with top_r:
+        run_id = st.selectbox("Week", all_runs,
+                              format_func=lambda x: x.replace("week-", "Week of ")) if all_runs else None
+    st.radio("Page", list(PAGES), key="page", horizontal=True, label_visibility="collapsed")
+    db_name = Path(db_path() or "data/bloomfield.duckdb").name
+    if "demo" in Path(db_path() or "").name:
+        st.caption(f"Database: {db_name} · Sample data only. The tool reads and flags; Bloomfield's team does all outreach.")
+    else:
+        st.caption(f"Database: {db_name} · Live data from public SEC filings (CMBS loans). County sources are not turned on. "
+                   "The tool reads and flags; Bloomfield's team does all outreach.")
     if not run_id:
         st.title("No weekly run yet")
         st.write("Run `python -m scorer.weekly` (real data) or `python -m scorer.demo_week` (made-up demo).")
