@@ -41,6 +41,105 @@ _style.inject()  # visual theme only; no data or scoring logic
 TERMS = [("l_loan_clock", "L", "Loan clock", "loan_clock"), ("o_opening", "O", "Opening delay", "opening_delay"),
          ("c_creative", "C", "Creative signals", "creative")]
 EX_KEY = {"L": "L_loan_clock", "O": "O_opening", "C": "C_creative"}
+
+
+# --- Researcher decisions (browser-local, per the approved demo behavior) ----------
+# Weekly-list decisions are personal triage state: they live in the researcher's
+# own browser (localStorage), never in the shared database. The LocalStorage
+# constructor waits for the browser to answer with the real stored state before
+# returning, so a first render can never overwrite stored decisions with an empty
+# not-yet-loaded state. If the component is missing or fails, decisions fall back
+# to the Streamlit session and the UI says "session only" instead of claiming
+# browser persistence.
+DECISION_LABEL = {"approved": "On weekly list", "digging": "Needs digging", "dismissed": "Dismissed"}
+DECISION_BADGE = {"approved": ":green-badge[On weekly list]",
+                  "digging": ":orange-badge[Needs digging]",
+                  "dismissed": ":gray-badge[Dismissed]"}
+_DECISIONS_KEY = "bloomfield-decisions-v1"
+_LS_COMPONENT_KEY = "bloomfield-ls-store"
+try:
+    from streamlit_local_storage import LocalStorage as _LocalStorage
+except Exception:  # optional dependency: tests run on the session fallback
+    _LocalStorage = None
+
+
+def _ls_store():
+    """The hydrated browser-localStorage handle, or None when unavailable."""
+    if "_ls_ok" not in st.session_state:
+        st.session_state["_ls_ok"] = False
+        st.session_state["_ls_handle"] = None
+        if _LocalStorage is not None:
+            try:
+                st.session_state["_ls_handle"] = _LocalStorage(key=_LS_COMPONENT_KEY)
+                st.session_state["_ls_ok"] = True
+            except Exception:
+                st.session_state["_ls_handle"] = None
+    return st.session_state["_ls_handle"]
+
+
+def _decisions():
+    """This browser's researcher decisions: {property_id: {"action":..., "note":...}}."""
+    cache = st.session_state.setdefault("_decisions_cache", {})
+    ls = _ls_store()
+    if ls is not None:
+        try:
+            raw = ls.getItem(_DECISIONS_KEY)
+            data = json.loads(raw) if isinstance(raw, str) else (raw or {})
+            if not isinstance(data, dict):
+                data = {}
+            if st.session_state.get("_decisions_dirty"):
+                # Decisions changed while storage was unavailable: session wins,
+                # then the merged state is pushed back to the browser once.
+                merged = {**data, **cache}
+                if merged != data:
+                    ls.setItem(_DECISIONS_KEY, json.dumps(merged), key="ls-resync")
+                st.session_state["_decisions_dirty"] = False
+                cache = merged
+            else:
+                cache = data
+            st.session_state["_decisions_cache"] = cache
+        except Exception:
+            pass
+    return st.session_state["_decisions_cache"]
+
+
+def _save_decisions(data):
+    st.session_state["_decisions_cache"] = data
+    ls = _ls_store()
+    if ls is not None:
+        try:
+            ls.setItem(_DECISIONS_KEY, json.dumps(data), key="ls-set-decisions")
+            st.session_state["_decisions_dirty"] = False
+            return
+        except Exception:
+            pass
+    st.session_state["_decisions_dirty"] = True
+
+
+def _set_decision(pid, action):
+    # Demo behavior: clicking the active action again clears it.
+    data = dict(_decisions())
+    cur = dict(data.get(pid) or {})
+    cur["action"] = None if cur.get("action") == action else action
+    data[pid] = cur
+    _save_decisions(data)
+
+
+def _set_decision_note(pid):
+    data = dict(_decisions())
+    cur = dict(data.get(pid) or {})
+    cur["note"] = st.session_state.get(f"dec-note-{pid}", "")
+    data[pid] = cur
+    _save_decisions(data)
+
+
+def _persistence_wording():
+    """Honest label for where decisions are kept right now."""
+    if st.session_state.get("_ls_ok"):
+        return "saved in this browser only"
+    return "saved for this session only (browser storage unavailable)"
+
+
 def score_bands(hot, watch):
     """Display buckets for a stored model score. The bands mirror the model's internal
     tier thresholds (passed in from the run config) without naming internal labels;
@@ -536,6 +635,11 @@ def page_ranked(con, run_id):
                             help="Office is shown by default. Turn this on to filter it out of the list and the counts.")
     if hide_office:
         df = df[df["property_type"].fillna("") != "Office"]
+    decisions = _decisions()
+    approved_count = sum(1 for d in decisions.values() if (d or {}).get("action") == "approved")
+    only_mine = st.toggle(f"Only my weekly list ({approved_count})", value=False,
+                          help="Show only the properties you added to your weekly list. "
+                               f"The list is {_persistence_wording()}.")
     ranked = df[df["rank"].notna()]
     live = eq.load_equation_config()["filters"]
     if {k: f.get(k) for k in ("min_loan_size", "max_loan_size", "property_types_excluded")} != \
@@ -586,6 +690,8 @@ def page_ranked(con, run_id):
     _bands = score_bands(_hot, _watch)
     band_pick = st.multiselect("Score bands", _bands, default=_bands)
     view = assessed_first[assessed_first["_eff_score"].map(lambda v: score_band(v, _hot, _watch)).isin(band_pick)]
+    if only_mine:
+        view = view[view["property_id"].map(lambda p: (decisions.get(p) or {}).get("action") == "approved")]
     # Cards are expensive to render; hundreds of rows kept the script "Running" for
     # minutes and every button stayed a skeleton. Show the strongest flags as cards
     # and point to the All properties table for the full scored universe.
@@ -609,6 +715,9 @@ def page_ranked(con, run_id):
             assessed = pd.notna(eff_score) and eff_score is not None
             has_research = r["property_id"] in rassess
             b.markdown(tags(r, has_research, eff_tier))
+            _dec = (decisions.get(r["property_id"]) or {}).get("action")
+            if _dec in DECISION_BADGE:
+                b.markdown(DECISION_BADGE[_dec])
             if has_research:
                 one = rassess.get(r["property_id"], (None, None, ""))[2]
                 b.caption(esc(one) if one else "Reviewed research on file - see the assessment on the property page.")
@@ -694,6 +803,28 @@ def page_detail(con, run_id):
     st.caption(f"{esc(r['property_type'] or 'type unknown')} · {esc(r['address'] or '')} · "
                f"borrower {esc(r['borrower']) or 'unknown'} · lender {esc(r['lender']) or 'unknown'}")
     st.markdown(tags(r))
+
+    # Researcher decision: personal weekly-list triage saved in this browser only
+    # (matches the approved demo controls: weekly list / digging / dismiss + note).
+    _d = _decisions().get(pid) or {}
+    _on = _d.get("action")
+    with st.container(border=True):
+        st.subheader("Researcher decision")
+        b1, b2, b3 = st.columns(3)
+        b1.button("\u2713 On the weekly list" if _on == "approved" else "Add to weekly list",
+                  key=f"dec-approve-{pid}", on_click=_set_decision, args=(pid, "approved"),
+                  type="primary" if _on == "approved" else "secondary", use_container_width=True)
+        b2.button("Needs more digging" + (" \u2713" if _on == "digging" else ""),
+                  key=f"dec-digging-{pid}", on_click=_set_decision, args=(pid, "digging"),
+                  type="primary" if _on == "digging" else "secondary", use_container_width=True)
+        b3.button("Dismiss" + (" \u2713" if _on == "dismissed" else ""),
+                  key=f"dec-dismiss-{pid}", on_click=_set_decision, args=(pid, "dismissed"),
+                  type="primary" if _on == "dismissed" else "secondary", use_container_width=True)
+        st.text_area(f"Notes for the team ({_persistence_wording()})",
+                     value=_d.get("note") or "", key=f"dec-note-{pid}",
+                     on_change=_set_decision_note, args=(pid,))
+        st.caption("The tool never contacts anyone. Bloomfield handles all outreach.")
+
     ra_head = research_assessments(con).get(pid)
     conflict = pid in conflict_properties(con)
     c = st.columns(3)
