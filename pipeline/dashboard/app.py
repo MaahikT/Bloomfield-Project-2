@@ -56,74 +56,122 @@ DECISION_BADGE = {"approved": ":green-badge[On weekly list]",
                   "digging": ":orange-badge[Needs digging]",
                   "dismissed": ":gray-badge[Dismissed]"}
 _DECISIONS_KEY = "bloomfield-decisions-v1"
-_LS_COMPONENT_KEY = "bloomfield-ls-store"
+import time as _time
 try:
-    from streamlit_local_storage import LocalStorage as _LocalStorage
-except Exception:  # optional dependency: tests run on the session fallback
-    _LocalStorage = None
+    # The package's LocalStorage class raised silently on the live deployment
+    # (its constructor polls st.session_state in a way that never completes
+    # there). Use its declared component primitive directly, with bounded
+    # hydration and an inspectable error surface instead.
+    from streamlit_local_storage import _st_local_storage as _sls_raw
+except Exception:  # optional dependency missing: session fallback
+    _sls_raw = None
+_LS_GETALL_KEY = "bloomfield-ls-getall-v1"
+_LS_SET_KEY = "bloomfield-ls-set-v1"
 
 
-def _ls_store():
-    """The hydrated browser-localStorage handle, or None when unavailable."""
+def _ls_get_all():
+    """The browser's full localStorage dict once it answers, else None.
+
+    Only the first call of a session waits (bounded ~2s); the hydrated dict is
+    cached afterwards. None means storage is unavailable: callers must label
+    decisions as session-only, never browser-persisted.
+    """
+    cached = st.session_state.get("_ls_store_data")
+    if isinstance(cached, dict):
+        return cached
+    if _sls_raw is None:
+        return None
+    try:
+        v = _sls_raw(method="getAll", key=_LS_GETALL_KEY, default=None)
+        if isinstance(v, dict):
+            st.session_state["_ls_store_data"] = v
+            return v
+        for _ in range(20):  # browser answers over the websocket mid-run
+            _time.sleep(0.1)
+            v = st.session_state.get(_LS_GETALL_KEY)
+            if isinstance(v, dict):
+                st.session_state["_ls_store_data"] = v
+                return v
+    except Exception as e:
+        st.session_state["_ls_error"] = f"{type(e).__name__}: {e}"
+    return None
+
+
+def _ls_set(item_key, value_json):
+    """Write one key to browser localStorage. True when the call was accepted."""
+    if _sls_raw is None:
+        return False
+    try:
+        _sls_raw(method="setItem", itemKey=item_key, itemValue=value_json, key=_LS_SET_KEY)
+        data = st.session_state.get("_ls_store_data")
+        if isinstance(data, dict):
+            data[item_key] = value_json
+        return True
+    except Exception as e:
+        st.session_state["_ls_error"] = f"{type(e).__name__}: {e}"
+        return False
+
+
+def _storage():
+    """Hydrated browser localStorage dict, or None when unavailable.
+
+    Also maintains _ls_ok: True once the browser has answered and no write has
+    failed since, False on any failure. The UI labels persistence from _ls_ok.
+    """
+    store = _ls_get_all()
     if "_ls_ok" not in st.session_state:
-        st.session_state["_ls_ok"] = False
-        st.session_state["_ls_handle"] = None
-        if _LocalStorage is not None:
-            try:
-                st.session_state["_ls_handle"] = _LocalStorage(key=_LS_COMPONENT_KEY)
-                st.session_state["_ls_ok"] = True
-            except Exception:
-                st.session_state["_ls_handle"] = None
-    return st.session_state["_ls_handle"]
+        st.session_state["_ls_ok"] = store is not None
+    elif store is not None and not st.session_state.get("_ls_write_failed"):
+        st.session_state["_ls_ok"] = True
+    return store
 
 
 def _decisions():
     """This browser's researcher decisions: {property_id: {"action":..., "note":...}}."""
     cache = st.session_state.setdefault("_decisions_cache", {})
-    ls = _ls_store()
-    if ls is not None:
+    store = _storage()
+    if store is not None:
+        raw = store.get(_DECISIONS_KEY)
         try:
-            raw = ls.getItem(_DECISIONS_KEY)
             data = json.loads(raw) if isinstance(raw, str) else (raw or {})
-            if not isinstance(data, dict):
-                data = {}
-            if st.session_state.get("_decisions_dirty"):
-                # Decisions changed while storage was unavailable: session wins,
-                # then the merged state is pushed back to the browser once.
-                merged = {**data, **cache}
-                if merged != data:
-                    try:
-                        ls.setItem(_DECISIONS_KEY, json.dumps(merged), key="ls-resync")
-                        st.session_state["_ls_ok"] = True  # storage recovered
-                    except Exception:
-                        # Still failing: keep the session copy, stay dirty and
-                        # degraded so the UI keeps saying "session only".
-                        st.session_state["_ls_ok"] = False
-                        st.session_state["_decisions_cache"] = merged
-                        return merged
-                st.session_state["_decisions_dirty"] = False
-                cache = merged
-            else:
-                cache = data
-            st.session_state["_decisions_cache"] = cache
         except Exception:
-            pass
+            data = {}
+        if not isinstance(data, dict):
+            data = {}
+        if st.session_state.get("_decisions_dirty"):
+            # Decisions changed while storage was unavailable: session wins,
+            # then the merged state is pushed back to the browser once.
+            merged = {**data, **cache}
+            if merged != data:
+                if _ls_set(_DECISIONS_KEY, json.dumps(merged)):
+                    st.session_state["_ls_ok"] = True  # storage recovered
+                    st.session_state["_ls_write_failed"] = False
+                else:
+                    # Still failing: keep the session copy, stay dirty and
+                    # degraded so the UI keeps saying "session only".
+                    st.session_state["_ls_ok"] = False
+                    st.session_state["_decisions_cache"] = merged
+                    return merged
+            st.session_state["_decisions_dirty"] = False
+            cache = merged
+        else:
+            cache = data
+        st.session_state["_decisions_cache"] = cache
     return st.session_state["_decisions_cache"]
 
 
 def _save_decisions(data):
     st.session_state["_decisions_cache"] = data
-    ls = _ls_store()
-    if ls is not None:
-        try:
-            ls.setItem(_DECISIONS_KEY, json.dumps(data), key="ls-set-decisions")
+    if _storage() is not None:
+        if _ls_set(_DECISIONS_KEY, json.dumps(data)):
             st.session_state["_decisions_dirty"] = False
             st.session_state["_ls_ok"] = True  # a real write landed: storage is healthy
+            st.session_state["_ls_write_failed"] = False
             return
-        except Exception:
-            # Init succeeded but the write failed: degrade honestly so the UI
-            # stops claiming browser persistence; the resync path retries.
-            st.session_state["_ls_ok"] = False
+        # Hydrated but the write failed: degrade honestly so the UI stops
+        # claiming browser persistence; the resync path retries.
+        st.session_state["_ls_ok"] = False
+        st.session_state["_ls_write_failed"] = True
     st.session_state["_decisions_dirty"] = True
 
 
@@ -642,6 +690,8 @@ def page_ranked(con, run_id):
         pass
     with st.expander("Research diagnostics"):
         st.text(research_diagnostics(con))
+        if st.session_state.get("_ls_error"):
+            st.text(f"Browser storage component: {st.session_state['_ls_error']}")
     hide_office = st.toggle("Hide office properties", value=False,
                             help="Office is shown by default. Turn this on to filter it out of the list and the counts.")
     if hide_office:
