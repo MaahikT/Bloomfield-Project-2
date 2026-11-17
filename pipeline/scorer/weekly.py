@@ -266,6 +266,8 @@ def summary(r: eq.Result, name) -> str:
         text += ". COUNTER-SIGNAL: " + "; ".join(r.counters)
     if r.late_why:
         text += ". Already happened: " + "; ".join(r.late_why)
+    if getattr(r, "u", 0):
+        text += ". " + "; ".join(r.u_why)
     return text + "."
 
 
