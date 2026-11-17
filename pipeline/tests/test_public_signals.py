@@ -76,7 +76,7 @@ def test_schedule_al_fields_feed_q_v_x_and_w(con, tmp_path):
     assert by["Q"].value == 1.0                     # 95.4% -> 32.8%
     assert by["V"].value == 1.0                     # NOI $5.0M -> -$3.9M a year
     assert by["X"].value == 1.0                     # expenses up, revenue down
-    assert by["W"].value == 1.0 and "77.0M" in by["W"].why     # value $77.0M -> $18.1M
+    assert abs(by["W"].value - (77.0 - 18.1) / 77.0) < 1e-9 and "77.0M" in by["W"].why  # value $77.0M -> $18.1M (eq-2.2: strength = actual pct cut)
     assert r.tier in ("hot", "watch") and r.score >= 50
 
 
