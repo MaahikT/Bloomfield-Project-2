@@ -1,9 +1,9 @@
 # Bloomfield Flags theme. Palette mirrors pipeline/dashboard/style.py.
 [theme]
-primaryColor = "#A88435"
-backgroundColor = "#FAF8F4"
-secondaryBackgroundColor = "#F1EDE4"
-textColor = "#152A42"
+primaryColor = "#00274C"
+backgroundColor = "#F2F3F5"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#1F2933"
 font = "sans serif"
 
 [server]
