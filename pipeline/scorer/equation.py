@@ -107,6 +107,15 @@ COURT_TAGS = {"foreclosure_scheduled", "receiver_appointed", "lis_pendens", "len
               "ucc_sale_scheduled", "tax_delinquent", "payment_default", "maturity_default",
               "technical_default", "covenant_default", "forbearance"}
 
+# Research lane (U): CREFC paymentStatusLoanCode -> rung name in the config's research.payment ladder
+# (the recovered v2 research rubric's own tiers). Codes 0 / 4 / A earn nothing.
+PAYMENT_LADDER = {"B": "late_under_30", "1": "days_30_89", "2": "days_30_89",
+                  "3": "days_90_plus", "5": "days_90_plus", "6": "days_90_plus"}
+PAYMENT_LABEL = {"0": "payments current", "1": "30-59 days delinquent", "2": "60-89 days delinquent",
+                 "3": "90-120 days delinquent", "4": "past maturity, still paying",
+                 "5": "past maturity, not paying", "6": "121+ days delinquent",
+                 "A": "payment not received, in grace period", "B": "late, under 30 days"}
+
 
 def load_equation_config(path: str | Path | None = None) -> dict:
     with open(path or EQUATION_YAML, encoding="utf-8") as f:
@@ -154,6 +163,8 @@ class Result:
     early: float = 0.0
     late: float = 0.0
     late_why: list = field(default_factory=list)
+    u: float = 0.0
+    u_why: list = field(default_factory=list)
     standouts: list = field(default_factory=list)
     boosts: dict = field(default_factory=dict)
     applicable: dict = field(default_factory=dict)
@@ -537,6 +548,54 @@ def strength_boost(s: float, so: dict) -> float:
     return 1.0 + (top - 1.0) * min(1.0, (s - start) / (full - start))
 
 
+# ---------------------------------------------------------------------------
+# U: verified distress facts the filings carry but L/O/C/Late do not read (research lane)
+# ---------------------------------------------------------------------------
+def research_payment_points(p: Property, c: dict, as_of: date) -> tuple[float, list[str]]:
+    """The v2 payment ladder from each loan's latest SEC report. A loan past maturity and still
+    outstanding already scores the loan clock (L = 1.0), so it earns nothing here - the same fact
+    is never counted twice, and the dedup is per LOAN, not per property. An unknown payment status
+    earns nothing: missing data is not a tier."""
+    pc = c["payment"]
+    best, why = 0.0, ""
+    for ln in p.cmbs_loans:
+        m = as_date(ln.get("post_mod_maturity")) or as_date(ln.get("maturity_date"))
+        reported = as_date(ln.get("report_period"))
+        if m and m < as_of and (ln.get("current_balance") or 0) > 0 and (not reported or reported >= m):
+            continue                                        # already the loan clock, counted once
+        code = str(ln.get("payment_status") or "").strip()
+        rung = PAYMENT_LADDER.get(code)
+        pts = float(pc[rung]) if rung else 0.0
+        # workoutStrategyCode is parsed but NOT scored: the corpus files non-empty codes on
+        # payment-current loans (status 0 with codes 98/8/9), so bare presence does not establish
+        # special servicing, and the official CREFC value legend is not grounded here yet.
+        # nonRecoverabilityIndicator is likewise parsed but NOT scored: its official definition
+        # (a non-recoverability determination on advances) is not grounded as 'advancing stopped',
+        # so there is no 40-point rung - 90+ delinquency scores 32 until that is grounded.
+        if pts > best:
+            best = min(float(pc["cap"]), pts)
+            bits = [PAYMENT_LABEL.get(code, f"payment status {code}")] if rung else []
+            why = "SEC loan filing: " + "; ".join(bits)
+    return best, ([why] if why else [])
+
+
+def research_event_points(p: Property, c: dict, as_of: date, events: dict) -> tuple[float, list[str]]:
+    """Sponsor-distress and physical-condition events admitted as quote-verified typed claims
+    (agent/mapping.py -> research_events). Points are the researcher's rubric-band judgment, capped
+    here at the rubric's 12 / 8. An event dated after as_of did not exist yet."""
+    total, why = 0.0, []
+    for tag, cap, words in (("sponsor_distress", float(c["sponsor_cap"]), "sponsor/borrower distress"),
+                            ("physical_condition", float(c["physical_cap"]), "verified current condition issues")):
+        pts = max([min(float(e.get("points") or 0.0), cap)
+                   for e in events.get(p.property_id, [])
+                   if e.get("tag") == tag and (as_date(e.get("event_date")) or date.min) <= as_of]
+                  or [0.0])
+        if pts > 0:
+            total += pts
+            why.append(f"verified research: {words} (+{pts:.0f})")
+    return total, why
+
+
 def score_property(p: Property, cfg: dict, as_of: date, rents: dict, market: dict, inspections: dict,
                    extra: dict | None = None) -> Result:
     facts = property_facts(p)
@@ -584,7 +643,13 @@ def score_property(p: Property, cfg: dict, as_of: date, rents: dict, market: dic
     # Downside extreme: each counter-signal cuts the early points.
     r.early = early * cfg["counter_signal"]["factor"] ** len(r.counters)
     r.late, r.late_why = late_points(p, facts, cfg["late"], as_of)
-    r.score = round(min(cfg["max_score"], r.early + r.late), 1)
+    rcfg = cfg.get("research") or {}
+    if rcfg:
+        pay_pts, pay_why = research_payment_points(p, rcfg, as_of)
+        ev_pts, ev_why = research_event_points(p, rcfg, as_of, (extra or {}).get("research_events", {}))
+        r.u = round(pay_pts + ev_pts, 1)
+        r.u_why = pay_why + ev_why
+    r.score = round(min(cfg["max_score"], r.early + r.late + r.u), 1)
     t = cfg["tiers"]
     r.tier = "hot" if r.score >= t["hot"] else "watch" if r.score >= t["watch"] else "low"
     r.stage = "ready_to_act" if r.late > 0 else "early"   # court/lien filings confirm it's actionable
@@ -649,6 +714,11 @@ def load_inputs(con):
         for (st,) in coverage_rows:
             if st:
                 extra["inspection_coverage"].add(str(st).upper())
+    if table_exists(con, "research_events"):
+        for pid, tag, pts, d, quote, url in con.execute(
+                "SELECT property_id, tag, points, event_date, quote, source_url FROM research_events").fetchall():
+            extra.setdefault("research_events", {}).setdefault(str(pid), []).append(
+                {"tag": tag, "points": pts, "event_date": d, "quote": quote, "source_url": url})
     return rents, market, inspections, extra
 
 
@@ -689,6 +759,8 @@ def explain(r: Result, cfg: dict) -> dict:
         "early_points": round(r.early, 1),
         "late_points": round(r.late, 1),
         "late_why": r.late_why,
+        "research_points": round(getattr(r, "u", 0.0), 1),
+        "research_why": getattr(r, "u_why", []),
         "score": r.score,
     }
 

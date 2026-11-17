@@ -8,7 +8,7 @@
 #
 # L, O, C and every creative s_j are strengths from 0 to 1. Late is at most 10.
 # ---------------------------------------------------------------------------
-version: "eq-2.0"
+version: "eq-2.1"   # eq-2.1: adds the research lane U (SEC payment distress + verified sponsor/physical events)
 
 # ---- WHAT BLOOMFIELD TOLD US (Nov 2026) -> HOW THIS FILE USES IT ----------------
 # * Construction loan still on the clock is the STRONGEST signal: a project that opened with its
@@ -150,6 +150,24 @@ late:
 
 # ---- NOT SCORED (Bloomfield: public / forced, or everyone already has it) ----
 # Auctions (Ten-X), CMBS DSCR and watchlists are shown as context only.
+
+# ---- RESEARCH LANE (U): verified distress facts the filings carry but L/O/C/Late don't read ----
+# The payment ladder and the sponsor/physical caps are the recovered v2 research rubric's own numbers
+# (Nov 15, 2026), so nothing here is a new invented weight. Each fact counts ONCE: a loan past maturity
+# and still outstanding already scores the loan clock (L = 1.0), so it earns no payment-ladder points.
+research:
+  payment:
+    cap: 40
+    late_under_30: 15        # code B: late under 30 days and still unpaid as of the latest filing
+    days_30_89: 25           # codes 1-2 (30-59 / 60-89 days delinquent)
+    days_90_plus: 32         # codes 3 / 5 / 6 (90-120 days, past maturity not paying, 121+ days)
+    # workoutStrategyCode is parsed but deliberately UNSCORED: the corpus files non-empty codes on
+    # payment-current loans (status 0 with codes 98 / 8 / 9), so bare presence is not verified
+    # special servicing. The v2 35-point SS rung stays off until the official CREFC legend is grounded.
+    # (no 40-point rung: nonRecoverabilityIndicator is parsed but unscored until its
+    #  official definition is grounded - 90+ delinquency caps at days_90_plus)
+  sponsor_cap: 12            # verified borrower/sponsor distress (research_events, quote-verified)
+  physical_cap: 8            # verified CURRENT habitability/code condition (research_events, quote-verified)
 
 # ---- TIERS ------------------------------------------------------------------
 tiers:
