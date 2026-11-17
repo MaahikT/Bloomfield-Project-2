@@ -766,7 +766,15 @@ def page_detail(con, run_id):
             st.markdown(f"**Ready-to-act confirmation (court/lien filings, max {cfg['late']['max_points']}):** {ex['late_points']}")
             for s in ex.get("late_why", []):
                 st.markdown(f"- {esc(s)}")
-            st.markdown(f"**Score = min(100, {ex['early_points']} + {ex['late_points']}) = {ex['score']}**")
+            # Payment-status ladder (SEC-filed delinquency) plus quote-verified research events.
+            # Part of the stored score since the research config shipped; shown so the sum reconciles.
+            rcfg = cfg.get("research") or {}
+            rmax = ((rcfg.get("payment") or {}).get("cap") or 0) + (rcfg.get("sponsor_cap") or 0) + (rcfg.get("physical_cap") or 0)
+            rp = ex.get("research_points") or 0.0
+            st.markdown(f"**Payment status + verified research (latest SEC filing / reviewed research, max {rmax}):** {rp}")
+            for s in ex.get("research_why") or []:
+                st.markdown(f"- {esc(s)}")
+            st.markdown(f"**Score = min(100, {ex['early_points']} + {ex['late_points']} + {rp}) = {ex['score']}**")
 
         ctx = json.loads(r["context"])
         if ctx:
