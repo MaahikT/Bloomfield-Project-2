@@ -32,7 +32,11 @@ from collectors.common.log import RunTracker
 MAX_FILE_BYTES = 20 * 1024 * 1024
 MAX_TOTAL_BYTES = 80 * 1024 * 1024
 MAX_FILES = 40
-TOPUP_NAME = re.compile(r"^(sec-edgar-doc-\d{4}-\d{5})\.xml$")
+# Upload widgets may prepend a numeric counter to the uploaded file name
+# ("65-sec-edgar-doc-2026-00016.xml"). Tolerate exactly one "<digits>-" prefix;
+# identity still comes only from the canonical id matching raw_files plus the
+# sha256 checks below, so a prefixed name can only ever top up that same filing.
+TOPUP_NAME = re.compile(r"^(?:\d+-)?(sec-edgar-doc-\d{4}-\d{5})\.xml$")
 SEC_URL = re.compile(r"^https://www\.sec\.gov/Archives/edgar/data/\d+/\d+/\S+\.xml$")
 ACCESSION = re.compile(r"^\d{10}-\d{2}-\d{6}$")
 
