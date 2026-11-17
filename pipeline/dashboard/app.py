@@ -215,6 +215,24 @@ def maybe_ingest_console():
                        f"(early {out['early']} + late {out['late']})")
         except Exception as e:
             st.error(f"recompute failed: {type(e).__name__}: {e}")
+    st.divider()
+    st.subheader("Full weekly scoring run (all properties)")
+    st.caption("Runs the same scorer.weekly entrypoint as the command line (python -m scorer.weekly) "
+               "inside this process - the one process allowed to write the database. Scoring only: "
+               "no collectors, no AI reader, no scheduler, no network or paid calls. Take the database "
+               "snapshot above first; it is the rollback. The run takes about a minute and the page "
+               "shows the result when it finishes.")
+    if st.button("Run full weekly scoring now", key="bf_all"):
+        try:
+            from datetime import date as _date
+            new_run = weekly.run(con, None, _date.today(), include_demo=None)
+            fs = weekly.filter_summary(con, new_run)
+            ch = weekly.changes(con, new_run)
+            st.success(f"run {new_run}: {fs['shown']} shown, {fs['hidden']} hidden; "
+                       f"since {ch['previous']}: {len(ch['new'])} new, {len(ch['worse'])} worse, "
+                       f"{len(ch['better'])} better, {len(ch['dropped'])} dropped")
+        except Exception as e:
+            st.error(f"weekly run failed: {type(e).__name__}: {e}")
     st.subheader("Recent ingest rows")
     st.caption("Assessment rows (type=research_assessment) store the research-lane judgment; evidence "
                "rows are stored only after the quote is found verbatim on the fetched page.")
