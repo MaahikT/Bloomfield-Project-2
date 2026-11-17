@@ -16,23 +16,23 @@ from __future__ import annotations
 import streamlit as st
 
 # Palette (single source of truth for the CSS below and config.toml):
-INK = "#152A42"        # deep navy - headings, primary buttons
-INK_SOFT = "#3E5268"   # secondary text
-PAPER = "#FAF8F4"      # warm paper background
+INK = "#00274C"        # Michigan navy - headings, primary buttons
+INK_SOFT = "#42525F"   # secondary text
+PAPER = "#F2F3F5"      # light gray page background
 CARD = "#FFFFFF"
-LINE = "#E4DFD3"       # hairline borders
-GOLD = "#A88435"       # muted brass accent
-GOLD_DEEP = "#8C6C28"
-SIDEBAR = "#10233B"    # deep navy sidebar
-SIDEBAR_EDGE = "#0B1A2D"
-SIDEBAR_TEXT = "#D8DEE8"
-SIDEBAR_MUTE = "#A9BAD0"
-# Tier tints - desaturated, meaning-bearing only:
-TIER_HOT = "#9C2F28"
+LINE = "#E1E4E8"       # hairline borders
+GOLD = "#FFCB05"       # Michigan maize accent
+GOLD_DEEP = "#B58900"  # darker maize for hover states on light surfaces
+SIDEBAR = "#00274C"    # Michigan navy sidebar
+SIDEBAR_EDGE = "#001B36"
+SIDEBAR_TEXT = "#DCE3EC"
+SIDEBAR_MUTE = "#9FB2C8"
+# Signal tints - desaturated, meaning-bearing only:
+TIER_HOT = "#C93B32"
 TIER_WATCH = "#8A6A1C"
 TIER_LOW = "#54667A"
 MUTE = "#6E7681"
-RANK = "#B9AE97"       # muted brass-gray for ordinal numerals
+RANK = "#93A1B0"       # muted slate for ordinal numerals
 
 CSS = """
 <style>
@@ -73,10 +73,54 @@ header[data-testid="stHeader"] {
 [data-testid="stToolbar"] { opacity: 0.55; }
 [data-testid="stToolbar"]:hover { opacity: 1; }
 
+/* ---------- no sidebar: navigation is the top tab bar ---------- */
+[data-testid="stSidebar"], [data-testid="stSidebarCollapsedControl"],
+[data-testid="collapsedControl"] { display: none !important; }
+
+/* ---------- top bar: white product header ---------- */
+.bf-topbar { padding: 0.35rem 0 0.15rem; }
+.bf-topbar-title {
+  font-family: 'Source Serif 4', Georgia, serif;
+  font-size: 1.3rem; font-weight: 650; color: %(INK)s; letter-spacing: -0.01em;
+}
+.bf-topbar-sub {
+  margin-left: 10px; font-family: 'Inter', sans-serif;
+  font-size: 0.74rem; color: %(MUTE)s;
+}
+
+/* ---------- top navigation: horizontal radio rendered as underline tabs ---------- */
+[data-testid="stMain"] [data-testid="stRadio"] [data-testid="stRadioOption"] > div > div:first-child {
+  display: none !important;
+}
+[data-testid="stMain"] [data-testid="stRadio"] [role="radiogroup"] {
+  gap: 2px; border-bottom: 1px solid %(LINE)s; padding-bottom: 0;
+}
+[data-testid="stMain"] [data-testid="stRadio"] [data-testid="stRadioOption"] {
+  border-radius: 0 !important;
+  border-bottom: 3px solid transparent;
+  padding: 7px 12px 5px !important;
+  margin-bottom: -1px;
+  transition: border-color 140ms ease;
+}
+[data-testid="stMain"] [data-testid="stRadio"] [data-testid="stRadioOption"]:hover {
+  border-bottom-color: %(GOLD)s;
+  background: transparent !important;
+}
+[data-testid="stMain"] [data-testid="stRadio"] [data-testid="stRadioOption"] p {
+  font-size: 0.86rem; font-weight: 500; color: %(INK_SOFT)s;
+}
+[data-testid="stMain"] [data-testid="stRadio"] [data-testid="stRadioOption"][data-selected="true"] {
+  border-bottom-color: %(GOLD)s;
+  background: transparent !important;
+}
+[data-testid="stMain"] [data-testid="stRadio"] [data-testid="stRadioOption"][data-selected="true"] p {
+  color: %(INK)s; font-weight: 600;
+}
+
 /* ---------- sidebar: deep navy, brand-forward ---------- */
 [data-testid="stSidebar"] {
   background: linear-gradient(178deg, %(SIDEBAR)s 0%%, %(SIDEBAR_EDGE)s 100%%) !important;
-  border-right: 1px solid #1E3450;
+  border-right: 1px solid #17406B;
 }
 [data-testid="stSidebar"] * { color: %(SIDEBAR_TEXT)s; }
 [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3,
@@ -92,7 +136,7 @@ header[data-testid="stHeader"] {
   font-size: 0.78rem !important;
   line-height: 1.45 !important;
 }
-[data-testid="stSidebar"] hr { border-color: #26405E !important; }
+[data-testid="stSidebar"] hr { border-color: #1E4670 !important; }
 
 /* widget labels in the sidebar read as micro-captions */
 [data-testid="stSidebar"] [data-testid="stWidgetLabel"] p {
@@ -128,8 +172,8 @@ header[data-testid="stHeader"] {
 [data-testid="stSidebar"] [data-testid="stSelectbox"] .react-aria-ComboBox,
 [data-testid="stSidebar"] [data-testid="stSelectbox"] .react-aria-ComboBox > div,
 [data-testid="stSidebar"] [data-baseweb="select"] > div {
-  background-color: #1B3454 !important;
-  border-color: #2C4A6E !important;
+  background-color: #0F3A63 !important;
+  border-color: #2A5784 !important;
   border-radius: 8px !important;
 }
 [data-testid="stSidebar"] [data-testid="stSelectbox"] input,
@@ -168,7 +212,7 @@ header[data-testid="stHeader"] {
   transition: box-shadow 160ms ease, border-color 160ms ease;
 }
 [data-testid="stVerticalBlockBorderWrapper"]:hover {
-  border-color: #CFC7B4 !important;
+  border-color: #C3CAD2 !important;
   box-shadow: 0 4px 14px rgba(21, 42, 66, 0.09);
 }
 
@@ -248,8 +292,8 @@ header[data-testid="stHeader"] {
   border-radius: 8px !important;
 }
 [data-testid="stMultiSelect"] span[data-tag] {
-  background-color: #F0EDE5 !important;
-  border: 1px solid #DED8C9 !important;
+  background-color: #ECEFF3 !important;
+  border: 1px solid #D5DBE1 !important;
   border-radius: 4px !important;
 }
 [data-testid="stMultiSelect"] span[data-tag] span { color: %(INK)s !important; font-weight: 500; }
@@ -307,7 +351,7 @@ header[data-testid="stHeader"] {
   border-bottom: 2px solid %(LINE)s !important;
 }
 [data-testid="stTable"] td, .stTable td { font-variant-numeric: tabular-nums; }
-[data-testid="stTable"] tbody tr:hover td { background: #F4F0E8; }
+[data-testid="stTable"] tbody tr:hover td { background: #EEF1F4; }
 
 /* ---------- fluid feel - soft entrance, smoother controls ---------- */
 [data-testid="stMain"] .block-container { animation: bfFade 240ms ease-out; }
@@ -352,25 +396,15 @@ button:focus-visible, input:focus-visible, [role="combobox"]:focus-visible {
        "SIDEBAR_MUTE": SIDEBAR_MUTE, "TIER_HOT": TIER_HOT, "TIER_WATCH": TIER_WATCH,
        "TIER_LOW": TIER_LOW, "MUTE": MUTE, "RANK": RANK}
 
-BRAND = """
-<div style="padding: 0.35rem 0 1.1rem 0; border-bottom: 1px solid #26405E; margin-bottom: 1.1rem;">
-  <div style="font-family: 'Inter', sans-serif; font-size: 0.62rem; font-weight: 600;
-              letter-spacing: 0.22em; text-transform: uppercase; color: %(GOLD)s; margin-bottom: 0.3rem;">
-    Bloomfield Capital
-  </div>
-  <div style="font-family: 'Source Serif 4', Georgia, serif; font-size: 1.42rem; font-weight: 650;
-              color: #FFFFFF; line-height: 1.15;">
-    Opportunity Flags
-  </div>
-  <div style="font-family: 'Inter', sans-serif; font-size: 0.72rem; color: %(SIDEBAR_MUTE)s; margin-top: 0.3rem;">
-    Weekly distressed-debt research desk
-  </div>
+TOPBAR = """
+<div class="bf-topbar">
+  <span class="bf-topbar-title">Bloomfield sourcing tool</span>
+  <span class="bf-topbar-sub">research workflow · distressed-borrower sourcing</span>
 </div>
-""" % {"GOLD": GOLD, "SIDEBAR_MUTE": SIDEBAR_MUTE}
+"""
+
 
 
 def inject() -> None:
     """Apply the theme. Call once, immediately after st.set_page_config(...)."""
     st.markdown(CSS, unsafe_allow_html=True)
-    with st.sidebar:
-        st.markdown(BRAND, unsafe_allow_html=True)
