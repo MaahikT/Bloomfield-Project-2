@@ -380,11 +380,11 @@ def loan_notice(con):
                    f"({c['recorded_loans']} from recorder index rows, {c['reader_loans']} read from recorder documents).")
         return
     if c["unread_recorder_files"]:
-        st.caption(f"{c['unread_recorder_files']} county recorder document(s) are still waiting to be read, so the "
-                   "loan clock (L) is 0 for those properties. Loan balances shown come from SEC CMBS filings.")
+        st.caption(f"{c['unread_recorder_files']} county recorder document(s) are still waiting to be read. "
+                   "Loan balances and status shown come from SEC CMBS filings.")
     else:
-        st.caption("No county recorder data yet, so the loan clock (L) is 0 for every property. "
-                   "Loan balances shown come from SEC CMBS filings.")
+        st.caption("No county recorder data yet. "
+                   "Loan balances and status shown come from SEC CMBS filings.")
 
 def research_status(con) -> str:
     """One honest line about the sourcing agent's work on THIS database: how many research
