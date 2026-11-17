@@ -13,6 +13,7 @@ Reads weekly_flags / weekly_runs (scorer/weekly.py). Writes only research_log.
 """
 from __future__ import annotations
 
+import hmac
 import html
 import json
 import os
@@ -107,7 +108,7 @@ def maybe_ingest_console():
         return
     expected = os.environ.get("BLOOMFIELD_INGEST_KEY", "")
     st.title("Research ingest console")
-    if os.environ.get("BLOOMFIELD_INGEST") != "1" or not expected or key != expected:
+    if os.environ.get("BLOOMFIELD_INGEST") != "1" or not expected or not hmac.compare_digest(str(key), expected):
         st.error("Not authorized.")
         st.stop()
     con = get_con()
@@ -171,6 +172,49 @@ def maybe_ingest_console():
         dest.write_bytes(up.getvalue())
         st.success(f"Saved {dest.name}. The ingest thread verifies and stores each row within about "
                    "a minute; refusals and fetch failures are listed in the ingest_rows table.")
+    st.subheader("SEC EX-102 backfill (official filings -> loans + operating metrics)")
+    st.caption("For manually obtained SEC ABS-EE Exhibit 102 XML. A file named like an existing "
+               "sec-edgar-doc-YYYY-NNNNN record tops up that record (sha256 checked against raw_files); "
+               "anything else is stored as a NEW filing under a server-generated id - upload names are "
+               "never used as paths. The database file is backed up before any parsing, and only the "
+               "edgar backfill writes scorer inputs from these files.")
+    bf_deal = st.text_input("Deal/trust name for new filings (one deal per batch, e.g. BMO 2024-5C4)", key="bf_deal")
+    bf_prov = st.text_area("Optional provenance for new filings, one per line: filename accession source-url",
+                           key="bf_prov", height=80)
+    bf_files = st.file_uploader("EX-102 XML files", type=["xml"], accept_multiple_files=True, key="bf_files")
+    if st.button("Store files + run edgar backfill", key="bf_go") and bf_files:
+        from dashboard import sec_backfill
+        try:
+            prov = {}
+            for line in bf_prov.splitlines():
+                parts = line.split()
+                if len(parts) == 3:
+                    prov[parts[0]] = (parts[1], parts[2])
+            report = sec_backfill.stage_files(con, [(f.name, f.getvalue()) for f in bf_files],
+                                              deal=bf_deal, provenance=prov)
+            st.success(f"stored {len(report['written'])}, already present {len(report['skipped'])}: "
+                       + ", ".join(report["written"] + report["skipped"]))
+            res = sec_backfill.run_backfill(con, Path(db_path()).resolve())
+            st.success(f"backfill parsed {res['parsed']} file(s); status {res['status']}; backup {res['backup']}")
+            if res["errors"]:
+                st.warning("some files failed: " + "; ".join(str(e)[:160] for e in res["errors"][:5]))
+        except Exception as e:
+            st.session_state.pop("con", None)   # reopen cleanly (covers the restore path)
+            st.error(f"backfill aborted: {type(e).__name__}: {e}")
+            st.stop()
+    st.divider()
+    st.subheader("Recompute one property with the current model")
+    st.caption("Re-scores a single weekly_flags row with the code and inputs as they are now - the same "
+               "pipeline the weekly run uses. Every other property keeps its stored score until the "
+               "full recompute.")
+    bf_pid = st.text_input("property_id", key="bf_pid")
+    if st.button("Recompute this property only", key="bf_one") and bf_pid.strip():
+        try:
+            out = weekly.rescore_one(con, bf_pid.strip())
+            st.success(f"{out['name']}: score {out['score']} - {out['tier']} / {out['stage']} "
+                       f"(early {out['early']} + late {out['late']})")
+        except Exception as e:
+            st.error(f"recompute failed: {type(e).__name__}: {e}")
     st.subheader("Recent ingest rows")
     st.caption("Assessment rows (type=research_assessment) store the research-lane judgment; evidence "
                "rows are stored only after the quote is found verbatim on the fetched page.")
@@ -344,7 +388,7 @@ def research_status(con) -> str:
     conf_tail = (f"; {n_conf} conflict{'s' if n_conf != 1 else ''} under review, "
                  "unscored until reconciled" if n_conf else "")
     tail = (f" · Properties with reviewed research: {reviewed} propert{'y' if reviewed == 1 else 'ies'} "
-            "(reviewed scores drive the list; depth varies - each page shows its coverage" + conf_tail + ")"
+            "(research assessments are context on each page; depth varies - each page shows its coverage" + conf_tail + ")"
             if reviewed else "")
     if not goals:
         return ("🔎 Automated first pass (earlier, unreviewed): has not run on this database yet "
@@ -433,6 +477,16 @@ def page_ranked(con, run_id):
     loan_notice(con)
 
     st.caption(research_status(con))
+    try:
+        from collectors.common import db as _cdb
+        _scoped = _cdb.get_state(con, "dashboard", "scoped_recompute")
+        if _scoped:
+            _info = json.loads(_scoped)
+            st.info(f"{_info['name']} was re-scored with the current model at {_info['at']} "
+                    f"(score {_info['score']} · {_info['tier']}). Every other property still shows "
+                    "the stored run; a full recompute follows the input-validation checks.")
+    except Exception:
+        pass
     with st.expander("Research diagnostics"):
         st.text(research_diagnostics(con))
     hide_office = st.toggle("Hide office properties", value=False,
@@ -463,12 +517,13 @@ def page_ranked(con, run_id):
     c[0].metric("Listed", len(ranked))
     c[1].metric("Priority Review (call this week)", int((ranked["_eff_tier"] == "hot").sum()))
     c[2].metric("Monitor", int((ranked["_eff_tier"] == "watch").sum()))
-    c[3].metric("Reviewed (this list)", int(ranked["_eff_score"].notna().sum()))
+    c[3].metric("Scored (this run)", int(ranked["_eff_score"].notna().sum()))
     c[4].metric("Filtered out", int((~df["shown"]).sum()))
     if rassess:
-        st.caption("Scores and tiers are the chosen scoring model's current run (Bloomfield "
-                   "Opportunity Score, deterministic formula). Reviewed AI research stays as context "
-                   "on each property page; it does not set the displayed score. "
+        st.caption("Scores and tiers are the scoring model's latest stored run (Bloomfield "
+                   "Opportunity Score formula); a recompute with today's updated model and verified "
+                   "SEC inputs is in progress. Reviewed AI research stays as context on each "
+                   "property page; it does not set the displayed score. "
                    "Coverage depth varies by property; each assessment lists its checked lanes. "
                    f"Priority Review / Monitor / Reviewed counts cover this flagged list; {len(rassess)} properties have "
                    "been reviewed in total, including unflagged senior-housing properties (open them "
@@ -526,7 +581,7 @@ def page_ranked(con, run_id):
             if assessed:
                 c3.markdown(f"**{eff_score:.0f}** / 100 · {TIER_ICON.get(eff_tier, '⚪')}")
                 c3.progress(min(1.0, eff_score / 100))
-                c3.caption("Model score (this run)")
+                c3.caption("Model score (stored run)")
             elif r["property_id"] in conflicts:
                 c3.markdown("**—** / 100 · ⚪ Unscored (conflict)")
                 c3.progress(0.0)
@@ -616,9 +671,13 @@ def page_detail(con, run_id):
                    "assessment below. The formula summary and equation further down are the automated "
                    "audit view only, not a reviewed score.")
     else:
-        st.caption("Displayed score/tier is the chosen scoring model's current run (Bloomfield "
-                   "Opportunity Score). Signals with no verified data are shown as unknown, not as "
-                   "absence of risk; underwritten (UW) baselines are labeled as underwriting, not history.")
+        st.caption("Displayed score/tier is the scoring model's latest stored run for this property "
+                   "(Bloomfield Opportunity Score formula). Signals with no verified data are shown as "
+                   "unknown, not as absence of risk; underwritten (UW) baselines are labeled as "
+                   "underwriting, not history.")
+    if ex and ex.get("recomputed_at"):
+        st.caption(f"This property was re-scored with the current model at {ex['recomputed_at']} "
+                   "after a verified SEC data import; properties without this note show the stored run.")
     if r.get("est_value") and not pd.isna(r["est_value"]):
         st.caption(f"Estimated stabilized value {money(r['est_value'])} (revenue at stabilized occupancy − latest "
                    f"12-month expenses, ÷ the {r['property_type']} cap rate, − cost to stabilize) · owed / value {r['ltv']:.0%}")
