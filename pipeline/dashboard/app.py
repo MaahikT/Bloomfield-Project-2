@@ -201,10 +201,12 @@ def _persistence_wording():
 
 def score_bands(hot, watch):
     """Display buckets for a stored model score. The bands mirror the model's internal
-    tier thresholds (passed in from the run config) without naming internal labels;
+    tier thresholds (passed in from the run config) named with the user-facing
+    tier words (high priority / watch / low), not the internal formula labels;
     unscored stays explicit because missing data is not proof of absence."""
-    return [f"Score {hot:.0f} or higher", f"Score {watch:.0f} to under {hot:.0f}",
-            f"Score under {watch:.0f}", "Unscored"]
+    return [f"High priority: score {hot:.0f} or higher",
+            f"Watch: score {watch:.0f} to under {hot:.0f}",
+            f"Low: score under {watch:.0f}", "Unscored"]
 
 
 def score_band(score, hot, watch):
@@ -215,6 +217,41 @@ def score_band(score, hot, watch):
     if score >= watch:
         return score_bands(hot, watch)[1]
     return score_bands(hot, watch)[2]
+
+# One strong color per score band, drawn from the app palette (navy, maize, cool
+# grays), so high priority, watch and low scan differently at a glance. The maize
+# chip carries navy text (and vice versa) because maize text on white is unreadable.
+BAND_CHIP = {
+    0: ("#00274C", "#FFCB05", "\u25b2 HIGH PRIORITY"),
+    1: ("#FFCB05", "#00274C", "\u25cf WATCH"),
+    2: ("#E5E7EB", "#4B5563", "\u25bc LOW"),
+}
+
+
+def _chip_html(bg, fg, label):
+    return (f"<span style='display:inline-block;background:{bg};color:{fg};"
+            f"padding:2px 10px;border-radius:10px;font-size:12px;font-weight:700;"
+            f"letter-spacing:0.4px'>{label}</span>")
+
+
+def tier_chip(score, hot, watch):
+    """Colored band chip for one card. Called only for scored properties."""
+    if score >= hot:
+        bg, fg, label = BAND_CHIP[0]
+    elif score >= watch:
+        bg, fg, label = BAND_CHIP[1]
+    else:
+        bg, fg, label = BAND_CHIP[2]
+    return _chip_html(bg, fg, label)
+
+
+def band_score_color(score, hot, watch):
+    """Score number tint matching its band chip (maize darkened for white cards)."""
+    if score >= hot:
+        return "#00274C"
+    if score >= watch:
+        return "#8A6D00"
+    return "#6B7280"
 
 
 def display_summary(text):
@@ -782,6 +819,12 @@ def page_ranked(con, run_id):
     _tiers = cfg["tiers"]
     _hot, _watch = float(_tiers["hot"]), float(_tiers["watch"])
     _bands = score_bands(_hot, _watch)
+    # Band totals in the same chip colors, so the mix is visible before any filtering.
+    _cnt = ranked["_eff_score"].map(lambda v: score_band(v, _hot, _watch)).value_counts()
+    st.markdown(" &nbsp; ".join(
+        _chip_html(bg, fg, f"{label} \u00b7 {int(_cnt.get(_bands[i], 0))}")
+        for i, (bg, fg, label) in BAND_CHIP.items()),
+        unsafe_allow_html=True)
     band_pick = st.multiselect("Score bands", _bands, default=_bands)
     view = assessed_first[assessed_first["_eff_score"].map(lambda v: score_band(v, _hot, _watch)).isin(band_pick)]
     if only_mine:
@@ -808,6 +851,8 @@ def page_ranked(con, run_id):
             eff_score, eff_tier = r["_eff_score"], r["_eff_tier"]
             assessed = pd.notna(eff_score) and eff_score is not None
             has_research = r["property_id"] in rassess
+            if assessed:
+                b.markdown(tier_chip(eff_score, _hot, _watch), unsafe_allow_html=True)
             b.markdown(tags(r, has_research, eff_tier))
             _dec = (decisions.get(r["property_id"]) or {}).get("action")
             if _dec in DECISION_BADGE:
@@ -825,7 +870,9 @@ def page_ranked(con, run_id):
             if r["property_id"] in status:
                 b.markdown(f":green[Research: {weekly.STATUS_LABELS[status[r['property_id']]]}]")
             if assessed:
-                c3.markdown(f"**{eff_score:.0f}** / 100")
+                c3.markdown(f"<span style='color:{band_score_color(eff_score, _hot, _watch)};"
+                            f"font-size:20px;font-weight:700'>{eff_score:.0f}</span> / 100",
+                            unsafe_allow_html=True)
                 c3.progress(min(1.0, eff_score / 100))
                 c3.caption("Model score (stored run)")
             elif r["property_id"] in conflicts:
