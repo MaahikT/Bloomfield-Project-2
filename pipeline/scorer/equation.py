@@ -119,6 +119,8 @@ def create_equation_tables(con) -> None:
     con.execute("ALTER TABLE rent_observations ADD COLUMN IF NOT EXISTS concession_months DOUBLE")
     con.execute("ALTER TABLE rent_observations ADD COLUMN IF NOT EXISTS lease_term_months DOUBLE")
     con.execute("ALTER TABLE operating_metrics ADD COLUMN IF NOT EXISTS disclosed_on DATE")
+    con.execute("ALTER TABLE operating_metrics ADD COLUMN IF NOT EXISTS basis VARCHAR")
+    con.execute("ALTER TABLE operating_metrics ADD COLUMN IF NOT EXISTS basis_evidence VARCHAR")
     con.execute("ALTER TABLE market_occupancy ADD COLUMN IF NOT EXISTS rent_per_unit_year DOUBLE")
 
 
@@ -204,15 +206,23 @@ def loan_records(p: Property) -> list[dict]:
         base = {"record_id": ln.get("loan_key"), "loan_kind": "unknown", "recording_date": as_date(ln["origination_date"]),
                 "amount": ln.get("original_balance"), "grantee": ln.get("servicer_name"), "source": "sec_edgar"}
         out.append(base)
-        out.append({**base, "record_id": f"{ln.get('loan_key')}:modified", "loan_kind": "modification",
-                    "recording_date": as_date(ln.get("report_period")) or as_date(ln["origination_date"])})
+        # A servicer modified-flag alone is not an extension: most reported modifications leave maturity
+        # unchanged (modification code 8/9 'other'). It only starts a new loan clock when the filing shows
+        # the maturity actually moved (postModificationMaturityDate later than the original maturity).
+        pm, om = as_date(ln.get("post_mod_maturity")), as_date(ln.get("maturity_date"))
+        if pm and om and pm > om:
+            out.append({**base, "record_id": f"{ln.get('loan_key')}:modified", "loan_kind": "modification",
+                        "recording_date": as_date(ln.get("report_period")) or as_date(ln["origination_date"])})
     return out
 
 
 def past_maturity_loan(p: Property, as_of: date):
-    """A public CMBS loan that is past its maturity date and still outstanding (balance > 0)."""
+    """A public CMBS loan that is past its maturity date and still outstanding (balance > 0).
+
+    The EFFECTIVE maturity is the post-modification date when the servicer files one (an extension
+    moves maturityDate there on some filings while others keep the original), else the filed maturity."""
     for ln in p.cmbs_loans:
-        m = as_date(ln.get("maturity_date"))
+        m = as_date(ln.get("post_mod_maturity")) or as_date(ln.get("maturity_date"))
         reported = as_date(ln.get("report_period"))
         if m and m < as_of and (ln.get("current_balance") or 0) > 0 and (not reported or reported >= m):
             return ln, m
