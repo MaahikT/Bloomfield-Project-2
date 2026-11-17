@@ -96,13 +96,17 @@ fields:
   io_term:           ["originalInterestOnlyTermNumber"]
   orig_term:         ["originalTermLoanNumber"]
   post_mod_maturity: ["postModificationMaturityDate"]
+  # Payment-distress fields for the research lane (scorer/equation.py research_payment_points):
+  paid_through:      ["paidThroughDate"]
+  workout_code:      ["workoutStrategyCode"]          # parsed for review/display; UNSCORED for now
+  non_recoverability: ["nonRecoverabilityIndicator"]  # servicer judged advances non-recoverable (parsed, not scored)
 
 # Fields the audit does NOT complain about if they are empty (they are often blank for real).
 optional_fields: [property_name, property_zip, payment_status, original_balance, origination_date, modified,
                   sec_occupancy, sec_revenue, sec_expenses, sec_noi, sec_value, sec_value_date, recent_revenue,
                   recent_expenses, recent_noi, recent_value, recent_value_date, fin_start, fin_end,
                   sec_coverage, recent_coverage, recent_ds, io, neg_am, amort_term, post_mod_maturity,
-                  rate_type, io_term, orig_term]
+                  rate_type, io_term, orig_term, paid_through, workout_code, non_recoverability]
 
 # Occupancy is stored as a fraction (0.95). If the file gives a number above this, it is read as a
 # percent (95 -> 0.95).
