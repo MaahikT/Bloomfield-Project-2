@@ -355,37 +355,6 @@ def tags(r, assessed=False, r_tier=""):
 # ---------------------------------------------------------------------------
 # Pages
 # ---------------------------------------------------------------------------
-def loan_data_counts(con) -> dict:
-    """How much loan data this database actually has (the loan clock and loan amounts depend on it)."""
-    def count(sql):
-        try:
-            return con.execute(sql).fetchone()[0]
-        except Exception:                           # table not created yet
-            return 0
-    return {
-        "recorded_loans": count("SELECT count(*) FROM recorded_loans"),
-        "reader_loans": count("SELECT count(*) FROM filing_fields WHERE lower(filing_type) = 'recorded_loan'"),
-        "recorder_files": count("SELECT count(*) FROM raw_files WHERE source = 'recorder'"),
-        "unread_recorder_files": count("SELECT count(*) FROM raw_files r WHERE r.source = 'recorder' AND NOT EXISTS "
-                                       "(SELECT 1 FROM filing_fields f WHERE f.file_id = r.file_id)"),
-    }
-
-
-def loan_notice(con):
-    """Say plainly when there is no loan data, instead of letting every loan value read 0."""
-    c = loan_data_counts(con)
-    loans = c["recorded_loans"] + c["reader_loans"]
-    if loans:
-        st.caption(f"Loan data in this run: {loans} recorded loan(s) "
-                   f"({c['recorded_loans']} from recorder index rows, {c['reader_loans']} read from recorder documents).")
-        return
-    if c["unread_recorder_files"]:
-        st.caption(f"{c['unread_recorder_files']} county recorder document(s) are still waiting to be read. "
-                   "Loan balances and status shown come from SEC CMBS filings.")
-    else:
-        st.caption("No county recorder data yet. "
-                   "Loan balances and status shown come from SEC CMBS filings.")
-
 def research_status(con) -> str:
     """One honest line about the sourcing agent's work on THIS database: how many research
     goals finished, how much verified evidence they saved, and the estimated model cost so
@@ -489,9 +458,6 @@ def page_ranked(con, run_id):
     st.caption(f"Bloomfield Opportunity Score {cfg['version']} · {run_id.replace('week-', 'week of ')} · "
                f"{(', '.join(f['property_types_excluded']) + ' hidden') if f['property_types_excluded'] else 'all property types shown'} · loans from {money(f['min_loan_size'])}"
                f"{' to ' + money(f['max_loan_size']) if f.get('max_loan_size') else ' (no upper limit)'} · {'states ' + ', '.join(f['states']) if f['states'] else 'all U.S.'}")
-    loan_notice(con)
-
-    st.caption(research_status(con))
     try:
         from collectors.common import db as _cdb
         _scoped = _cdb.get_state(con, "dashboard", "scoped_recompute")
