@@ -157,6 +157,7 @@ class Result:
     standouts: list = field(default_factory=list)
     boosts: dict = field(default_factory=dict)
     applicable: dict = field(default_factory=dict)
+    applicable_proof: dict = field(default_factory=dict)   # source proof behind each non-applicable term
     rescale: float = 1.0
     counters: list = field(default_factory=list)
     score: float = 0.0
@@ -504,6 +505,30 @@ def applicable_terms(p: Property, cfg: dict, as_of: date) -> dict:
     }
 
 
+def applicability_proof(p: Property, as_of: date) -> dict:
+    """Source proof that an inapplicable early term really cannot apply - vs. merely unknown.
+
+    A term with no proof must stay labeled 'unknown - no data', never 'not applicable':
+    absence of records is not evidence the term does not apply.
+    """
+    cmbs = list(p.cmbs_loans)
+    permanent = [ln for ln in cmbs if as_date(ln.get("origination_date"))]
+    operating = [ln for ln in cmbs if ln.get("occupancy") is not None]
+    proof = {"loan_clock": None, "opening_delay": None, "creative": None}
+    if permanent and past_maturity_loan(p, as_of) is None:
+        mats = [as_date(ln.get("post_mod_maturity")) or as_date(ln.get("maturity_date")) for ln in permanent]
+        mats = [m for m in mats if m]
+        orig = min(as_date(ln["origination_date"]) for ln in permanent)
+        proof["loan_clock"] = (f"securitized permanent financing in place since {orig}"
+                               + (f"; filed effective maturity {max(mats)} not past" if mats else "")
+                               + "; no construction or extended short-term loan in records")
+    if operating:
+        proof["opening_delay"] = "servicer reports occupancy - the building is open and operating"
+    elif permanent:
+        proof["opening_delay"] = "securitized financing requires a stabilized, open property"
+    return proof
+
+
 def strength_boost(s: float, so: dict) -> float:
     """x1.0 below boost_starts_at, rising in a straight line to max_boost at boost_full_at."""
     start, full, top = so.get("boost_starts_at", 0.6), so.get("boost_full_at", 1.0), so.get("max_boost", 1.5)
@@ -534,6 +559,7 @@ def score_property(p: Property, cfg: dict, as_of: date, rents: dict, market: dic
     early = 0.0
     # Rescale for terms that cannot apply (e.g. no construction financing on a long-open building), at most x max_rescale.
     r.applicable = applicable_terms(p, cfg, as_of)
+    r.applicable_proof = applicability_proof(p, as_of)
     w_all = sum(w[k] for k in parts)
     w_app = sum(w[k] for k in parts if r.applicable[k])
     r.rescale = min(cfg["applicability"]["max_rescale"], w_all / w_app) if w_app else 1.0
@@ -637,9 +663,18 @@ def score_all(con, cfg: dict | None = None, as_of: date | None = None) -> list[R
 
 def explain(r: Result, cfg: dict) -> dict:
     w = cfg["weights"]
+    proof = getattr(r, "applicable_proof", None) or {}
+
+    def term(key: str, part: Part, weight: float) -> dict:
+        why = part.why
+        if not r.applicable.get(key, True):
+            # Inapplicable must be PROVEN by source data; otherwise the honest label is unknown.
+            why = f"not applicable - {proof[key]}" if proof.get(key) else "unknown - no data"
+        return {"strength": round(part.value, 3), "points": round(weight * part.value, 1), "why": why}
+
     return {
-        "L_loan_clock": {"strength": round(r.L.value, 3), "points": round(w["loan_clock"] * r.L.value, 1), "why": r.L.why},
-        "O_opening": {"strength": round(r.O.value, 3), "points": round(w["opening_delay"] * r.O.value, 1), "why": r.O.why},
+        "L_loan_clock": term("loan_clock", r.L, w["loan_clock"]),
+        "O_opening": term("opening_delay", r.O, w["opening_delay"]),
         "C_creative": {"strength": round(r.C.value, 3), "points": round(w["creative"] * r.C.value, 1), "why": r.C.why},
         "creative_signals": [{"code": s.code, "name": cr.CREATIVE_LABELS[s.code], "strength": round(s.value, 3),
                               "reliability": s.q, "effective": round(s.effective, 3), "known": s.known, "why": s.why}
@@ -648,7 +683,8 @@ def explain(r: Result, cfg: dict) -> dict:
         "strength_boosts": {k: round(v, 2) for k, v in r.boosts.items()},
         "standouts": r.standouts,
         "counter_signals": r.counters,
-        "not_applicable": [k for k, ok in r.applicable.items() if not ok],
+        "not_applicable": [k for k, ok in r.applicable.items() if not ok and proof.get(k)],
+        "unknown": [k for k, ok in r.applicable.items() if not ok and not proof.get(k)],
         "rescale": round(r.rescale, 2),
         "early_points": round(r.early, 1),
         "late_points": round(r.late, 1),

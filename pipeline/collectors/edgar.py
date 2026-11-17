@@ -409,6 +409,61 @@ def _put_ops(con, link, period, months, values: dict, source: str, file_id) -> b
     return True
 
 
+_FIN_FIELDS = ("revenue", "expenses", "noi", "debt_service")
+
+
+def _unallocated_collateral_links(rows: list[dict]) -> set:
+    """Multi-property loans: some servicers file the most-recent statement only at loan level.
+    The collateral blocks then carry literal zeros, an exact copy of the loan-level row, or a
+    partial mix (block-1 revenue with wrong expenses). None of those is a per-property
+    observation - writing one fabricates a zero-NOI year (a false -100% erosion signal) or
+    double-attributes loan figures to one property.
+    A collateral group is UNALLOCATED, and every collateral row in it is skipped, when the
+    loan-level row carries figures and any of:
+      (a) the collateral values do not sum back to the loan-level value for a filed field
+          (catches partial/mixed allocations);
+      (b) a collateral block is all-zero on revenue/expenses/NOI while the loan level is not
+          (unreported collateral, not a zero-NOI year);
+      (c) a collateral block exactly duplicates the loan-level row (block-1 inheritance).
+    A REAL per-property split (blocks sum back to the loan total to the cent, no zero or
+    duplicate blocks) is never skipped; neither is a group with no loan-level figures
+    (nothing to reconcile against). The loan-level row is always kept, labeled loan-level."""
+    fin = {}
+    for r in rows:
+        o = r.get("_ops") or {}
+        fin[r["loan_key"]] = tuple(o.get(f"recent_{k}") if k != "debt_service" else o.get("recent_ds")
+                                   for k in _FIN_FIELDS)
+    bases: dict[str, list[str]] = {}
+    for link in fin:
+        m = re.match(r"^(.*)-(\d+)$", link)
+        if m and m.group(1) in fin:
+            bases.setdefault(m.group(1), []).append(link)
+    skip: set = set()
+    for base, collaterals in bases.items():
+        base_vals = fin[base]
+        if all(v is None for v in base_vals):
+            continue                                    # no loan-level row to reconcile against
+        unallocated = False
+        for i in range(len(_FIN_FIELDS)):
+            b = base_vals[i]
+            col_vals = [fin[c][i] for c in collaterals]
+            if b is not None and any(v is not None for v in col_vals):
+                total = sum(v or 0 for v in col_vals)
+                if abs(total - b) > max(1.0, abs(b) * 0.005):
+                    unallocated = True                  # (a) collateral split does not reconcile
+        for c in collaterals:
+            vals = fin[c]
+            if all(v is None for v in vals):
+                continue                                # nothing filed: the all-NULL row path decides
+            if vals == base_vals:
+                unallocated = True                      # (c) block-1 inheritance of the loan-level row
+            elif all(not v for v in vals[:3]) and any(v for v in base_vals[:3] if v):
+                unallocated = True                      # (b) zeros where the loan level carries figures
+        if unallocated:
+            skip.update(collaterals)
+    return skip
+
+
 def write_operating_metrics(con, result: ParseResult) -> int:
     """Feed each loan's public Schedule AL operating data into operating_metrics (one row per loan per period):
       * the occupancy reported for this period (history for the occupancy slide, Q);
@@ -419,6 +474,8 @@ def write_operating_metrics(con, result: ParseResult) -> int:
     from scorer.equation import create_equation_tables
     create_equation_tables(con)
     written = 0
+    unallocated = _unallocated_collateral_links(result.rows)
+    skipped_collateral = 0
     for r in result.rows:
         o, link, fid = r.get("_ops") or {}, r["loan_key"], r["file_id"]
         if r.get("occupancy") is not None:
@@ -434,11 +491,23 @@ def write_operating_metrics(con, result: ParseResult) -> int:
         basis, evidence = classify_statement_basis(o)
         fin_values = {"revenue": o.get("recent_revenue"), "expenses": o.get("recent_expenses"),
                       "noi": o.get("recent_noi"), "debt_service": o.get("recent_ds")}
-        if any(v is not None for v in fin_values.values()):
-            fin_values["basis"] = basis
-            fin_values["basis_evidence"] = evidence
-        written += _put_ops(con, link, o.get("fin_end"), _months(o.get("fin_start"), o.get("fin_end")),
-                            fin_values, "sec_edgar_financials", fid)
+        if link in unallocated:
+            removed = con.execute(
+                "DELETE FROM operating_metrics WHERE link_id = ? AND file_id = ? AND source = 'sec_edgar_financials'",
+                [link, fid]).rowcount
+            if removed:
+                log.info("%s: removed %d prior unallocated collateral row(s) for a quarantined link",
+                         result.rows[0].get("deal_name") if result.rows else "?", removed)
+            skipped_collateral += 1                     # unallocated collateral split: not a property observation
+        else:
+            if any(v is not None for v in fin_values.values()):
+                fin_values["basis"] = basis
+                fin_values["basis_evidence"] = evidence
+            written += _put_ops(con, link, o.get("fin_end"), _months(o.get("fin_start"), o.get("fin_end")),
+                                fin_values, "sec_edgar_financials", fid)
+    if skipped_collateral:
+        log.info("%s: skipped %d unallocated collateral financial row(s) (loan-level statement only)",
+                 result.rows[0].get("deal_name") if result.rows else "?", skipped_collateral)
     return written
 
 

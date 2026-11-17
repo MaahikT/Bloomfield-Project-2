@@ -134,3 +134,28 @@ def test_nursing_benchmark_never_serves_assisted_living(c):
     n = cr.occupancy_slide(nursing, "Senior housing", "MI", c["occupancy_slide"], o, nursing_mkt, AS_OF)
     assert "no market data" in a.why            # honest miss, not a nursing-facility comparison
     assert "nursing" in n.why and "no market data" not in n.why
+
+
+def test_income_erosion_unknown_when_only_underwritten_statement(c):
+    # A collateral key whose actuals were quarantined keeps its per-property UW split row;
+    # that baseline must not be read as the most-recent actual (it would fake "-0% known").
+    uw = dict(period_end=date(2024, 1, 31), period_months=12, occupancy=None, revenue=None,
+              expenses=None, noi=5_630_000, debt_service=None, source="sec_edgar_securitization")
+    v = cr.income_erosion(prop(), c["income_erosion"], {"x": [uw]}, AS_OF)
+    assert not v.known
+
+
+def test_income_erosion_compares_actual_to_underwritten_baseline(c):
+    uw = dict(period_end=date(2019, 12, 31), period_months=12, occupancy=None, revenue=None,
+              expenses=None, noi=5_630_000, debt_service=None, source="sec_edgar_securitization")
+    act = dict(period_end=date(2022, 3, 31), period_months=12, occupancy=None, revenue=None,
+               expenses=None, noi=2_815_000, debt_service=None, source="sec_edgar_financials")
+    v = cr.income_erosion(prop(), c["income_erosion"], {"x": [uw, act]}, AS_OF)
+    assert v.known and v.value == pytest.approx(1.0) and "underwritten" in v.why
+
+
+def test_cost_squeeze_unknown_when_only_underwritten_statement(c):
+    uw = dict(period_end=date(2019, 12, 31), period_months=12, occupancy=None, revenue=10_000_000,
+              expenses=6_000_000, noi=None, debt_service=None, source="sec_edgar_securitization")
+    x = cr.cost_squeeze(prop(), c["cost_squeeze"], {"x": [uw]}, AS_OF)
+    assert not x.known

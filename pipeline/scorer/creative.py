@@ -196,6 +196,8 @@ def occupancy_slide(p, ptype, state, c, ops, mkt_occ, as_of) -> Sig:
 
 # ---------------------------------------------------------------------------
 # V: income erosion (NOI now vs. its best year in the lookback) - no DSCR
+# The baseline can be the UNDERWRITTEN securitization statement (source 'sec_edgar_securitization'):
+# a projection, not an actual historical year. The label must say so - never call UW a "best year".
 # ---------------------------------------------------------------------------
 def income_erosion(p, c, ops, as_of) -> Sig:
     best = None
@@ -204,32 +206,40 @@ def income_erosion(p, c, ops, as_of) -> Sig:
         if not rows:
             continue
         now = rows[-1]
+        if now.get("source") == "sec_edgar_securitization":
+            continue                                # only the underwritten statement is on file: no actual to compare
         now_d = as_date(now["period_end"])
         noi_now = _annual(now, "noi")
         if noi_now is None:                      # latest statement's basis not established: no erosion call
             continue
-        annual = [a for r in rows if (r.get("period_months") or 12) >= 12
+        annual = [(a, r) for r in rows if (r.get("period_months") or 12) >= 12
                   and (now_d - as_date(r["period_end"])).days <= c["lookback_months"] * 30.5
                   for a in [_annual(r, "noi")] if a is not None]
-        peak = max(annual) if annual else None
+        peak, peak_row = max(annual, key=lambda t: t[0]) if annual else (None, None)
         if not peak or peak <= 0:
             continue
         erosion = (peak - noi_now) / peak
         if best is None or erosion > best[0]:
-            best = (erosion, noi_now, peak)
+            best = (erosion, noi_now, peak, peak_row)
     if best is None:
         return Sig("V")
-    erosion, noi_now, peak = best
+    erosion, noi_now, peak, peak_row = best
+    if (peak_row or {}).get("source") == "sec_edgar_securitization":
+        ref = f"underwritten ${peak / 1e6:.2f}M at securitization"
+    else:
+        ref = f"best actual year ${peak / 1e6:.2f}M (ending {as_date(peak_row['period_end'])})"
     return Sig("V", clamp(erosion / c["full_noi_drop"]), True,
-               f"NOI ${noi_now / 1e6:.2f}M/yr vs. best year ${peak / 1e6:.2f}M ({-erosion:+.0%})", c["reliability"])
+               f"NOI ${noi_now / 1e6:.2f}M/yr vs. {ref} ({-erosion:+.0%})", c["reliability"])
 
 
 # ---------------------------------------------------------------------------
-# X: cost squeeze (expenses growing faster than revenue since the best year)
+# X: cost squeeze (expenses growing faster than revenue vs. the baseline year - the underwritten
+# plan when the baseline is the securitization statement, else the best actual year)
 # ---------------------------------------------------------------------------
 def cost_squeeze(p, c, ops, as_of) -> Sig:
     best = None
     base_is_now = False
+    base_is_now_uw = False
     for history in _ops_by_loan(p, ops, as_of).values():   # per loan, never across loans
         rows = [r for r in history if r.get("revenue") and r.get("expenses")
                 and _annual(r, "revenue") is not None and _annual(r, "expenses") is not None]
@@ -240,6 +250,9 @@ def cost_squeeze(p, c, ops, as_of) -> Sig:
         now = rows[-1]
         if base is now:
             base_is_now = True
+            base_is_now_uw = base_is_now_uw or base.get("source") == "sec_edgar_securitization"
+            continue
+        if not _annual(base, "revenue"):
             continue
         if not _annual(base, "revenue"):
             continue
@@ -250,11 +263,19 @@ def cost_squeeze(p, c, ops, as_of) -> Sig:
             best = (gap, base, exp_g, rev_g)
     if best is None:
         if base_is_now:
-            return Sig("X", 0.0, True, "best year is the latest year", c["reliability"])
+            if base_is_now_uw:
+                return Sig("X", 0.0, False, "only the underwritten statement is on file", c["reliability"])
+            return Sig("X", 0.0, True, "best actual year is the latest year", c["reliability"])
         return Sig("X")
     gap, base, exp_g, rev_g = best
+    # A securitization (UW) baseline is the underwritten plan, not an actual historical year:
+    # label the comparison as plan-vs-actual, never as an observed trend "since <year>".
+    if base.get("source") == "sec_edgar_securitization":
+        span = f"vs. underwritten plan (as of {as_date(base['period_end'])})"
+    else:
+        span = f"since {as_date(base['period_end']):%Y}"
     return Sig("X", clamp(gap / c["full_gap"]), True,
-               f"since {as_date(base['period_end']):%Y}: expenses {exp_g:+.1%}, revenue {rev_g:+.1%}", c["reliability"])
+               f"{span}: expenses {exp_g:+.1%}, revenue {rev_g:+.1%}", c["reliability"])
 
 
 # ---------------------------------------------------------------------------
