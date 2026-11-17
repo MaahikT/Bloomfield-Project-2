@@ -175,6 +175,32 @@ def maybe_ingest_console():
                     st.session_state["db_snapshot"], "live-snapshot.duckdb", "application/octet-stream")
     except Exception as e:
         st.caption(f"Snapshot failed: {e}")
+    st.subheader("Plain-English deal reads (top-ranked flags)")
+    st.caption("JSON array of {rank, property_id, name, score, summary_md}; each row replaces the "
+               "stored read for that property. Shown above the equation on the property page. "
+               "Properties absent from the file keep their existing read.")
+    dx_file = st.file_uploader("Deal reads JSON", type=["json"], key="dx_file")
+    if st.button("Store deal reads", key="dx_go") and dx_file is not None:
+        try:
+            rows = json.loads(dx_file.getvalue().decode("utf-8"))
+            if not isinstance(rows, list):
+                raise ValueError("expected a JSON array")
+            con.execute("CREATE TABLE IF NOT EXISTS deal_explanations ("
+                        "property_id TEXT PRIMARY KEY, rank INTEGER, name TEXT, score DOUBLE, "
+                        "summary_md TEXT, run_id TEXT, loaded_at TEXT)")
+            n = 0
+            for row in rows:
+                if not all(k in row for k in ("property_id", "rank", "summary_md")):
+                    continue
+                con.execute("DELETE FROM deal_explanations WHERE property_id = ?", [row["property_id"]])
+                con.execute("INSERT INTO deal_explanations VALUES (?,?,?,?,?,?,?)",
+                            [row["property_id"], int(row["rank"]), row.get("name", ""), row.get("score"),
+                             row["summary_md"], all_runs[0] if all_runs else None,
+                             datetime.now(timezone.utc).isoformat(timespec="seconds")])
+                n += 1
+            st.success(f"stored {n} deal reads; the property pages show them immediately.")
+        except Exception as e:
+            st.error(f"deal reads load failed: {type(e).__name__}: {e}")
     st.subheader("Upload a verified-evidence batch (JSONL)")
     st.caption("One JSON object per line: id, property_id, claim, value, url, quote, notes, summary. "
                "The ingest thread fetches each cited page and stores the claim only if the quote "
