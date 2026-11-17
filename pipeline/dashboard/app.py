@@ -129,14 +129,13 @@ def maybe_ingest_console():
     st.subheader("Research ledger (latest assessment per property)")
     try:
         ra = con.execute(
-            "SELECT property_id, research_score, research_tier, confidence, coverage, "
+            "SELECT property_id, confidence, coverage, "
             "one_line, generated_at, ingested_at FROM research_assessments "
             "QUALIFY row_number() OVER (PARTITION BY property_id ORDER BY ingested_at DESC) = 1 "
             "ORDER BY property_id").fetchall()
         if ra:
-            radf = pd.DataFrame(ra, columns=["property_id", "research_score", "research_tier",
-                                             "confidence", "coverage", "one_line", "generated_at",
-                                             "ingested_at"])
+            radf = pd.DataFrame(ra, columns=["property_id", "confidence", "coverage",
+                                             "one_line", "generated_at", "ingested_at"])
             st.download_button(f"Download research ledger (CSV, {len(radf)} properties)",
                                radf.to_csv(index=False), "research-ledger.csv", "text/csv")
         else:
@@ -338,12 +337,9 @@ def tags(r, assessed=False, r_tier=""):
     if "COUNTER-SIGNAL" in (r["flags"] or ""):
         out.append(":blue-badge[↩ COUNTER-SIGNAL (formula)]")
     if assessed:
-        # Research lane reviewed this property; the badge must agree with the
-        # provisional research score on the right, not the legacy formula score.
-        out.append({"hot": ":red-badge[Reviewed: Priority Review]",
-                    "watch": ":orange-badge[Reviewed: Monitor]",
-                    "low": ":gray-badge[Reviewed: Limited Signals]"}.get(
-                        r_tier, ":gray-badge[Reviewed]"))
+        # One score only: the card shows the model score; research stays a neutral
+        # "on file" marker, never a second score or tier.
+        out.append(":gray-badge[Reviewed research on file]")
         return " ".join(out)
     if r["stage"] == "ready_to_act":
         out.append(":red-badge[✅ READY TO ACT (formula, unreviewed)]")
@@ -644,8 +640,8 @@ def page_detail(con, run_id):
     c[2].metric("Deal quality", r["deal_quality"] or "-")
     c[3].metric("Loan", money(r["loan_amount"]) if r.get("loan_amount") else "-")
     if ra_head:
-        st.caption(f"AI research assessment (context, provisional): {ra_head[0]:.0f} · {tier_label(ra_head[1])} - "
-                   "the research narrative below is kept for context; it does not set the displayed score.")
+        st.caption("Reviewed AI research on file for this property - the narrative, evidence and coverage "
+                   "below are kept for context alongside the one displayed score above.")
     if conflict:
         st.warning("Conflicting filings under review - no honest single score yet. This is NOT a "
                    "scored or cleared review: the unreconciled debt scopes are laid out in the research "
@@ -778,26 +774,15 @@ def page_detail(con, run_id):
         ra_row = None
     if ra_row:
         r_score, r_tier, r_conf, r_cov, r_bd, r_reasons, r_artifact, r_gen = ra_row
-        st.subheader("Research assessment (provisional)")
-        st.caption("A structured independent research review under rubric v3.3, separate from the "
-                   "formula score above. Reviewed-score thresholds (Priority Review 60+, Monitor 20-59, Limited Signals under 20) are not "
-                   "the formula's audit thresholds (hot 50+ / watch 25+). Versioned provisional judgment, not a "
-                   "probability. Unchecked lanes are unknowns, never counted as healthy.")
-        r_color = {"Hot": "red", "Watch": "orange", "Low": "gray"}.get((r_tier or "").split(" ")[0], "gray")
+        st.subheader("Research review (context)")
+        st.caption("A structured independent research review kept as context next to the one displayed "
+                   "score above. Unchecked lanes are unknowns, never counted as healthy.")
         if r_score is None:
-            st.markdown(f"**Unscored - conflicting filings under review · :gray[{esc(tier_label(r_tier))}]**")
-        else:
-            st.markdown(f"**Research score {r_score:.0f} / 100 · :{r_color}[{esc(tier_label(r_tier))} (reviewed)]**")
+            st.markdown("**Conflicting filings under review - unscored until the filings reconcile.**")
         if r_conf:
             st.markdown(f"**Confidence:** {esc(r_conf)}")
         if r_cov:
             st.markdown(f"**Coverage:** {esc(r_cov)}")
-        try:
-            bd = json.loads(r_bd or "{}")
-            if isinstance(bd, dict) and bd:
-                st.markdown("**Score breakdown:** " + " · ".join(f"{esc(k)} {v}" for k, v in bd.items()))
-        except Exception:
-            pass
         try:
             reasons = json.loads(r_reasons or "[]")
             if isinstance(reasons, list) and reasons:
@@ -974,11 +959,8 @@ def page_all(con, run_id):
     st.caption(
         "Every property scored in this run by the chosen scoring model, including the ones with no "
         "distress signals yet. A low or zero model score reflects available public data only - missing "
-        "data is not proof of absence. The Research column is the AI reviewer's separate judgment, "
-        "kept for context. Open a property from the Flag details page for the full breakdown.")
-    # Displayed Score/Tier are the chosen scoring model's current run (weekly_flags rows).
-    # The reviewed research score is a separate context column; it never replaces the model score.
-    rassess = research_assessments(con)
+        "data is not proof of absence. Open a property from the Flag details page for the full breakdown.")
+    # Displayed Score/Tier are the chosen scoring model's current run (weekly_flags rows) - one score only.
     out = pd.DataFrame({
         "Rank": df["rank"],
         "Property": df["property_name"],
@@ -988,7 +970,6 @@ def page_all(con, run_id):
         "Loan": df["loan_amount"],
         "Score": df["score"],
         "Tier": df["tier"].map(lambda t: TIER_LABEL.get(((t or "unscored") if isinstance(t, str) else "unscored").split(" ")[0].title(), "unscored")),
-        "Research (context)": df["property_id"].map(lambda p: rassess.get(p, (pd.NA, ""))[0]),
         "Listed": df["shown"].map({True: "yes", False: "no"}),
         "Why hidden": df["filter_reason"].fillna(""),
     }).sort_values(["Score", "Rank"], ascending=[False, True], na_position="last")   # model scores first; columns stay user-sortable
