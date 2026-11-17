@@ -380,14 +380,11 @@ def loan_notice(con):
                    f"({c['recorded_loans']} from recorder index rows, {c['reader_loans']} read from recorder documents).")
         return
     if c["unread_recorder_files"]:
-        st.warning(f"**No loan values yet:** {c['unread_recorder_files']} recorder document(s) are waiting for the AI reader. "
-                   "Run `python -m bot --full` with `OPENAI_API_KEY` set so they become loans; until then the loan clock "
-                   "(L) and loan amounts read 0 / size unknown.")
+        st.caption(f"{c['unread_recorder_files']} county recorder document(s) are still waiting to be read, so the "
+                   "loan clock (L) is 0 for those properties. Loan balances shown come from SEC CMBS filings.")
     else:
-        st.warning("**No loan values yet:** this run has no recorder documents, so the loan clock (L) is 0 and loan "
-                   "amounts read 'size unknown' for every property. The county recorders are still manual: drop recorder "
-                   "documents in `data/inbox/recorder/<ST>/<county>/` (or switch a checked recorder to automatic), then "
-                   "run `python -m bot --full` with `OPENAI_API_KEY` set.")
+        st.caption("No county recorder data yet, so the loan clock (L) is 0 for every property. "
+                   "Loan balances shown come from SEC CMBS filings.")
 
 def research_status(con) -> str:
     """One honest line about the sourcing agent's work on THIS database: how many research
@@ -539,8 +536,8 @@ def page_ranked(con, run_id):
     c[4].metric("Filtered out", int((~df["shown"]).sum()))
     if rassess:
         st.caption("Scores and tiers are the scoring model's latest stored run (Bloomfield "
-                   "Opportunity Score formula); a recompute with today's updated model and verified "
-                   "SEC inputs is in progress. Reviewed AI research stays as context on each "
+                   "Opportunity Score formula, recomputed with the current model and verified "
+                   "SEC inputs). Reviewed AI research stays as context on each "
                    "property page; it does not set the displayed score. "
                    "Coverage depth varies by property; each assessment lists its checked lanes. "
                    f"Priority Review / Monitor / Reviewed counts cover this flagged list; {len(rassess)} properties have "
