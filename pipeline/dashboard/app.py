@@ -92,7 +92,15 @@ def _decisions():
                 # then the merged state is pushed back to the browser once.
                 merged = {**data, **cache}
                 if merged != data:
-                    ls.setItem(_DECISIONS_KEY, json.dumps(merged), key="ls-resync")
+                    try:
+                        ls.setItem(_DECISIONS_KEY, json.dumps(merged), key="ls-resync")
+                        st.session_state["_ls_ok"] = True  # storage recovered
+                    except Exception:
+                        # Still failing: keep the session copy, stay dirty and
+                        # degraded so the UI keeps saying "session only".
+                        st.session_state["_ls_ok"] = False
+                        st.session_state["_decisions_cache"] = merged
+                        return merged
                 st.session_state["_decisions_dirty"] = False
                 cache = merged
             else:
@@ -110,9 +118,12 @@ def _save_decisions(data):
         try:
             ls.setItem(_DECISIONS_KEY, json.dumps(data), key="ls-set-decisions")
             st.session_state["_decisions_dirty"] = False
+            st.session_state["_ls_ok"] = True  # a real write landed: storage is healthy
             return
         except Exception:
-            pass
+            # Init succeeded but the write failed: degrade honestly so the UI
+            # stops claiming browser persistence; the resync path retries.
+            st.session_state["_ls_ok"] = False
     st.session_state["_decisions_dirty"] = True
 
 
@@ -823,7 +834,9 @@ def page_detail(con, run_id):
         st.text_area(f"Notes for the team ({_persistence_wording()})",
                      value=_d.get("note") or "", key=f"dec-note-{pid}",
                      on_change=_set_decision_note, args=(pid,))
-        st.caption("The tool never contacts anyone. Bloomfield handles all outreach.")
+        st.caption(f"Your decisions and notes are {_persistence_wording()} - never sent to the team "
+                   "or stored in the shared database. "
+                   "The tool never contacts anyone. Bloomfield handles all outreach.")
 
     ra_head = research_assessments(con).get(pid)
     conflict = pid in conflict_properties(con)
