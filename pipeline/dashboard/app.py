@@ -597,12 +597,6 @@ def page_ranked(con, run_id):
                 c3.markdown(f"**{eff_score:.0f}** / 100 · {TIER_ICON.get(eff_tier, '⚪')}")
                 c3.progress(min(1.0, eff_score / 100))
                 c3.caption("Model score (stored run)")
-                if has_research:
-                    ra = rassess[r["property_id"]]
-                    c3.caption(f"Research {ra[0]:.0f} · {tier_label(ra[1])} - provisional assessment, "
-                               "not the formula score")
-                else:
-                    c3.caption("Research: not reviewed yet")
             elif r["property_id"] in conflicts:
                 c3.markdown("**—** / 100 · ⚪ Unscored (conflict)")
                 c3.progress(0.0)
@@ -610,12 +604,7 @@ def page_ranked(con, run_id):
             else:
                 c3.markdown("**—** / 100 · ⚪ Unscored")
                 c3.progress(0.0)
-                if has_research:
-                    ra = rassess[r["property_id"]]
-                    c3.caption(f"Research {ra[0]:.0f} · {tier_label(ra[1])} - provisional assessment, "
-                               "no formula score this run")
-                else:
-                    c3.caption("Not researched yet - not a clean bill of health")
+                c3.caption("Not researched yet - not a clean bill of health")
             c3.caption(f"Deal quality {r['deal_quality']}")
             c3.button("Open", key=f"open-{r['property_id']}", on_click=open_flag, args=(r["property_id"],),
                       use_container_width=True)
