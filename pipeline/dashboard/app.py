@@ -183,22 +183,34 @@ def maybe_ingest_console():
     if st.button("Store deal reads", key="dx_go") and dx_file is not None:
         try:
             rows = json.loads(dx_file.getvalue().decode("utf-8"))
-            if not isinstance(rows, list):
-                raise ValueError("expected a JSON array")
+            if not isinstance(rows, list) or not rows:
+                raise ValueError("expected a non-empty JSON array")
+            # Validate EVERY row before touching the table: a bad file must land nothing.
+            for i, row in enumerate(rows):
+                if not isinstance(row, dict) or not row.get("property_id") \
+                        or not isinstance(row.get("rank"), int) \
+                        or not isinstance(row.get("summary_md"), str) or not row["summary_md"].strip():
+                    raise ValueError(f"row {i + 1}: missing or invalid property_id, rank or summary_md")
+            if not all_runs:
+                raise ValueError("no weekly run exists to scope the reads to")
+            load_run = all_runs[0]
             con.execute("CREATE TABLE IF NOT EXISTS deal_explanations ("
                         "property_id TEXT PRIMARY KEY, rank INTEGER, name TEXT, score DOUBLE, "
                         "summary_md TEXT, run_id TEXT, loaded_at TEXT)")
-            n = 0
-            for row in rows:
-                if not all(k in row for k in ("property_id", "rank", "summary_md")):
-                    continue
-                con.execute("DELETE FROM deal_explanations WHERE property_id = ?", [row["property_id"]])
-                con.execute("INSERT INTO deal_explanations VALUES (?,?,?,?,?,?,?)",
-                            [row["property_id"], int(row["rank"]), row.get("name", ""), row.get("score"),
-                             row["summary_md"], all_runs[0] if all_runs else None,
-                             datetime.now(timezone.utc).isoformat(timespec="seconds")])
-                n += 1
-            st.success(f"stored {n} deal reads; the property pages show them immediately.")
+            con.execute("BEGIN")
+            try:
+                for row in rows:
+                    con.execute("DELETE FROM deal_explanations WHERE property_id = ?", [row["property_id"]])
+                    con.execute("INSERT INTO deal_explanations VALUES (?,?,?,?,?,?,?)",
+                                [row["property_id"], int(row["rank"]), row.get("name", ""), row.get("score"),
+                                 row["summary_md"], load_run,
+                                 datetime.now(timezone.utc).isoformat(timespec="seconds")])
+                con.execute("COMMIT")
+            except Exception:
+                con.execute("ROLLBACK")
+                raise
+            st.success(f"stored {len(rows)} deal reads for run {load_run}; the property pages show "
+                       "them immediately.")
         except Exception as e:
             st.error(f"deal reads load failed: {type(e).__name__}: {e}")
     st.subheader("Upload a verified-evidence batch (JSONL)")
@@ -366,12 +378,15 @@ def _evidence_caveat(claim) -> str:
     return ""
 
 
-def deal_explanations(con):
+def deal_explanations(con, run_id):
     """Plain-English investment reads for the top-ranked flags, written to live storage
-    by the ops console (never the repo - they are deal memos, not code).
-    {property_id: (rank, summary_markdown)}. Empty when the table is absent."""
+    by the ops console (never the repo - they are deal memos, not code). Scoped to the
+    displayed run: a read written against one week's score and evidence is never shown
+    against a different week's. {property_id: (rank, summary_markdown)}; empty when the
+    table is absent."""
     try:
-        rows = con.execute("SELECT property_id, rank, summary_md FROM deal_explanations").fetchall()
+        rows = con.execute("SELECT property_id, rank, summary_md FROM deal_explanations "
+                           "WHERE run_id = ?", [run_id]).fetchall()
     except Exception:
         return {}
     return {pid: (rk, md) for pid, rk, md in rows}
@@ -715,7 +730,7 @@ def page_detail(con, run_id):
         else:
             st.info(display_summary(r["summary"]))
 
-        dx = deal_explanations(con).get(pid)
+        dx = deal_explanations(con, run_id).get(pid)
         if dx:
             st.subheader("Why this one could be a deal - in plain English")
             # The stored read was written for a top-50 document and opens with its own
