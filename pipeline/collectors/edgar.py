@@ -464,6 +464,38 @@ def _unallocated_collateral_links(rows: list[dict]) -> set:
     return skip
 
 
+def _suppress_unreported_child_occupancy(rows: list[dict]) -> list[str]:
+    """Collateral rows (key "<parent>-NNN") whose filing reports an explicit occupancy 0 while the
+    SAME file's parent loan reports a NONZERO occupancy for the same period and the child carries
+    NO allocated financials (revenue/expenses/NOI/debt service all absent). That 0 is an
+    unallocated-block placeholder, not a vacancy observation: left in, it reads as a full
+    occupancy collapse (a false Q slide). Suppress it to unknown (NULL) on both the loans row and
+    the operating_metrics bridge.
+    Kept verbatim: the parent row itself (including a parent that genuinely files 0 - when the
+    parent is 0 or unreported, every child 0 stays as filed, genuine or not); any child with
+    allocated financials; any child with a nonzero occupancy; any child whose parent is not in
+    the same file. Mutates rows in place; returns the suppressed loan_keys."""
+    by_key = {r["loan_key"]: r for r in rows}
+    suppressed: list[str] = []
+    for r in rows:
+        m = re.match(r"^(.*)-(\d+)$", r["loan_key"])
+        if not m or m.group(1) not in by_key:
+            continue                                    # not a collateral-split row of a filed parent
+        parent = by_key[m.group(1)]
+        if parent.get("report_period") != r.get("report_period"):
+            continue                                    # no same-period parent reading to judge against
+        if not parent.get("occupancy"):
+            continue                                    # parent 0 or unreported: child 0 stays as filed
+        if r.get("occupancy") != 0:
+            continue                                    # only an explicit filed 0 is a placeholder candidate
+        o = r.get("_ops") or {}
+        if any(o.get(k) is not None for k in ("recent_revenue", "recent_expenses", "recent_noi", "recent_ds")):
+            continue                                    # allocated collateral: the 0 is a real observation
+        r["occupancy"] = None
+        suppressed.append(r["loan_key"])
+    return suppressed
+
+
 def write_operating_metrics(con, result: ParseResult) -> int:
     """Feed each loan's public Schedule AL operating data into operating_metrics (one row per loan per period):
       * the occupancy reported for this period (history for the occupancy slide, Q);
@@ -518,6 +550,10 @@ def load_file(con, run, file_id: str, path: Path, deal_name: str, cfg: dict) -> 
         audit_tags(result, cfg)
         return 0
     audit_tags(result, cfg)
+    suppressed = _suppress_unreported_child_occupancy(result.rows)
+    if suppressed:
+        log.info("%s: suppressed unreported collateral occupancy on %d row(s) (parent nonzero, no allocated financials): %s",
+                 deal_name, len(suppressed), ", ".join(sorted(suppressed)[:8]))
     written = write_loans(con, result)
     write_operating_metrics(con, result)
     db.set_state(con, COLLECTOR, f"schedule_al_v2:{file_id}", "done")
