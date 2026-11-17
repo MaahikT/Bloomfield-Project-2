@@ -363,6 +363,95 @@ def run(con, cfg: dict | None = None, as_of: date | None = None, include_demo: b
     return run_id
 
 
+def rescore_one(con, property_id: str, cfg: dict | None = None, as_of: date | None = None) -> dict:
+    """Recompute ONE property's row in the current week run with the code and inputs as they
+    are NOW (the console uses this after a targeted data import). Every other row keeps its
+    stored score until the next full weekly run; the recomputed row's explanation records
+    when and why. Same pipeline context as run(): evidence mapping, load_inputs, group
+    properties, score_property, valuation cases and deal quality. equation_scores gets the
+    property's audit row replaced; the shown rows of the run are re-ranked (order only)."""
+    cfg = cfg or eq.load_equation_config()
+    as_of = as_of or date.today()
+    run_id = f"week-{as_of.isoformat()}"
+    if not con.execute("SELECT 1 FROM weekly_flags WHERE run_id = ? AND property_id = ?",
+                       [run_id, property_id]).fetchone():
+        raise ValueError(f"{property_id} is not in run {run_id}")
+    create_tables(con)
+    try:
+        from agent import mapping
+        mapping.apply(con)
+    except Exception:
+        log.exception("evidence mapping skipped")
+    rents, market, inspections, extra = eq.load_inputs(con)
+    from .group import group_properties
+    props = {p.property_id: p for p in group_properties(con)}
+    p = props.get(property_id)
+    if p is None:
+        raise ValueError(f"{property_id} not found in the property universe")
+    r = eq.score_property(p, cfg, as_of, rents, market, inspections, extra)
+    # --- identical row shape to run() (kept in sync by hand: do not drift) ---
+    fx = r.facts
+    ptype = property_type(p)
+    current = [ln.get("current_balance") for ln in p.cmbs_loans if ln.get("current_balance")]
+    amount = max(current) if current else fx.get("loan_amount")
+    shown, reason = passes_filters(ptype, fx.get("state"), amount, cfg["filters"])
+    if r.score <= 0 and not context_facts(p):
+        shown, reason = False, "no distress signals or context yet (missing data is not proof of absence)"
+    from . import creative as cr
+    from . import valuation as val
+    capacity, series = val.property_inputs(p, ptype, fx.get("state"), extra)
+    cases = val.value_cases(cr._ops(p, extra["ops"], as_of), ptype, cfg["valuation"], capacity, series)
+    est_value = cases[0]["value"] if cases else None
+    ltv = amount / est_value if amount and est_value else None
+    dq, dparts = deal_quality(r, ptype, amount, is_public(p), cfg, ltv)
+    name = fx.get("property_name") or fx.get("property_address") or p.property_id
+    explanation = eq.explain(r, cfg)
+    explanation["recomputed_at"] = db.utc_now().isoformat(timespec="seconds")
+    explanation["recompute_scope"] = "single-property update after a verified SEC data import"
+    row = {
+        "run_id": run_id, "property_id": p.property_id, "property_name": name,
+        "address": fx.get("property_address"), "city": fx.get("city"), "state": fx.get("state"),
+        "property_type": ptype, "borrower": fx.get("borrower_name"), "lender": fx.get("lender_name"),
+        "loan_amount": amount, "score": r.score, "tier": r.tier, "stage": r.stage, "flags": eq.flag_text(r),
+        "l_loan_clock": r.L.value, "o_opening": r.O.value, "r_rent": r.R.value, "i_inspection": r.I.value,
+        "c_creative": r.C.value, "signals_showing": r.showing, "corroboration": r.corroboration,
+        "early_points": round(r.early, 2), "late_points": round(r.late, 2), "deal_quality": dq,
+        "est_value": est_value, "ltv": ltv, "rank": None, "shown": shown, "filter_reason": reason,
+        "explanation": json.dumps(explanation), "deal_parts": json.dumps(dparts),
+        "angles": json.dumps(deal_angles(r, p, ptype)), "context": json.dumps(context_facts(p)),
+        "summary": summary(r, name),
+    }
+    now = db.utc_now()
+    con.execute("BEGIN TRANSACTION")
+    try:
+        con.execute("DELETE FROM weekly_flags WHERE run_id = ? AND property_id = ?", [run_id, property_id])
+        cols = list(row)
+        con.execute(f"INSERT INTO weekly_flags ({', '.join(cols)}) VALUES ({', '.join('?' for _ in cols)})",
+                    [row[c] for c in cols])
+        con.execute("DELETE FROM equation_scores WHERE property_id = ?", [property_id])
+        con.execute("INSERT INTO equation_scores VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", [
+            r.property_id, name, fx.get("city"), fx.get("state"), fx.get("loan_amount"), r.score, r.tier,
+            r.stage, eq.flag_text(r), r.L.value, r.O.value, r.R.value, r.I.value, r.showing, r.corroboration,
+            round(r.early, 2), round(r.late, 2), json.dumps(eq.explain(r, cfg)), as_of, cfg["version"], now])
+        shown_rows = con.execute(
+            "SELECT property_id, score, deal_quality, loan_amount FROM weekly_flags WHERE run_id = ? AND shown",
+            [run_id]).fetchall()
+        shown_rows.sort(key=lambda x: (-x[1], -x[2], -(x[3] or 0), x[0]))
+        for i, (pid, *_rest) in enumerate(shown_rows, 1):
+            con.execute("UPDATE weekly_flags SET rank = ? WHERE run_id = ? AND property_id = ?",
+                        [i, run_id, pid])
+        con.execute("COMMIT")
+    except Exception:
+        con.execute("ROLLBACK")
+        raise
+    db.set_state(con, "dashboard", "scoped_recompute", json.dumps({
+        "property_id": property_id, "name": name, "score": r.score, "tier": r.tier,
+        "at": now.isoformat(timespec="seconds"),
+        "note": "recomputed with the current model after a verified SEC data import"}))
+    return {"property_id": property_id, "name": name, "score": r.score, "tier": r.tier,
+            "stage": r.stage, "early": round(r.early, 2), "late": round(r.late, 2)}
+
+
 def changes(con, run_id: str | None = None, cfg: dict | None = None) -> dict:
     """New flags, got worse / better, new signals, dropped off - compared with the run before."""
     cfg = cfg or eq.load_equation_config()
