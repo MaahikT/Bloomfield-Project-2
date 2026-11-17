@@ -198,6 +198,9 @@ def parse_asset_xml(path: Path, cfg: dict, *, deal_name: str, file_id: str) -> P
             "dscr": to_float(get("dscr")),
             "occupancy": _fraction(get("occupancy"), pct_threshold),
             "payment_status": clean_str(get("payment_status")),
+            "paid_through": to_date(get("paid_through")),
+            "workout_code": clean_str(get("workout_code")),
+            "non_recoverability": _yes(get("non_recoverability")),
             "servicer_name": clean_str(get("servicer_name")),
             "watchlist_flag": None,          # not in ABS-EE
             "servicer_commentary": None,     # not in ABS-EE
@@ -255,7 +258,9 @@ def audit_tags(result: ParseResult, cfg: dict) -> list[str]:
 # ---------------------------------------------------------------------------
 EXTRA_LOAN_COLUMNS = {"origination_date": "DATE", "modified_indicator": "BOOLEAN", "value_securitization": "DOUBLE",
                       "value_securitization_date": "DATE", "value_recent": "DOUBLE", "value_recent_date": "DATE",
-                      "post_mod_maturity": "DATE"}
+                      "post_mod_maturity": "DATE",
+                      # Research lane (U): payment-distress fields
+                      "paid_through": "DATE", "workout_code": "VARCHAR", "non_recoverability": "BOOLEAN"}
 
 
 def ensure_loan_columns(con) -> None:
