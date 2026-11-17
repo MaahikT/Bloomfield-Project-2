@@ -778,8 +778,10 @@ def page_detail(con, run_id):
 
         ctx = json.loads(r["context"])
         if ctx:
-            st.subheader("Context (shown, not scored)")
-            st.caption("Bloomfield: auctions and CMBS data are public or everyone has them.")
+            st.subheader("Context (filed facts kept for reference)")
+            st.caption("Filed facts repeated for reference. Where the score above already reads a filed fact "
+                       "(such as SEC-filed payment status), it is reflected in that score - never added again "
+                       "here. Auctions and CMBS data are public or everyone has them.")
             for s in ctx:
                 st.markdown(f"- {esc(s)}")
 
@@ -917,17 +919,27 @@ def page_changes(con, run_id):
         st.info("This is the first weekly run, so there's nothing to compare yet.")
         return
     st.caption(f"{ch['current'].replace('week-', 'Week of ')} compared with {ch['previous'].replace('week-', 'week of ')}.")
+    # A model change between the two runs makes the comparison not like-for-like: count and score
+    # deltas can come from the model itself, not from new distress. Detect it from the stored
+    # per-run settings and label the movement neutrally.
+    cross_model = run_cfg(con, ch["current"]) != run_cfg(con, ch["previous"])
+    if cross_model:
+        st.warning("These two weeks were scored with different versions of the scoring model "
+                   "(the model changed between runs). Count and score changes may reflect the model "
+                   "change itself, not new distress - this is not a like-for-like comparison.")
+    worse_label = "Score up" if cross_model else "Got worse"
+    better_label = "Score down" if cross_model else "Got better"
     c = st.columns(4)
-    for col, (label, key) in zip(c, [("New", "new"), ("Got worse", "worse"),
+    for col, (label, key) in zip(c, [("New", "new"), (worse_label, "worse"),
                                      ("New filings", "new_late"), ("Dropped off", "dropped")]):
         col.metric(label, len(ch[key]))
     st.subheader("🆕 New flags")
     _list(ch["new"], "new")
-    st.subheader("🔺 Got worse")
+    st.subheader(f"🔺 {worse_label}")
     _list(ch["worse"], "worse", lambda r: f"up {r['delta']} from {r['previous_score']:.0f}")
     st.subheader("✅ Became ready to act (new court filing or lien)")
     _list(ch["new_late"], "late", lambda r: "now READY TO ACT")
-    st.subheader("🔻 Got better")
+    st.subheader(f"🔻 {better_label}")
     _list(ch["better"], "better", lambda r: f"down {-r['delta']} from {r['previous_score']:.0f}")
     st.subheader("✔️ Dropped off")
     if not ch["dropped"]:
