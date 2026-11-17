@@ -142,6 +142,23 @@ def maybe_ingest_console():
             st.caption("No research assessments yet.")
     except Exception as e:
         st.caption(f"Could not read the research ledger: {e}")
+    st.subheader("Database snapshot")
+    try:
+        p = db_path()
+        if not p or not os.path.exists(p):
+            st.caption("Database file path not available on this deployment.")
+        else:
+            st.caption("Runs CHECKPOINT so the file is consistent, then offers it for download.")
+            if st.button("Prepare snapshot"):
+                con.execute("CHECKPOINT")
+                with open(p, "rb") as fh:
+                    st.session_state["db_snapshot"] = fh.read()
+            if "db_snapshot" in st.session_state:
+                st.download_button(
+                    f"Download live DB snapshot ({len(st.session_state['db_snapshot']) / 1e6:.1f} MB)",
+                    st.session_state["db_snapshot"], "live-snapshot.duckdb", "application/octet-stream")
+    except Exception as e:
+        st.caption(f"Snapshot failed: {e}")
     st.subheader("Upload a verified-evidence batch (JSONL)")
     st.caption("One JSON object per line: id, property_id, claim, value, url, quote, notes, summary. "
                "The ingest thread fetches each cited page and stores the claim only if the quote "
