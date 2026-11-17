@@ -24,6 +24,12 @@ XML = """<?xml version="1.0" encoding="UTF-8"?>
     <maturityDate>01-01-2029</maturityDate>
     <reportPeriodEndActualBalanceAmount>15000000</reportPeriodEndActualBalanceAmount>
     <modifiedIndicator>N</modifiedIndicator>
+    <originalInterestRateTypeCode>1</originalInterestRateTypeCode>
+    <originalInterestOnlyTermNumber>60</originalInterestOnlyTermNumber>
+    <originalTermLoanNumber>60</originalTermLoanNumber>
+    <originalAmortizationTermNumber>360</originalAmortizationTermNumber>
+    <debtServiceCoverageNetOperatingIncomeSecuritizationPercentage>1.25</debtServiceCoverageNetOperatingIncomeSecuritizationPercentage>
+    <mostRecentDebtServiceCoverageNetOperatingIncomePercentage>-0.4875</mostRecentDebtServiceCoverageNetOperatingIncomePercentage>
     <primaryServicerName>FAKE Servicing</primaryServicerName>
     <property>
       <propertyName>FAKE Lakeview Apartments</propertyName>
@@ -84,10 +90,20 @@ def test_past_maturity_and_modified_public_loans_start_the_loan_clock(con, tmp_p
     lc = eq.loan_clock(p, cfg["loan_clock"], AS_OF)
     assert lc.value == 1.0 and "past its maturity" in lc.why
 
+    # a servicer modified-flag with an UNCHANGED maturity is not an extension: no new loan clock
     con.execute("DELETE FROM loans")
     modified = XML.replace("<originationDate>12-01-2023</originationDate>", "<originationDate>12-01-2020</originationDate>") \
                   .replace("<modifiedIndicator>N</modifiedIndicator>", "<modifiedIndicator>Y</modifiedIndicator>")
     load(con, tmp_path, modified)
+    p = group_properties(con)[0]
+    lc = eq.loan_clock(p, cfg["loan_clock"], AS_OF)
+    assert lc.value == 0.0
+    # only a modification that actually MOVES the maturity (postModificationMaturityDate later) is an extension
+    con.execute("DELETE FROM loans")
+    extended = modified.replace("<maturityDate>01-01-2029</maturityDate>",
+                                "<maturityDate>01-01-2029</maturityDate>"
+                                "<postModificationMaturityDate>01-01-2031</postModificationMaturityDate>")
+    load(con, tmp_path, extended)
     p = group_properties(con)[0]
     lc = eq.loan_clock(p, cfg["loan_clock"], AS_OF)
     assert lc.value > 0.9 and "short-term loan (extended)" in lc.why

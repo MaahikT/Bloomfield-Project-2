@@ -85,11 +85,24 @@ fields:
   recent_value_date: ["mostRecentValuationDate"]
   fin_start:         ["mostRecentFinancialsStartDate"]
   fin_end:           ["mostRecentFinancialsEndDate"]
+  # Statement-basis classification inputs (is the 'most recent' statement a year or part of one?):
+  sec_coverage:      ["debtServiceCoverageNetOperatingIncomeSecuritizationPercentage"]
+  recent_coverage:   ["mostRecentDebtServiceCoverageNetOperatingIncomePercentage"]
+  recent_ds:         ["mostRecentDebtServiceAmount"]
+  io:                ["interestOnlyIndicator"]
+  neg_am:            ["negativeAmortizationIndicator"]
+  amort_term:        ["originalAmortizationTermNumber"]
+  rate_type:         ["originalInterestRateTypeCode"]
+  io_term:           ["originalInterestOnlyTermNumber"]
+  orig_term:         ["originalTermLoanNumber"]
+  post_mod_maturity: ["postModificationMaturityDate"]
 
 # Fields the audit does NOT complain about if they are empty (they are often blank for real).
 optional_fields: [property_name, property_zip, payment_status, original_balance, origination_date, modified,
                   sec_occupancy, sec_revenue, sec_expenses, sec_noi, sec_value, sec_value_date, recent_revenue,
-                  recent_expenses, recent_noi, recent_value, recent_value_date, fin_start, fin_end]
+                  recent_expenses, recent_noi, recent_value, recent_value_date, fin_start, fin_end,
+                  sec_coverage, recent_coverage, recent_ds, io, neg_am, amort_term, post_mod_maturity,
+                  rate_type, io_term, orig_term]
 
 # Occupancy is stored as a fraction (0.95). If the file gives a number above this, it is read as a
 # percent (95 -> 0.95).

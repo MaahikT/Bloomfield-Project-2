@@ -14,9 +14,12 @@ only when the evidence proves it:
                                value = index number, notes: city, state, period (YYYY-MM-DD)
   claim "occupancy_rate"   -> operating_metrics.occupancy (signal Q: occupancy slide)
   claim "operating_noi"    -> operating_metrics.noi       (signal V: income erosion)
+                               NOI keeps its sign: a negative NOI is the distress fact itself.
   claim "operating_revenue" / "operating_expenses" -> operating_metrics (signal X: cost squeeze)
                                value = the number (occupancy 0-1 or a %); notes: period_end (YYYY-MM-DD),
-                               period_months (12 or 3, default 12). Same property+period rows merge.
+                               period_months (12, 6 or 3, default 12). Same property+period rows merge.
+                               Property-level rows key on the property itself when the property has
+                               no linked project (CMBS-only properties); per-loan series stay separate.
   claim "market_occupancy" -> market_occupancy     (signal Q: the market comparison)
                                value = occupancy 0-1 or a %, notes: state, property_type, period (YYYY-MM-DD)
   claim "permit_inspection" -> permit_inspections  (signal I: inspection gap)
@@ -136,6 +139,28 @@ def _project_ids(con, subject) -> list[str]:
     return [r[0] for r in rows]
 
 
+def _ops_link(con, subject) -> tuple[str | None, str | None]:
+    """operating_metrics link_id for the evidence's property, or (None, reason).
+
+    A property-level operating fact (NOI, revenue, expenses, occupancy) belongs to the
+    property, not to a construction project: CMBS-only properties have no projects row,
+    so resolving through projects alone made their verified financials unmappable.
+    One linked project -> that project (original behavior). No projects -> the property
+    id itself, which the scorer's link_ids always includes; _ops_by_loan then keeps this
+    property-level series separate from per-loan series, never merging them (the same
+    rule that keeps pari passu notes apart). Several projects -> ambiguous, skip.
+    """
+    pid = str(subject or "").removeprefix("property_id=").strip()
+    projects = _project_ids(con, subject)
+    if len(projects) == 1:
+        return projects[0], None
+    if len(projects) > 1:
+        return None, f"property resolves to {len(projects)} projects, needs exactly 1"
+    if not pid:
+        return None, "evidence subject is not a property_id"
+    return pid, None
+
+
 def _table_has(con, table, where, params) -> bool:
     try:
         return bool(con.execute(f"SELECT 1 FROM {table} WHERE {where} LIMIT 1", params).fetchone())
@@ -215,22 +240,26 @@ def apply(con, since: date | None = None) -> dict:
             field = OPS_CLAIMS[claim]
             period_end = _as_date(notes.get("period_end"))
             period_months = int(_number(notes.get("period_months")) or 12)
-            if period_months not in (3, 12):
-                period_months = 12
+            if period_months not in (3, 6, 12):      # 6 = half-year actuals (e.g. CMBS H1/H2 reports)
+                period_months = 12                   # unknown length: treat as a year, never annualize a guess
             if claim == "occupancy_rate":
                 if value is not None and 1 < value <= 100:
                     value = value / 100.0           # a page says "87%"; the table stores 0-1
                 if value is None or not (0 < value <= 1):
                     why = "occupancy_rate needs a value between 0 and 1 (or a percent 1-100)"
+            elif claim == "operating_noi":
+                # NOI can be zero or negative: a negative NOI is the distress fact itself.
+                # The scorer (income_erosion) already guards the ratio (best year must be > 0).
+                if value is None:
+                    why = "operating_noi needs a number (keep the sign: negative NOI counts)"
             elif value is None or value <= 0:
                 why = f"{claim} needs a positive number"
             if not why and not period_end:
-                why = f"{claim} needs period_end (YYYY-MM-DD) in notes; period_months 12 or 3 (default 12)"
-            projects = _project_ids(con, row["subject"]) if not why else []
-            if not why and len(projects) != 1:
-                why = f"property resolves to {len(projects)} projects, needs exactly 1"
+                why = f"{claim} needs period_end (YYYY-MM-DD) in notes; period_months 12, 6 or 3 (default 12)"
+            link, link_why = (None, None) if why else _ops_link(con, row["subject"])
+            if not why and link is None:
+                why = link_why
             if not why:
-                link = projects[0]
                 existing = con.execute(
                     f"SELECT {field} FROM operating_metrics WHERE link_id = ? AND period_end = ? "
                     "AND period_months = ?", [link, period_end, period_months]).fetchone()

@@ -205,6 +205,7 @@ def parse_asset_xml(path: Path, cfg: dict, *, deal_name: str, file_id: str) -> P
             # Item 1125 extras (stored on loans; also fed to operating_metrics below)
             "origination_date": to_date(get("origination_date")),
             "modified_indicator": _yes(get("modified")),
+            "post_mod_maturity": to_date(get("post_mod_maturity")),
             "value_securitization": to_float(get("sec_value")),
             "value_securitization_date": to_date(get("sec_value_date")),
             "value_recent": to_float(get("recent_value")),
@@ -216,6 +217,18 @@ def parse_asset_xml(path: Path, cfg: dict, *, deal_name: str, file_id: str) -> P
                 "recent_revenue": to_float(get("recent_revenue")),
                 "recent_expenses": to_float(get("recent_expenses")), "recent_noi": to_float(get("recent_noi")),
                 "fin_start": to_date(get("fin_start")), "fin_end": to_date(get("fin_end")),
+                "sec_coverage": to_float(get("sec_coverage")),
+                "recent_coverage": to_float(get("recent_coverage")),
+                "recent_ds": to_float(get("recent_ds")),
+                "io": _yes(get("io")),
+                "neg_am": _yes(get("neg_am")),
+                "amort_term": to_float(get("amort_term")),
+                "rate_type": clean_str(get("rate_type")),
+                "io_term": to_float(get("io_term")),
+                "orig_term": to_float(get("orig_term")),
+                "current_balance": to_float(get("current_balance")),
+                "original_balance": to_float(get("original_balance")),
+                "modified": _yes(get("modified")),
             },
         }
         elem.clear()
@@ -241,7 +254,8 @@ def audit_tags(result: ParseResult, cfg: dict) -> list[str]:
 # Loading
 # ---------------------------------------------------------------------------
 EXTRA_LOAN_COLUMNS = {"origination_date": "DATE", "modified_indicator": "BOOLEAN", "value_securitization": "DOUBLE",
-                      "value_securitization_date": "DATE", "value_recent": "DOUBLE", "value_recent_date": "DATE"}
+                      "value_securitization_date": "DATE", "value_recent": "DOUBLE", "value_recent_date": "DATE",
+                      "post_mod_maturity": "DATE"}
 
 
 def ensure_loan_columns(con) -> None:
@@ -312,21 +326,86 @@ def _months(start, end) -> int:
     return max(1, min(12, round((end - start).days / 30.44)))
 
 
+BASIS_TOLERANCE = 0.10   # cmbs.news's published convention: the filed coverage must match within 10%
+
+
+def classify_statement_basis(o: dict) -> tuple[str, str]:
+    """Is this loan's 'most recent' Schedule AL operating statement a YEAR's figures or a PART-YEAR's?
+
+    Servicers often file a trailing-twelve-months or annualized figure under the dates of the latest
+    quarter or half year, so the filed start/end dates alone do not say which (cmbs.news methodology,
+    https://cmbs.news/methodology/). The filing's own coverage figures tell them apart: the annual debt
+    service implied at securitization (underwritten NOI / underwritten coverage) is set against the
+    latest coverage; when the filed NOI reproduces that coverage within 10%, the amounts are already on
+    a yearly basis; when the NOI scaled to a year does, the statement is a part-year's.
+
+    ELIGIBILITY (checked BEFORE the numeric test, per the documented limits of the method): the implied
+    debt service must be stable from securitization to the statement date. It is not when the loan is
+    paid off, modified, floating-rate/ARM, or amortizing within its term (interest-only period shorter
+    than the loan term with a scheduled amortization). Those statements classify 'unknown' by design.
+
+    Returns (basis, evidence) where basis is 'annualized' (use as filed), 'period_actual' (scale to a
+    year), or 'unknown' (excluded from annualized comparisons, flagged for manual review). A numeric
+    match means SERVICER-BASIS-CONSISTENT, not a proven accounting fact. The filed coverage figures are
+    used ONLY as basis evidence - never as a scored input (DSCR is not scored).
+    """
+    noi = o.get("recent_noi")
+    if noi is None:
+        return "unknown", "no most-recent NOI filed"
+    start, end = o.get("fin_start"), o.get("fin_end")
+    months = _months(start, end) if start and end and end > start else None
+    if months and months >= 12:
+        return "annualized", "filed statement period is 12 months"
+    cb = o.get("current_balance")
+    if cb is not None and cb <= 0:
+        return "unknown", "loan paid off - coverage test ineligible"
+    if o.get("modified"):
+        return "unknown", "loan modified - debt service may have changed, coverage test ineligible"
+    rate_type = (o.get("rate_type") or "").strip().upper()
+    if rate_type and rate_type not in ("1", "F", "FIX", "FIXED"):
+        return "unknown", "floating-rate/ARM loan - debt service not stable, coverage test ineligible"
+    iot = o.get("io_term") or 0
+    if o.get("orig_term") and o.get("amort_term") and iot < o["orig_term"]:
+        return "unknown", "amortizing within term (IO period shorter than loan term) - coverage test ineligible"
+    unoi, ucov, cov = o.get("sec_noi"), o.get("sec_coverage"), o.get("recent_coverage")
+    if not (unoi and ucov and cov) or ucov == 0 or not months:
+        return "unknown", "coverage figures or statement dates missing - cannot test basis"
+    ads = unoi / ucov
+    if ads == 0:
+        return "unknown", "implied annual debt service is zero"
+    r_filed, r_ann = noi / ads, noi / ads * 12.0 / months
+    d_filed, d_ann = abs(r_filed - cov), abs(r_ann - cov)
+    if min(d_filed, d_ann) > BASIS_TOLERANCE * max(abs(cov), 1e-9):
+        return "unknown", "filed coverage matches neither the as-filed nor the annualized reading"
+    if d_filed <= d_ann:
+        return "annualized", (f"servicer-basis-consistent: NOI / implied annual debt service matches filed "
+                              f"coverage within 10% (period {months}mo)")
+    return "period_actual", (f"servicer-basis-consistent: NOI scaled to a year matches filed coverage "
+                             f"within 10% (period {months}mo)")
+
+
 def _put_ops(con, link, period, months, values: dict, source: str, file_id) -> bool:
-    """One operating_metrics row per loan per period (merging into an existing row for the same period)."""
+    """One operating_metrics row per loan per period (merging into an existing row for the same period).
+
+    Reference columns (debt_service, disclosed_on, basis, basis_evidence) MERGE too: a re-parse that
+    lacks them keeps what an earlier parse stored instead of erasing it."""
     values = {k: v for k, v in values.items() if v is not None}
     if not period or not values:
         return False
-    old = con.execute("SELECT occupancy, revenue, expenses, noi FROM operating_metrics WHERE link_id = ? AND "
-                      "period_end = ? AND source LIKE 'sec_edgar%'", [link, period]).fetchone()
-    merged = dict(zip(("occupancy", "revenue", "expenses", "noi"), old)) if old else {}
+    cols = ("occupancy", "revenue", "expenses", "noi", "debt_service", "disclosed_on", "basis", "basis_evidence")
+    old = con.execute(
+        f"SELECT {', '.join(cols)} FROM operating_metrics WHERE link_id = ? AND "
+        "period_end = ? AND source LIKE 'sec_edgar%'", [link, period]).fetchone()
+    merged = dict(zip(cols, old)) if old else {}
     merged.update(values)
     con.execute("DELETE FROM operating_metrics WHERE link_id = ? AND period_end = ? AND source LIKE 'sec_edgar%'",
                 [link, period])
     con.execute("INSERT INTO operating_metrics (link_id, period_end, period_months, occupancy, revenue, expenses, noi, "
-                "source, file_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "debt_service, disclosed_on, basis, basis_evidence, source, file_id) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 [link, period, months, merged.get("occupancy"), merged.get("revenue"), merged.get("expenses"),
-                 merged.get("noi"), source, file_id])
+                 merged.get("noi"), merged.get("debt_service"), merged.get("disclosed_on"),
+                 merged.get("basis"), merged.get("basis_evidence"), source, file_id])
     return True
 
 
@@ -345,13 +424,21 @@ def write_operating_metrics(con, result: ParseResult) -> int:
         if r.get("occupancy") is not None:
             written += _put_ops(con, link, r.get("report_period"), 12, {"occupancy": r["occupancy"]}, "sec_edgar", fid)
         base_date = r.get("origination_date") or r.get("value_securitization_date")
-        written += _put_ops(con, link, base_date, 12,
-                            {"occupancy": o.get("sec_occupancy"), "revenue": o.get("sec_revenue"),
-                             "expenses": o.get("sec_expenses"), "noi": o.get("sec_noi")},
-                            "sec_edgar_securitization", fid)
+        sec_values = {"occupancy": o.get("sec_occupancy"), "revenue": o.get("sec_revenue"),
+                      "expenses": o.get("sec_expenses"), "noi": o.get("sec_noi")}
+        if any(v is not None for v in sec_values.values()):
+            sec_values["basis"] = "annualized"
+            sec_values["basis_evidence"] = ("underwritten full-year figures at issuance "
+                                            "(financialsSecuritizationDate is a single year-end)")
+        written += _put_ops(con, link, base_date, 12, sec_values, "sec_edgar_securitization", fid)
+        basis, evidence = classify_statement_basis(o)
+        fin_values = {"revenue": o.get("recent_revenue"), "expenses": o.get("recent_expenses"),
+                      "noi": o.get("recent_noi"), "debt_service": o.get("recent_ds")}
+        if any(v is not None for v in fin_values.values()):
+            fin_values["basis"] = basis
+            fin_values["basis_evidence"] = evidence
         written += _put_ops(con, link, o.get("fin_end"), _months(o.get("fin_start"), o.get("fin_end")),
-                            {"revenue": o.get("recent_revenue"), "expenses": o.get("recent_expenses"),
-                             "noi": o.get("recent_noi")}, "sec_edgar_financials", fid)
+                            fin_values, "sec_edgar_financials", fid)
     return written
 
 
@@ -382,10 +469,11 @@ def load_unparsed_manual_files(con, run, cfg: dict) -> int:
     rows = con.execute(
         "SELECT r.file_id, r.file_path, r.notes FROM raw_files r WHERE r.source = 'sec_edgar' AND r.file_type = 'xml'"
     ).fetchall()
-    # Re-read a file once for the Schedule AL operating/valuation fields (bookmark "schedule_al_v2"), so
-    # files collected before those fields were captured get them too (one-time backfill).
+    # Re-read a file once for the Schedule AL operating/valuation/basis fields (bookmark
+    # "schedule_al_v3"), so files collected before those fields were captured get them too (one-time
+    # backfill; v3 adds the statement-basis classification and reference columns).
     rows = [r for r in rows
-            if not db.get_state(con, COLLECTOR, f"schedule_al_v2:{r[0]}")
+            if not db.get_state(con, COLLECTOR, f"schedule_al_v3:{r[0]}")
             or not con.execute("SELECT 1 FROM operating_metrics m WHERE m.file_id = ? LIMIT 1", [r[0]]).fetchone()]
     n = 0
     for file_id, file_path, notes in rows:
@@ -393,7 +481,7 @@ def load_unparsed_manual_files(con, run, cfg: dict) -> int:
         deal = m.group(1).strip() if m else "UNKNOWN TRUST (manual upload)"
         try:
             n += 1 if load_file(con, run, file_id, config.from_stored_path(file_path), deal, cfg) else 0
-            db.set_state(con, COLLECTOR, f"schedule_al_v2:{file_id}", "done")
+            db.set_state(con, COLLECTOR, f"schedule_al_v3:{file_id}", "done")
         except Exception as e:                                   # a bad file must not stop the rest
             run.error(f"could not parse {file_id}: {e}")
     return n
