@@ -493,7 +493,7 @@ def write_operating_metrics(con, result: ParseResult) -> int:
                       "noi": o.get("recent_noi"), "debt_service": o.get("recent_ds")}
         if link in unallocated:
             removed = con.execute(
-                "DELETE FROM operating_metrics WHERE link_id = ? AND file_id = ? AND source LIKE 'sec_edgar%'",
+                "DELETE FROM operating_metrics WHERE link_id = ? AND file_id = ? AND source = 'sec_edgar_financials'",
                 [link, fid]).rowcount
             if removed:
                 log.info("%s: removed %d prior unallocated collateral row(s) for a quarantined link",
